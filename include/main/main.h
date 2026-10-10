@@ -19,7 +19,12 @@ extern s32 g_script_pair_value_49;
 /** @brief Spawn record of the next field entry; the top seven bits are flags. */
 extern u32 g_field_spawn_id;
 /** @brief Scene of the next field entry. */
+#if defined(LOM_BIG_ENDIAN)
+/* FIELD writes the whole word, so a big-endian u16 view would read its high half. */
+extern s32 g_field_scene_id;
+#else
 extern u16 g_field_scene_id;
+#endif
 /** @brief Sound-bank resource of the current field; -1 clears the loaded bank header. */
 extern s32 g_field_sound_bank_id;
 /** @brief Countdown timer for delayed music/SFX trigger on field entry. */

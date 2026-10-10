@@ -78,7 +78,16 @@ typedef struct
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* owner_id names the word's last byte, its PS1 low byte, as in FieldScriptState. */
+        struct
+        {
+            u8 owner_pad[3];
+            u8 owner_id;
+        };
+#else
         u8 owner_id;
+#endif
     } status;
     s32 active_record;
     u8* pc;

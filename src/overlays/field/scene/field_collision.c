@@ -128,9 +128,17 @@
 #define FIELD_COLLISION_SURFACE_CARRY 0x40
 
 /** Surface kind, read from the low byte of FieldCollisionSurfaceDef::flags. */
+#if defined(LOM_BIG_ENDIAN)
+#define FIELD_COLLISION_SURFACE_KIND(s) (((u8*)&(s)->flags)[3] & FIELD_COLLISION_KIND_MASK)
+#else
 #define FIELD_COLLISION_SURFACE_KIND(s) (((u8*)&(s)->flags)[0] & FIELD_COLLISION_KIND_MASK)
+#endif
 /** Span pairs per row, stored in byte 2 of FieldCollisionSurfaceDef::flags. */
+#if defined(LOM_BIG_ENDIAN)
+#define FIELD_COLLISION_SURFACE_SPANS(s) (((u8*)&(s)->flags)[1])
+#else
 #define FIELD_COLLISION_SURFACE_SPANS(s) (((u8*)&(s)->flags)[2])
+#endif
 
 /** Span edge byte: the edge is open (no wall) on this side. */
 #define FIELD_COLLISION_EDGE_OPEN 0x80
@@ -192,7 +200,11 @@
 /** Surface edge-run count bit: the run's edges are open (see FIELD_COLLISION_EDGE_OPEN). */
 #define FIELD_COLLISION_RUN_OPEN 0x8000
 /** Padding raster span (x0 0x7F00 > x1 -0x8000, so it covers nothing). */
+#if defined(LOM_BIG_ENDIAN)
+#define FIELD_COLLISION_RASTER_EMPTY_SPAN 0x7F008000
+#else
 #define FIELD_COLLISION_RASTER_EMPTY_SPAN 0x80007F00
+#endif
 /** Padding value for both edge bytes of an unused raster span. */
 #define FIELD_COLLISION_RASTER_EMPTY_FLAGS 0xFFFF
 

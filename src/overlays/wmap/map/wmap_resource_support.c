@@ -240,7 +240,11 @@ void wmap_queue_texture_page(s32 texture_page, s32 depth)
     WmapFrame* table_base;
 
     primitive = (WmapTexturedTriangle*)g_wmap_current_frame->packet_cursor;
+#if defined(LOM_BIG_ENDIAN)
+    ((u8*)&primitive->tag)[0] = 7;
+#else
     ((u8*)&primitive->tag)[3] = 7;
+#endif
     primitive->code = 0x24;
     primitive->tpage = texture_page;
     *(s32*)&primitive->x2 = 400;

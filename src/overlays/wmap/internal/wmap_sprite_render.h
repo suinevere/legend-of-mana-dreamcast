@@ -3,6 +3,22 @@
 
 #include "common.h"
 
+/** @brief A 16-bit part offset assembled from its low and high bytes. */
+typedef union
+{
+    s16 value;
+    u8 byte[2];
+} WmapSpriteOffset;
+
+/** @brief Indices of the low and high byte of WmapSpriteOffset.value in memory order. */
+#if defined(LOM_BIG_ENDIAN)
+#define WMAP_SPRITE_OFFSET_LOW 1
+#define WMAP_SPRITE_OFFSET_HIGH 0
+#else
+#define WMAP_SPRITE_OFFSET_LOW 0
+#define WMAP_SPRITE_OFFSET_HIGH 1
+#endif
+
 /** @brief Sprite actor: animation state (see wmap_step_actor_animation) and shading. */
 typedef struct
 {

@@ -74,10 +74,6 @@
 #define FIELD_CLUT_NONE 0xFFFF
 /** FieldCellRec::uv_clut of a cell that draws nothing. */
 #define FIELD_CELL_EMPTY -1
-/** UV offsets from a cell's top-left texel to its right column and bottom row. */
-#define FIELD_CELL_UV_RIGHT (FIELD_TILE_SIZE - 1)
-#define FIELD_CELL_UV_BOTTOM ((FIELD_TILE_SIZE - 1) << 8)
-
 /*
  * GPU packet tag: the address of the next packet in the chain and the
  * packet's length in words after the tag. The emitters write it as one word.
@@ -376,7 +372,7 @@ void field_build_render_records(FieldMapObject* map, u16 object_index)
             node->def = node_def;
             node->spans = 0;
             node->span_flags = NULL;
-            node->unk18 = *(u8*)&(node_def)->flags >> FIELD_NODE_DEF_ENABLE_SHIFT;
+            node->unk18 = FIELD_NODE_DEF_LOW_BYTE(node_def) >> FIELD_NODE_DEF_ENABLE_SHIFT;
             node->x_min = FIELD_BOUNDS_EMPTY;
             node->x_max = 0;
             node->row_end = 0;
@@ -1214,7 +1210,11 @@ static void field_build_animation_list(FieldAnimDef* def, u8** arena, FieldAnim*
         *tail = anim;
         tail = &anim->next;
         anim->def = def;
+#if defined(LOM_BIG_ENDIAN)
+        if (!(def->head.b.span_count & FIELD_SPAN_COUNT_MASK))
+#else
         if (!(def->head.word & FIELD_SPAN_COUNT_MASK))
+#endif
         {
             anim->flags.word &= ~FIELD_ANIM_FLAG_ACTIVE;
         }
@@ -2412,7 +2412,11 @@ static void field_emit_sprite_grid(FieldPart* part, u8** cursor_ptr, FieldViewpo
                     {
                         prim->code = ((FieldCellRec*)record)->rgb_code;
                     }
+#if defined(LOM_BIG_ENDIAN)
+                    prim->xy = (y & 0xFFFF) | (x << 16);
+#else
                     prim->xy = (x & 0xFFFF) | (y << 16);
+#endif
                     prim->uv = uv_clut;
                 }
                 record += stride;
@@ -2477,6 +2481,9 @@ static void field_emit_rotated_sprite_grid(FieldPart* part, u8** cursor_ptr, Fie
     s32 row_cos_term;
     s32 on_screen;
     s32 uv_clut;
+#if defined(LOM_BIG_ENDIAN)
+    u32 uv16;
+#endif
     u32 clut;
     u32 clut_next;
     FieldColStep* steps;
@@ -2659,6 +2666,9 @@ static void field_emit_rotated_sprite_grid(FieldPart* part, u8** cursor_ptr, Fie
                     uv_clut = ((FieldCellRec*)record)->uv_clut;
                     if (uv_clut != FIELD_CELL_EMPTY)
                     {
+#if defined(LOM_BIG_ENDIAN)
+                        uv16 = FIELD_CELL_UV16(uv_clut);
+#endif
                         if (interpolate != 0)
                         {
                             done = width - col;
@@ -2706,7 +2716,11 @@ static void field_emit_rotated_sprite_grid(FieldPart* part, u8** cursor_ptr, Fie
                         }
                         if (tpage_word != 0)
                         {
+#if defined(LOM_BIG_ENDIAN)
+                            prim->uv1 = (uv16 + FIELD_CELL_UV_RIGHT) | FIELD_CELL_UV_TPAGE(tpage_word);
+#else
                             prim->uv1 = ((uv_clut & 0xFFFF) + FIELD_CELL_UV_RIGHT) | tpage_word;
+#endif
                         }
                         else if (code_word != 0)
                         {
@@ -2717,8 +2731,13 @@ static void field_emit_rotated_sprite_grid(FieldPart* part, u8** cursor_ptr, Fie
                             prim->uv1 = ((FieldCellRec*)record)->tpage;
                         }
                         prim->uv0 = uv_clut;
+#if defined(LOM_BIG_ENDIAN)
+                        prim->uv2 = uv16 + FIELD_CELL_UV_BOTTOM;
+                        prim->uv3 = uv16 + (FIELD_CELL_UV_BOTTOM + FIELD_CELL_UV_RIGHT);
+#else
                         prim->uv2 = (uv_clut & 0xFFFF) + FIELD_CELL_UV_BOTTOM;
                         prim->uv3 = (uv_clut & 0xFFFF) + (FIELD_CELL_UV_BOTTOM + FIELD_CELL_UV_RIGHT);
+#endif
                         prim->xy0 = prev_row[0].word;
                         prim->xy1 = prev_row[1].word;
                         prim->xy2 = this_row[0].word;

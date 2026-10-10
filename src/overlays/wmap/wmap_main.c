@@ -501,7 +501,9 @@ typedef union
     u_long word;
 } WmapPackedColor;
 
-#if defined(VERSION_JP)
+#if defined(LOM_BIG_ENDIAN)
+#define WMAP_BACKDROP_COLOR_WORD(color) WMAP_COLOR_WORD(((WmapPackedColor*)&(color))->word)
+#elif defined(VERSION_JP)
 #define WMAP_BACKDROP_COLOR_WORD(color) (*(u_long*)&(color))
 #else
 #define WMAP_BACKDROP_COLOR_WORD(color) (((WmapPackedColor*)&(color))->word)

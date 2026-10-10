@@ -265,7 +265,11 @@ extern s32 g_wsel_map_scroll_frames;
 extern s32 g_wsel_cursor_frames;
 
 static void wsel_run_loop(WselRenderBuffer* buffers);
+#if defined(LOM_BIG_ENDIAN)
+static void wsel_init(WselRenderBuffer* buffers);
+#else
 static void wsel_init();
+#endif
 static void wsel_load_sound_bank(s32 seq_variant);
 static void wsel_stop_music(void);
 static void wsel_start_music(void);
@@ -302,7 +306,11 @@ s32 wsel_main(WselRenderBuffer* buffers)
 
     g_wsel_render_context = context = buffers;
     g_wsel_buffer_index = 0;
+#if defined(LOM_BIG_ENDIAN)
+    wsel_init(buffers);
+#else
     wsel_init();
+#endif
 
     scene_state->map_id = 0;
     scene_state->object_index = 0;

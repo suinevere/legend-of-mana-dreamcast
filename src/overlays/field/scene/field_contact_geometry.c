@@ -1515,7 +1515,11 @@ void field_collect_effect_hits(FieldMotionRecord* effect, s32 radius, FieldActor
             }
             actor->target_count++;
             field_release_object_link(&actors[candidate_index]);
+#if defined(LOM_BIG_ENDIAN)
+            if ((candidate_index < FIELD_PLAYER_COUNT) && !(actors[candidate_index].control.half[FIELD_ACTOR_CONTROL_LO] & FIELD_CONTROL_MODE_MASK))
+#else
             if ((candidate_index < FIELD_PLAYER_COUNT) && !(actors[candidate_index].control.half[0] & FIELD_CONTROL_MODE_MASK))
+#endif
             {
                 field_command_history_clear(candidate_index);
             }
@@ -1820,7 +1824,11 @@ void field_collect_attack_sphere_hits(FieldActorSlot* actor, FieldObjectPart* pa
                     actor->track_mask |= 1 << actor->target_count;
                     actor->targets[actor->target_count] = target_index;
                     actor->target_count++;
+#if defined(LOM_BIG_ENDIAN)
+                    if ((target_index < FIELD_PLAYER_COUNT) && !(actors[target_index].control.half[FIELD_ACTOR_CONTROL_LO] & FIELD_CONTROL_MODE_MASK))
+#else
                     if ((target_index < FIELD_PLAYER_COUNT) && !(actors[target_index].control.half[0] & FIELD_CONTROL_MODE_MASK))
+#endif
                     {
                         field_command_history_clear(target_index);
                     }

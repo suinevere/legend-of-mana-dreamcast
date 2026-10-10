@@ -16,23 +16,7 @@
 #define WMAP_NODE_X(index) ((u8)(D_800432C9[(index) * WMAP_NODE_RECORD_SIZE] & 0xF))
 #define WMAP_NODE_Y(index) ((u8)(D_800432C9[(index) * WMAP_NODE_RECORD_SIZE] >> 4))
 
-/**
- * @brief Packed world-map slot record: a 32-bit word whose low bits/nibbles hold
- *        flags and grid coordinates, aliased byte-wise and as bitfields.
- */
-typedef union {
-    u32 word;
-    struct { u8 b0; u8 b1; u8 unk2; u8 unk3; } b;
-    struct {
-        u32 bit0 : 1;
-        u32 bit1 : 1;
-        u32 bit2 : 1;
-        u32 pad3 : 5;
-        u32 nib8 : 4;
-        u32 nibC : 4;
-        u32 hi : 16;
-    } f;
-} WmapSlot;
+/* WmapSlot moved to wmap_pathfinding.h for its big-endian layout. */
 
 typedef struct { u8 unk0; u8 unk1; u8 unk2; u8 unk3; } WmapQuad;
 typedef struct { u8 unk0; u8 unk1; } WmapPair;
@@ -60,7 +44,11 @@ extern s32 D_800460EC;
 extern s32 D_800460FC;
 extern u8 D_800D01B0[];
 extern u8 D_800D01F0[];
+#if defined(LOM_BIG_ENDIAN)
+extern s32 g_field_scene_id;
+#else
 extern u16 g_field_scene_id;
+#endif
 extern s32 g_field_music_id;
 extern s16 g_music_track_index;
 

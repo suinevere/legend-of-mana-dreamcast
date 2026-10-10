@@ -1,5 +1,6 @@
 #include "../internal/wmap_frame_render.h"
 #include "../internal/wmap_sequence_runtime.h"
+#include "../internal/wmap_view_effects.h"
 #include <libgpu.h>
 #include <libgte.h>
 #include <libetc.h>
@@ -120,7 +121,7 @@ static void func_8006432C(VECTOR* left_top, VECTOR* center_top, VECTOR* left_bot
     quad->u0 = quad->u2 = 0;
     quad->u1 = quad->u3 = 248;
     quad->v2 = quad->v3 = 240;
-    *(u32*)&quad->r0 = g_wmap_exit_panel_color;
+    *(u32*)&quad->r0 = WMAP_COLOR_WORD(g_wmap_exit_panel_color);
     quad->u0 = quad->v0 = 0;
     setClut(quad, 0, 0);
     setTPage(quad, 2, 1, 0x140, 0);
@@ -148,7 +149,7 @@ static void func_8006432C(VECTOR* left_top, VECTOR* center_top, VECTOR* left_bot
     quad->u0 = quad->u2 = 0;
     quad->u1 = quad->u3 = 63;
     quad->v2 = quad->v3 = 240;
-    *(u32*)&quad->r0 = g_wmap_exit_panel_color;
+    *(u32*)&quad->r0 = WMAP_COLOR_WORD(g_wmap_exit_panel_color);
     quad->u0 = quad->v0 = 0;
     setClut(quad, 0, 0);
     setTPage(quad, 2, 1, 0x240, 0);
@@ -248,7 +249,7 @@ void func_8006454C(void)
     quad->y3 = 0xF0;
     quad->y2 = 0xF0;
     quad->header.packet.length = 5;
-    *(u32*)&quad->r0 = 0x101010;
+    *(u32*)&quad->r0 = WMAP_COLOR_WORD(0x101010);
     quad->code = 0x2A;
     quad->y1 = 0;
     quad->y0 = 0;

@@ -313,11 +313,11 @@ static s32 wmap_update_map_tint(s32 initialize)
     }
     if (g_wmap_tint_blending != 0)
     {
-        color = g_wmap_tint.packed & 0xFFFFFF;
+        color = WMAP_COLOR_WORD(g_wmap_tint.packed) & 0xFFFFFF;
         if (color == GPU_TINT_NEUTRAL)
         {
-            *(u32*)&g_wmap_tint_target = color;
-            g_wmap_tint.packed = color;
+            *(u32*)&g_wmap_tint_target = WMAP_COLOR_WORD(color);
+            g_wmap_tint.packed = WMAP_COLOR_WORD(color);
             g_wmap_tint.channels.code = WMAP_TILE_CODE;
             g_wmap_tint_blending = 0;
         }
@@ -330,7 +330,7 @@ static s32 wmap_update_map_tint(s32 initialize)
     {
         g_wmap_tint.channels.code = WMAP_TILE_CODE;
     }
-    wmap_set_map_color(g_wmap_tint.packed);
+    wmap_set_map_color(WMAP_COLOR_WORD(g_wmap_tint.packed));
     return changed;
 }
 
@@ -924,6 +924,9 @@ void wmap_set_map_color(s32 color)
 s32 wmap_start_map_tint(s32 color)
 {
     /* The packed word is reinterpreted as the color bytes. */
+#if defined(LOM_BIG_ENDIAN)
+    color = WMAP_COLOR_WORD(color);
+#endif
     g_wmap_tint_target = *(CVECTOR*)&color;
     D_80139288 = 1;
     wmap_install_callback(wmap_update_map_tint);

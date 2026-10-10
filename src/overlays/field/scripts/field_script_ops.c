@@ -207,6 +207,16 @@ typedef struct
 typedef union
 {
     s32 value;
+#if defined(LOM_BIG_ENDIAN)
+    /* The bitfields are declared in reverse so each sits at its PS1 bit position of the decoded operand. */
+    struct
+    {
+        u32 width : 2;
+        u32 index : 14;
+        u32 shift : 8;
+        u32 bit_count : 8;
+    } bits;
+#else
     struct
     {
         u32 bit_count : 8;
@@ -216,6 +226,7 @@ typedef union
         /** @brief Element width (FIELD_BITS_BYTE, _HALFWORD or _WORD of field_read_bits). */
         u32 width : 2;
     } bits;
+#endif
 } FieldScriptFieldSpec;
 
 /** @brief One packed shop list entry. */

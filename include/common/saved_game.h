@@ -275,12 +275,20 @@ typedef struct FieldCharacterRecord
     {
         u32 word;
         u8 bytes[8];
+#if defined(LOM_BIG_ENDIAN)
+        struct
+        {
+            u8 pad_controlled : 1;
+            u8 type : 7;
+        } bits;
+#else
         struct
         {
             u8 type : 7;
             /** @brief FIELD_CHARACTER_PAD_CONTROLLED: the member is driven by a controller, not scripted. */
             u8 pad_controlled : 1;
         } bits;
+#endif
         struct
         {
             u8 type;
@@ -662,6 +670,16 @@ typedef struct SavedGameLayout
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        struct
+        {
+            u32 unk4 : 28;
+            u32 flag_3 : 1;
+            u32 flag_2 : 1;
+            u32 mono_sound : 1;
+            u32 vibration : 1;
+        } bits;
+#else
         struct
         {
             u32 vibration : 1;
@@ -672,6 +690,7 @@ typedef struct SavedGameLayout
             u32 flag_3 : 1;
             u32 unk4 : 28;
         } bits;
+#endif
     } options;
     /** @brief Money, saturated at 10,000,000. */
     u32 money;

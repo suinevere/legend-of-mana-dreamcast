@@ -109,10 +109,30 @@ typedef enum FieldAbility
 #define FIELD_OBJECT_UNTARGETABLE_FLAGS 0x2280
 
 /** @brief Word, halfword and bit views of an actor's control-mode word. */
+#if defined(LOM_BIG_ENDIAN)
+/* Indices of FieldActorControl::half holding the PS1 low and high halfwords of the word. */
+#define FIELD_ACTOR_CONTROL_LO 1
+#define FIELD_ACTOR_CONTROL_HI 0
+#else
+#define FIELD_ACTOR_CONTROL_LO 0
+#define FIELD_ACTOR_CONTROL_HI 1
+#endif
+
 typedef union
 {
     u32 word;
     u16 half[2];
+#if defined(LOM_BIG_ENDIAN)
+    /* The bitfields are declared in reverse so each sits at its PS1 bit position and agrees with the word masks. */
+    struct
+    {
+        u32 unk23 : 9;
+        u32 palette : 4;
+        u32 unk18 : 1;
+        u32 group : 2;
+        u32 unk0 : 16;
+    } bits;
+#else
     struct
     {
         u32 unk0 : 16;
@@ -123,6 +143,7 @@ typedef union
         u32 palette : 4;
         u32 unk23 : 9;
     } bits;
+#endif
 } FieldActorControl;
 
 /** @brief Script, motion and animation state of one field object (0x54 bytes). */

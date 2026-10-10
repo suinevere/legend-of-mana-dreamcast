@@ -27,6 +27,16 @@ typedef union FieldPlayerHead
         /** @brief Weapon type (item type) of the equipped weapon, 0xFF before the first party update. */
         u8 weapon_type;
     } bytes;
+#if defined(LOM_BIG_ENDIAN)
+    /* The bitfields are declared from the MSB so active and alt_appearance sit in bits 0 and 1 of bytes.flags, as on PS1. */
+    struct
+    {
+        u16 unk2 : 6;
+        u16 alt_appearance : 1;
+        u16 active : 1;
+        u16 unk8 : 8;
+    } bits;
+#else
     struct
     {
         /** @brief Same bit as FIELD_PLAYER_ACTIVE. */
@@ -35,6 +45,7 @@ typedef union FieldPlayerHead
         u16 alt_appearance : 1;
         u16 unk2 : 14;
     } bits;
+#endif
 } FieldPlayerHead;
 
 /** @brief Per-party-member record (0x268 bytes). */

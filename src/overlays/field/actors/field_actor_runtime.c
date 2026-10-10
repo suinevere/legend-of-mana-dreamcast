@@ -2567,8 +2567,16 @@ void field_initialize_actor_part(s32 part_index, s32 timer_mode)
     g_field_object_parts[part_index].unk9 = 0xFF;
     g_field_object_parts[part_index].unkD = 8;
     g_field_object_parts[part_index].orientation_flags.halves.high = 20;
+#if defined(LOM_BIG_ENDIAN)
+    g_field_object_parts[part_index].effect_flags.bytes[FIELD_WORD_BYTE_INDEX(1)] = 8;
+#else
     g_field_object_parts[part_index].effect_flags.bytes[1] = 8;
+#endif
+#if defined(LOM_BIG_ENDIAN)
+    g_field_object_parts[part_index].effect_flags.bytes[FIELD_WORD_BYTE_INDEX(0)] = 8;
+#else
     g_field_object_parts[part_index].effect_flags.bytes[0] = 8;
+#endif
     g_field_object_parts[part_index].rotation_extent.fields.unk23 = 8;
     g_field_object_parts[part_index].unk18 = 0x100;
     g_field_object_parts[part_index].behavior_flags.bits.flag11 = 1;

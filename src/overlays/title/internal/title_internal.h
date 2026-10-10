@@ -163,6 +163,21 @@ typedef struct
     u32 height : 10;
 } SaveLayoutTexControl;
 
+/*----------------------
+ | SAVE_LAYOUT_TEX_CONTROL_LOW_BYTE
+ | Description: Low byte of a SaveLayoutTexControl word (mode in bits 0-2); a raw byte read on the PS1, rebuilt from the fields on big-endian ports.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: control -- SaveLayoutTexControl lvalue
+ | Returns: u8 low byte
+ ----------------------*/
+#if defined(LOM_BIG_ENDIAN)
+#define SAVE_LAYOUT_TEX_CONTROL_LOW_BYTE(control) ((u8)((control).mode | ((control).width << 3)))
+#else
+#define SAVE_LAYOUT_TEX_CONTROL_LOW_BYTE(control) (*(u8*)&(control))
+#endif
+
 /**
  * @brief One texture-descriptor entry in g_save_layout_tex_table (stride 0x10).
  *

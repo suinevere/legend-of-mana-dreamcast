@@ -137,6 +137,16 @@ typedef struct
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* The bytes run high to low, as in FieldObjectState::hud. */
+        struct
+        {
+            u8 unk4F;
+            u8 unk4E;
+            u8 object_index;
+            u8 flags;
+        } bytes;
+#else
         struct
         {
             u8 flags;
@@ -144,6 +154,7 @@ typedef struct
             u8 unk4E;
             u8 unk4F;
         } bytes;
+#endif
     } hud;
 } FieldHudGauge;
 
@@ -476,7 +487,11 @@ void field_draw_actor_hud(FieldRenderHalf* render_half)
                             g_field_object_states[i].hp_display.word =
                                 (hp_display & ~(FIELD_HUD_TIMER_MASK << FIELD_HUD_TIMER_SHIFT)) | (FIELD_HUD_PANEL_FRAMES << FIELD_HUD_TIMER_SHIFT);
                         }
+#if defined(LOM_BIG_ENDIAN)
+                        if (g_field_object_states[i].hp_display.bytes[FIELD_WORD_BYTE_INDEX(3)] & FIELD_HUD_TIMER_MASK)
+#else
                         if (g_field_object_states[i].hp_display.bytes[3] & FIELD_HUD_TIMER_MASK)
+#endif
                         {
                             if (!(g_field_object_states[i].flags & FIELD_OBJECT_FLAG_0100) && (g_field_object_states[i].contact.bytes.flags & 1) &&
                                 (g_field_effect_records[g_field_object_states[i].linked_effect_index].animation & 0x7F) != FIELD_HUD_ANCHOR_IGNORED_ANIMATION)

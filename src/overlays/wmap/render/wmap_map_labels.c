@@ -277,13 +277,13 @@ void func_80060230(void)
         sprite = (SPRT*)g_wmap_current_frame->packet_cursor;
         if ((s8)label->r0 >= 0)
         {
-            clut_y = *(u16*)&D_800D0368;
+            clut_y = WMAP_LABEL_PALETTE_ROW_LOW;
             label->r0 += 8;
             label->clut = (clut_y << 6) | 0x2F;
         }
         else
         {
-            clut_y = *(u16*)&D_800D0368 + 1;
+            clut_y = WMAP_LABEL_PALETTE_ROW_LOW + 1;
             label->clut = (clut_y << 6) | 0x2F;
         }
         *sprite = D_8011D518;

@@ -107,7 +107,11 @@ void field_reset_actor_at(s32 key, s32 resource_entry_index, s32 group, s32 x, s
     actor = field_lookup_actor(key);
     if (actor != FIELD_ACTOR_NONE)
     {
+#if defined(LOM_BIG_ENDIAN)
+        kept_bits = actor->control.half[FIELD_ACTOR_CONTROL_HI] & FIELD_CONTROL_UNK16_BITS;
+#else
         kept_bits = actor->control.half[1] & FIELD_CONTROL_UNK16_BITS;
+#endif
         field_initialize_actor_record(actor->object_index, resource_entry_index);
         actor->presence = 0;
         actor->x = x << FIELD_POSITION_SHIFT;
@@ -230,7 +234,11 @@ s32 field_reload_actor(s32 key, s32 resource_entry_index, s32 resource_slot_id, 
     old_position.x = actor->x;
     old_position.y = actor->y;
     old_position.z = actor->z;
+#if defined(LOM_BIG_ENDIAN)
+    control_mode = actor->control.half[FIELD_ACTOR_CONTROL_LO] & FIELD_CONTROL_MODE_MASK;
+#else
     control_mode = actor->control.half[0] & FIELD_CONTROL_MODE_MASK;
+#endif
     field_load_resource_entry(resource_slot_id, package, resource_entry_index);
     field_initialize_actor_record(actor->object_index, resource_entry_index);
     field_initialize_actor_part(actor->object_index, 0);
@@ -427,7 +435,11 @@ s32 field_set_actor_control_mode(s32 key, s32 mode)
         return -1;
     }
     actor->control.word = (actor->control.word & ~FIELD_CONTROL_MODE_MASK) | (mode & FIELD_CONTROL_MODE_MASK);
+#if defined(LOM_BIG_ENDIAN)
+    control_mode = actor->control.half[FIELD_ACTOR_CONTROL_LO] & FIELD_CONTROL_MODE_MASK;
+#else
     control_mode = actor->control.half[0] & FIELD_CONTROL_MODE_MASK;
+#endif
     switch (control_mode)
     {
     case FIELD_CONTROL_PLAYER:

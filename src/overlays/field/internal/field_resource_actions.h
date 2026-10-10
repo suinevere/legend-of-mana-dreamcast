@@ -16,10 +16,18 @@
 /** @brief Flag halfword of an action slot. */
 typedef struct
 {
+#if defined(LOM_BIG_ENDIAN)
+    /* The halfword is swapped as u16; the bitfields are declared in reverse so each sits at its PS1 bit position. */
+    u16 unknown_0xb : 5;
+    u16 instrument : 1;
+    u16 target_group : 2;
+    u16 target_filter : 8;
+#else
     u16 target_filter : 8; /**< Target predicate index, FIELD_ACTION_TARGET_NONE for none. */
     u16 target_group : 2;  /**< Target group mode (opposite / same group). */
     u16 instrument : 1;    /**< Action plays an instrument (charge) animation. */
     u16 unknown_0xb : 5;
+#endif
 } FieldActionFlags;
 
 /** @brief One eight-byte action slot of a resource's action row. */

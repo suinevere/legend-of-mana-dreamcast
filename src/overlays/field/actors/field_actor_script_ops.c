@@ -1864,7 +1864,11 @@ s32 field_is_actor_motion_idle(s32 key)
     {
         return -1;
     }
+#if defined(LOM_BIG_ENDIAN)
+    if ((actor->control.half[FIELD_ACTOR_CONTROL_LO] & FIELD_CONTROL_MODE_MASK) < FIELD_CONTROL_SCRIPTED)
+#else
     if ((actor->control.half[0] & FIELD_CONTROL_MODE_MASK) < FIELD_CONTROL_SCRIPTED)
+#endif
     {
         result = 0;
         if (actor->command == FIELD_ACTOR_COMMAND_NONE)

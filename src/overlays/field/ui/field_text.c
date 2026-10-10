@@ -6,6 +6,7 @@
 #include "common/gpu_packet.h"
 #include "main/display.h"
 #include "../internal/field_animation.h"
+#include "../internal/field_text_words.h"
 #include <libgte.h>
 #include <libgpu.h>
 #include "main/audio/akao_cmd.h"
@@ -210,10 +211,18 @@ typedef struct
 /** @brief Byte view of a field text flags word. */
 typedef struct
 {
+#if defined(LOM_BIG_ENDIAN)
+    /* Each byte names its PS1 bits so it agrees with the word masks. */
+    u8 byte3;
+    u8 byte2;
+    u8 byte1;
+    u8 low;
+#else
     u8 low;
     u8 byte1;
     u8 byte2;
     u8 byte3;
+#endif
 } FieldTextFlagBytes;
 
 /** @brief Text flags accessed as a word or individual control bytes. */
@@ -2589,12 +2598,12 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
             prim = (FieldTextPacket*)packet_cursor;
             packet_cursor += sizeof(SPRT);
             xy = state->x | (y << 16);
-            prim->sprite_words.uv = uv;
+            prim->sprite_words.uv = FIELD_TEXT_UV_WORD(uv);
             uv += 8;
             prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-            prim->sprite_words.rgbc = sprite_color;
-            prim->sprite_words.wh = 0x80008;
-            prim->sprite_words.xy = xy;
+            prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+            prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(0x80008);
+            prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
             xy += 8;
             if ((state->portrait != NULL) && (FIELD_TEXT_PORTRAIT_SIDE(state->flags.word) < FIELD_TEXT_SIDE_OUTSIDE))
             {
@@ -2611,18 +2620,18 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                     prim = (FieldTextPacket*)packet_cursor;
                     packet_cursor += sizeof(SPRT);
                     prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-                    prim->sprite_words.rgbc = sprite_color;
-                    prim->sprite_words.xy = xy;
-                    prim->sprite_words.uv = uv;
+                    prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+                    prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
+                    prim->sprite_words.uv = FIELD_TEXT_UV_WORD(uv);
                     if (pixels_remaining >= 0x41)
                     {
-                        prim->sprite_words.wh = 0x80040;
+                        prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(0x80040);
                         xy += 0x40;
                         pixels_remaining -= 0x40;
                     }
                     else
                     {
-                        prim->sprite_words.wh = pixels_remaining | 0x80000;
+                        prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(pixels_remaining | 0x80000);
                         xy += pixels_remaining;
                         pixels_remaining = 0;
                     }
@@ -2633,10 +2642,10 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
             packet_cursor += sizeof(SPRT);
             rows -= 1;
             prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-            prim->sprite_words.rgbc = sprite_color;
-            prim->sprite_words.xy = xy;
-            prim->sprite_words.uv = uv;
-            prim->sprite_words.wh = 0x80008;
+            prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+            prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
+            prim->sprite_words.uv = FIELD_TEXT_UV_WORD(uv);
+            prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(0x80008);
             y += state->height + 8;
         } while (rows != -1);
         rows = state->height;
@@ -2654,12 +2663,12 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                 }
                 prim = (FieldTextPacket*)packet_cursor;
                 packet_cursor += sizeof(SPRT);
-                prim->sprite_words.xy = xy;
+                prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
                 xy += 8;
                 prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-                prim->sprite_words.rgbc = sprite_color;
-                prim->sprite_words.uv = uv;
-                prim->sprite_words.wh = row_height | 8;
+                prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+                prim->sprite_words.uv = FIELD_TEXT_UV_WORD(uv);
+                prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(row_height | 8);
                 uv -= 0x40;
                 if ((state->portrait != NULL) && (FIELD_TEXT_PORTRAIT_SIDE(state->flags.word) < FIELD_TEXT_SIDE_OUTSIDE))
                 {
@@ -2676,18 +2685,18 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                         prim = (FieldTextPacket*)packet_cursor;
                         packet_cursor += sizeof(SPRT);
                         prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-                        prim->sprite_words.rgbc = sprite_color;
-                        prim->sprite_words.xy = xy;
-                        prim->sprite_words.uv = uv;
+                        prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+                        prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
+                        prim->sprite_words.uv = FIELD_TEXT_UV_WORD(uv);
                         if (pixels_remaining >= 0x41)
                         {
-                            prim->sprite_words.wh = row_height | 0x40;
+                            prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(row_height | 0x40);
                             xy += 0x40;
                             pixels_remaining -= 0x40;
                         }
                         else
                         {
-                            prim->sprite_words.wh = pixels_remaining | row_height;
+                            prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(pixels_remaining | row_height);
                             xy += pixels_remaining;
                             pixels_remaining = 0;
                         }
@@ -2699,10 +2708,10 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                 y += 0x20;
                 rows -= 0x20;
                 prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-                prim->sprite_words.rgbc = sprite_color;
-                prim->sprite_words.xy = xy;
-                prim->sprite_words.uv = uv;
-                prim->sprite_words.wh = row_height | 8;
+                prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+                prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
+                prim->sprite_words.uv = FIELD_TEXT_UV_WORD(uv);
+                prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(row_height | 8);
             } while (rows > 0);
         }
         texture_u_origin = 0;
@@ -2753,8 +2762,8 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                         prim = (FieldTextPacket*)packet_cursor;
                         packet_cursor += sizeof(SPRT);
                         prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-                        prim->sprite_words.rgbc = sprite_color;
-                        prim->sprite_words.xy = xy;
+                        prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+                        prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
                         prim->sprite.u0 = texture_u_origin + cache_u;
                         prim->sprite.clut = text_system->text_clut;
                         if (scroll_pixels != 0)
@@ -2825,19 +2834,19 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
             window_height = state->height;
             flags = state->flags.word;
             prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-            prim->sprite_words.rgbc = FIELD_TEXT_SPRITE_SHADOW;
+            prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(FIELD_TEXT_SPRITE_SHADOW);
             xy |= field_text_portrait_y_word(window_y, window_height);
-            prim->sprite_words.xy = xy + 0x20002;
+            prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy + 0x20002);
             uv = ((((FIELD_TEXT_PORTRAIT_INDEX(flags) * FIELD_TEXT_PORTRAIT_SIZE) + FIELD_TEXT_PORTRAIT_VRAM_Y) & 0xFF) << 8) | FIELD_TEXT_PORTRAIT_U;
-            prim->sprite_words.uv = (text_system->text_clut << 16) | uv;
-            prim->sprite_words.wh = 0x300030;
+            prim->sprite_words.uv = FIELD_TEXT_UV_WORD((text_system->text_clut << 16) | uv);
+            prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(0x300030);
             prim = (FieldTextPacket*)packet_cursor;
             packet_cursor += sizeof(SPRT);
             prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-            prim->sprite_words.rgbc = sprite_color;
-            prim->sprite_words.xy = xy;
-            prim->sprite_words.uv = (text_system->portrait_clut[FIELD_TEXT_PORTRAIT_INDEX(state->flags.word)] << 16) | uv;
-            prim->sprite_words.wh = 0x300030;
+            prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
+            prim->sprite_words.xy = FIELD_TEXT_PAIR_WORD(xy);
+            prim->sprite_words.uv = FIELD_TEXT_UV_WORD((text_system->portrait_clut[FIELD_TEXT_PORTRAIT_INDEX(state->flags.word)] << 16) | uv);
+            prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(0x300030);
         }
     }
     if (state->flow_code != FIELD_TEXT_FLOW_NONE)
@@ -2854,7 +2863,7 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                 prim = (FieldTextPacket*)packet_cursor;
                 packet_cursor += sizeof(SPRT_16);
                 prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT_16);
-                prim->sprite_words.rgbc = FIELD_TEXT_CHOICE_COLOR;
+                prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(FIELD_TEXT_CHOICE_COLOR);
                 if ((state->portrait != NULL) && ((state->flags.word & FIELD_TEXT_PORTRAIT_MASK) == 0))
                 {
                     prim->sprite16.x0 = state->x + FIELD_TEXT_PORTRAIT_MARGIN;
@@ -2877,7 +2886,7 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                 prim = (FieldTextPacket*)packet_cursor;
                 packet_cursor += sizeof(SPRT);
                 prim->sprite_words.tag = FIELD_TEXT_TAG(packet_cursor, SPRT);
-                prim->sprite_words.rgbc = sprite_color;
+                prim->sprite_words.rgbc = FIELD_TEXT_COLOR_WORD(sprite_color);
                 if ((state->portrait != NULL) && (FIELD_TEXT_PORTRAIT_SIDE(state->flags.word) < FIELD_TEXT_SIDE_OUTSIDE))
                 {
                     prim->sprite.x0 = state->x + ((state->width + FIELD_TEXT_PORTRAIT_MARGIN) >> 1);
@@ -2890,7 +2899,7 @@ static void field_text_build_window_packets(FieldTextState* state, u8** cursor, 
                 prim->sprite.clut = text_system->prompt_clut;
                 prim->sprite.u0 = 0xF0;
                 prim->sprite.v0 = (state->prompt_frame * 8) - 0x20;
-                prim->sprite_words.wh = 0x80010;
+                prim->sprite_words.wh = FIELD_TEXT_PAIR_WORD(0x80010);
             }
         }
     }
@@ -3225,11 +3234,11 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
         lower_row = vertex + FIELD_TEXT_MESH_COLUMNS(content_width) + 4;
         packet_cursor += sizeof(POLY_FT4);
         poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-        poly->quad_words.uv0 = clut | texture_uv;
-        poly->quad_words.uv1 = tpage | (texture_uv + 8);
-        poly->quad_words.uv2 = texture_uv + (packet_height << 8);
-        poly->quad_words.rgbc = texture_command;
-        poly->quad_words.uv3 = texture_uv + ((packet_height << 8) | 8);
+        poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
+        poly->quad_words.uv1 = FIELD_TEXT_UV_WORD(tpage | (texture_uv + 8));
+        poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + (packet_height << 8));
+        poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
+        poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + ((packet_height << 8) | 8));
         texture_uv += 8;
         poly->quad_words.xy0 = vertex[0].word;
         poly->quad_words.xy1 = vertex[1].word;
@@ -3245,7 +3254,7 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
                 poly = (FieldTextPacket*)packet_cursor;
                 packet_cursor += sizeof(POLY_FT4);
                 poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-                poly->quad_words.rgbc = texture_command;
+                poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
                 if (pixels_remaining >= 0x41)
                 {
                     chunk = 0x3F;
@@ -3256,10 +3265,10 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
                     chunk = pixels_remaining - 1;
                     pixels_remaining = 0;
                 }
-                poly->quad_words.uv1 = tpage | (texture_uv + chunk);
-                poly->quad_words.uv0 = clut | texture_uv;
-                poly->quad_words.uv2 = texture_uv + (packet_height << 8);
-                poly->quad_words.uv3 = texture_uv + ((packet_height << 8) | chunk);
+                poly->quad_words.uv1 = FIELD_TEXT_UV_WORD(tpage | (texture_uv + chunk));
+                poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
+                poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + (packet_height << 8));
+                poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + ((packet_height << 8) | chunk));
                 poly->quad_words.xy0 = vertex[0].word;
                 poly->quad_words.xy1 = vertex[1].word;
                 vertex += 1;
@@ -3272,11 +3281,11 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
         poly = (FieldTextPacket*)packet_cursor;
         packet_cursor += sizeof(POLY_FT4);
         poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-        poly->quad_words.uv0 = clut | texture_uv;
-        poly->quad_words.uv1 = tpage | (texture_uv + 7);
-        poly->quad_words.rgbc = texture_command;
-        poly->quad_words.uv2 = texture_uv + (packet_height << 8);
-        poly->quad_words.uv3 = texture_uv + ((packet_height << 8) | 7);
+        poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
+        poly->quad_words.uv1 = FIELD_TEXT_UV_WORD(tpage | (texture_uv + 7));
+        poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
+        poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + (packet_height << 8));
+        poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + ((packet_height << 8) | 7));
         poly->quad_words.xy0 = vertex[0].word;
         poly->quad_words.xy1 = vertex[1].word;
         poly->quad_words.xy2 = bottom_vertices[0].word;
@@ -3305,11 +3314,11 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
                 poly = (FieldTextPacket*)packet_cursor;
                 packet_cursor += sizeof(POLY_FT4);
                 poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-                poly->quad_words.uv0 = clut | texture_uv;
-                poly->quad_words.uv1 = tpage | (texture_uv + 8);
-                poly->quad_words.uv2 = texture_uv + packet_height;
-                poly->quad_words.rgbc = texture_command;
-                poly->quad_words.uv3 = texture_uv + (packet_height | 8);
+                poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
+                poly->quad_words.uv1 = FIELD_TEXT_UV_WORD(tpage | (texture_uv + 8));
+                poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + packet_height);
+                poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
+                poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + (packet_height | 8));
                 texture_uv = texture_uv - 0x40;
                 poly->quad_words.xy0 = vertex[0].word;
                 pixels_remaining = content_width;
@@ -3325,7 +3334,7 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
                         poly = (FieldTextPacket*)packet_cursor;
                         packet_cursor += sizeof(POLY_FT4);
                         poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-                        poly->quad_words.rgbc = texture_command;
+                        poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
                         if (pixels_remaining >= 0x41)
                         {
                             chunk = 0x40;
@@ -3336,10 +3345,10 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
                             chunk = pixels_remaining;
                             pixels_remaining = 0;
                         }
-                        poly->quad_words.uv1 = tpage | (texture_uv + chunk);
-                        poly->quad_words.uv0 = clut | texture_uv;
-                        poly->quad_words.uv2 = texture_uv + packet_height;
-                        poly->quad_words.uv3 = texture_uv + (packet_height | chunk);
+                        poly->quad_words.uv1 = FIELD_TEXT_UV_WORD(tpage | (texture_uv + chunk));
+                        poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
+                        poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + packet_height);
+                        poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + (packet_height | chunk));
                         poly->quad_words.xy0 = vertex[0].word;
                         poly->quad_words.xy1 = vertex[1].word;
                         poly->quad_words.xy2 = bottom_vertices[0].word;
@@ -3352,11 +3361,11 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
                 poly = (FieldTextPacket*)packet_cursor;
                 packet_cursor += sizeof(POLY_FT4);
                 poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-                poly->quad_words.uv0 = clut | texture_uv;
-                poly->quad_words.uv1 = tpage | (texture_uv + 8);
-                poly->quad_words.uv2 = texture_uv + packet_height;
-                poly->quad_words.rgbc = texture_command;
-                poly->quad_words.uv3 = texture_uv + (packet_height | 8);
+                poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
+                poly->quad_words.uv1 = FIELD_TEXT_UV_WORD(tpage | (texture_uv + 8));
+                poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + packet_height);
+                poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
+                poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + (packet_height | 8));
                 poly->quad_words.xy0 = vertex[0].word;
                 remaining -= 0x20;
                 poly->quad_words.xy1 = vertex[1].word;
@@ -3393,11 +3402,11 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
                     poly = (FieldTextPacket*)packet_cursor;
                     packet_cursor += sizeof(POLY_FT4);
                     poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-                    poly->quad_words.rgbc = texture_command;
-                    poly->quad_words.uv0 = (text_system->text_clut << 16) | texture_uv;
-                    poly->quad_words.uv1 = tpage | texture_uv;
-                    poly->quad_words.uv2 = texture_uv + (state->line_height << 8);
-                    poly->quad_words.uv3 = texture_uv + (state->line_height << 8);
+                    poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
+                    poly->quad_words.uv0 = FIELD_TEXT_UV_WORD((text_system->text_clut << 16) | texture_uv);
+                    poly->quad_words.uv1 = FIELD_TEXT_UV_WORD(tpage | texture_uv);
+                    poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + (state->line_height << 8));
+                    poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + (state->line_height << 8));
                     poly->quad_words.xy0 = vertex[0].word;
                     avail = FIELD_TEXT_CACHE_WIDTH - u;
                     poly->quad_words.xy1 = vertex[2].word;
@@ -3438,13 +3447,13 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
         sel = FIELD_TEXT_PORTRAIT_INDEX(state->flags.word);
         clut = text_system->text_clut << 16;
         poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-        poly->quad_words.rgbc = FIELD_TEXT_QUAD_SHADOW;
+        poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(FIELD_TEXT_QUAD_SHADOW);
         vertex = (frame_rows * (FIELD_TEXT_MESH_COLUMNS(content_width) + 3)) + FIELD_TEXT_MESH + text_vertex_count;
         texture_uv = ((((sel * FIELD_TEXT_PORTRAIT_SIZE) + FIELD_TEXT_PORTRAIT_VRAM_Y) & 0xFF) << 8) | FIELD_TEXT_PORTRAIT_U;
-        poly->quad_words.uv0 = clut | texture_uv;
-        poly->quad_words.uv2 = texture_uv + 0x3000;
-        poly->quad_words.uv1 = (texture_uv + 0x2F) | tpage;
-        poly->quad_words.uv3 = texture_uv + 0x302F;
+        poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
+        poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + 0x3000);
+        poly->quad_words.uv1 = FIELD_TEXT_UV_WORD((texture_uv + 0x2F) | tpage);
+        poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + 0x302F);
         poly->quad_words.xy0 = vertex[0].word;
         poly->quad_words.xy1 = vertex[1].word;
         poly->quad_words.xy2 = vertex[2].word;
@@ -3455,11 +3464,11 @@ static void field_text_build_transition_packets(FieldTextState* state, FieldText
         clut = text_system->portrait_clut[FIELD_TEXT_PORTRAIT_INDEX(state->flags.word)] << 16;
         texture_uv = ((((FIELD_TEXT_PORTRAIT_INDEX(state->flags.word) * FIELD_TEXT_PORTRAIT_SIZE) + FIELD_TEXT_PORTRAIT_VRAM_Y) & 0xFF) << 8) | FIELD_TEXT_PORTRAIT_U;
         poly->quad_words.tag = FIELD_TEXT_TAG(packet_cursor, POLY_FT4);
-        poly->quad_words.rgbc = texture_command;
-        poly->quad_words.uv2 = texture_uv + 0x3000;
-        poly->quad_words.uv1 = (texture_uv + 0x2F) | tpage;
-        poly->quad_words.uv3 = texture_uv + 0x302F;
-        poly->quad_words.uv0 = clut | texture_uv;
+        poly->quad_words.rgbc = FIELD_TEXT_COLOR_WORD(texture_command);
+        poly->quad_words.uv2 = FIELD_TEXT_UV_WORD(texture_uv + 0x3000);
+        poly->quad_words.uv1 = FIELD_TEXT_UV_WORD((texture_uv + 0x2F) | tpage);
+        poly->quad_words.uv3 = FIELD_TEXT_UV_WORD(texture_uv + 0x302F);
+        poly->quad_words.uv0 = FIELD_TEXT_UV_WORD(clut | texture_uv);
         poly->quad_words.xy0 = vertex[0].word;
         poly->quad_words.xy1 = vertex[1].word;
         poly->quad_words.xy2 = vertex[2].word;

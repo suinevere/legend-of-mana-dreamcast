@@ -19,9 +19,16 @@
 /** @brief Header word in front of every block of a pool. */
 typedef struct
 {
+#if defined(LOM_BIG_ENDIAN)
+    /* The bitfields are declared in reverse so each sits at its PS1 bit position (GCC allocates bitfields from the MSB on big-endian targets). */
+    u32 used : 1;
+    u32 tag : 11;  /**< Owner tag of a used block. */
+    u32 size : 20; /**< Payload size in bytes, a multiple of four. */
+#else
     u32 size : 20; /**< Payload size in bytes, a multiple of four. */
     u32 tag : 11;  /**< Owner tag of a used block. */
     u32 used : 1;
+#endif
 } FieldBlockHeader;
 
 /**

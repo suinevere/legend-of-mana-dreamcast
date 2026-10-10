@@ -16,4 +16,11 @@ extern s32 g_wmap_auxiliary_label_draw_mode;
 /** @brief Nonzero to update land labels during map-cell selection. */
 extern s32 g_wmap_land_label_updates_enabled;
 
+/** @brief The low halfword of the s32 label palette row, which the PS1 reads at the s32's address. */
+#if defined(LOM_BIG_ENDIAN)
+#define WMAP_LABEL_PALETTE_ROW_LOW (((u16*)&D_800D0368)[1])
+#else
+#define WMAP_LABEL_PALETTE_ROW_LOW (*(u16*)&D_800D0368)
+#endif
+
 #endif

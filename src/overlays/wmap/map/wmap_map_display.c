@@ -952,7 +952,7 @@ void wmap_draw_land_marker(s32 map_x, s32 map_y, WmapLandDisplay* marker)
         return;
     }
 
-    *(u32*)&sprite->r0 = 0x808080;
+    *(u32*)&sprite->r0 = WMAP_COLOR_WORD(0x808080);
 
     {
         s32 texture;

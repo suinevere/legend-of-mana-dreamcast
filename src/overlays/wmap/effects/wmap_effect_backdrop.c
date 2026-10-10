@@ -42,16 +42,7 @@ typedef union
     } point;
 } WmapPoint;
 
-/** @brief Fixed-point coordinate with direct access to its integer halfword. */
-typedef union
-{
-    s32 value;
-    struct
-    {
-        unsigned int fraction : 16;
-        signed int whole : 16;
-    } parts;
-} WmapFixed;
+/* WmapFixed moved to wmap_effect_backdrop.h for its big-endian layout. */
 
 /** @brief Screen position or motion vector in 16.16 fixed point. */
 typedef struct

@@ -40,13 +40,6 @@ typedef struct
     s8 flags, texture, angle, blend, x_high, y_high;
 } WmapSpritePart;
 
-/** @brief A 16-bit part offset assembled from its low and high bytes. */
-typedef union
-{
-    s16 value;
-    u8 byte[2];
-} WmapSpriteOffset;
-
 extern WmapSpriteTexture g_wmap_sprite_textures[];
 
 /**
@@ -166,10 +159,10 @@ void wmap_draw_actor_sprite(WmapSpriteActor* actor, s32 screen_position, s32 tex
             RotMatrix(rotation, &matrix);
             SetRotMatrix(&matrix);
             SetTransMatrix(&matrix);
-            part_x.byte[0] = part->x;
-            part_x.byte[1] = part->x_high;
-            part_y.byte[0] = part->y;
-            part_y.byte[1] = part->y_high;
+            part_x.byte[WMAP_SPRITE_OFFSET_LOW] = part->x;
+            part_x.byte[WMAP_SPRITE_OFFSET_HIGH] = part->x_high;
+            part_y.byte[WMAP_SPRITE_OFFSET_LOW] = part->y;
+            part_y.byte[WMAP_SPRITE_OFFSET_HIGH] = part->y_high;
             origin_x = part_x.value + screen_position;
             quad->x0 = origin_x;
             origin_y = part_y.value + screen_y;

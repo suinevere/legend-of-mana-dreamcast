@@ -57,10 +57,18 @@ typedef struct
 /** @brief Byte view of a field text flags word. */
 typedef struct
 {
+#if defined(LOM_BIG_ENDIAN)
+    /* Each byte names its PS1 bits so it agrees with the word masks. */
+    u8 byte3;
+    u8 byte2;
+    u8 byte1;
+    u8 low;
+#else
     u8 low;
     u8 byte1;
     u8 byte2;
     u8 byte3;
+#endif
 } FieldTextFlagBytes;
 
 /** @brief Field text flags word, addressable whole or by byte. */

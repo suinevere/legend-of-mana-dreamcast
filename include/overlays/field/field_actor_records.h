@@ -43,16 +43,39 @@ extern FieldResourceEntry g_field_resource_entries[];
 /** @brief Number of waypoints the path finder can store for an object. */
 #define FIELD_PATH_MAX_POINTS 18
 
+#if defined(LOM_BIG_ENDIAN)
+/*----------------------
+ | FIELD_WORD_BYTE_INDEX
+ | Description: Index into a word union's u8 bytes[4] holding the byte that PS1 code names with index n.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: n -- PS1 byte index, 0 (bits 0-7) to 3 (bits 24-31)
+ | Returns: the big-endian byte index
+ ----------------------*/
+#define FIELD_WORD_BYTE_INDEX(n) (3 - (n))
+#endif
+
 /** @brief A 24-bit value word whose top byte holds flags. */
 typedef union
 {
     s32 word;
+#if defined(LOM_BIG_ENDIAN)
+    /* The bitfields are declared in reverse so each sits at its PS1 bit position; bytes[] needs FIELD_WORD_BYTE_INDEX. */
+    struct
+    {
+        u32 flag31 : 1;
+        u32 unk24 : 7;
+        u32 value : 24;
+    } bits;
+#else
     struct
     {
         u32 value : 24;
         u32 unk24 : 7;
         u32 flag31 : 1;
     } bits;
+#endif
     u8 bytes[4];
 } FieldValueWord;
 
@@ -60,6 +83,22 @@ typedef union
 typedef union
 {
     u32 word;
+#if defined(LOM_BIG_ENDIAN)
+    /* The bitfields and halves are declared in reverse so each sits at its PS1 bit position. */
+    struct
+    {
+        u32 unk16 : 16;
+        u32 flag15 : 1;
+        u32 unk11 : 4;
+        u32 charged : 1;
+        u32 scale : 10;
+    } bits;
+    struct
+    {
+        s16 height;
+        u16 flags;
+    } half;
+#else
     struct
     {
         u32 scale : 10;
@@ -76,12 +115,33 @@ typedef union
         /** @brief Collision height resolved for the object. */
         s16 height;
     } half;
+#endif
 } FieldMovementWord;
 
 /** @brief Packed contact word: flag bits, the bound animation actor and the collected target count. */
 typedef union
 {
     u32 word;
+#if defined(LOM_BIG_ENDIAN)
+    /* The bitfields and bytes are declared in reverse so each sits at its PS1 bit position. */
+    struct
+    {
+        u32 unk8 : 24;
+        u32 flag7 : 1;
+        u32 flag6 : 1;
+        u32 flag5 : 1;
+        u32 damage_scale : 3;
+        u32 linked : 1;
+        u32 flag0 : 1;
+    } bits;
+    struct
+    {
+        u8 target_count;
+        u8 controller_index;
+        u8 animation_actor_index;
+        u8 flags;
+    } bytes;
+#else
     struct
     {
         u32 flag0 : 1;
@@ -101,6 +161,7 @@ typedef union
         u8 controller_index;
         u8 target_count;
     } bytes;
+#endif
 } FieldContactWord;
 
 /** @brief One recorded X/Z position (whole units) of an object's route history. */
@@ -161,6 +222,16 @@ typedef struct FieldObjectState
     union
     {
         s32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* The bytes run high to low so each names its PS1 byte of the word. */
+        struct
+        {
+            u8 unk4F;
+            u8 unk4E;
+            u8 object_index;
+            u8 flags;
+        } bytes;
+#else
         struct
         {
             u8 flags;
@@ -168,6 +239,7 @@ typedef struct FieldObjectState
             u8 unk4E;
             u8 unk4F;
         } bytes;
+#endif
     } hud;
     s32 target_x;
     s32 target_y;
@@ -295,6 +367,29 @@ typedef struct FieldObjectPart
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* The halves, bytes and bitfields are declared in reverse so each sits at its PS1 bit position. */
+        struct
+        {
+            u16 high;
+            u16 low;
+        } halves;
+        struct
+        {
+            u8 high;
+            u8 middle_high;
+            u8 middle_low;
+            u8 low;
+        } bytes;
+        struct
+        {
+            u32 unk24 : 8;
+            u32 render_mode : 2;
+            u32 unk12 : 10;
+            u32 flag11 : 1;
+            u32 unk0 : 11;
+        } bits;
+#else
         struct
         {
             u16 low;
@@ -315,6 +410,7 @@ typedef struct FieldObjectPart
             u32 render_mode : 2;
             u32 unk24 : 8;
         } bits;
+#endif
     } behavior_flags;
     u8 unk8;
     u8 unk9;
@@ -334,6 +430,27 @@ typedef struct FieldObjectPart
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* The halves, bytes and bitfields are declared in reverse so each sits at its PS1 bit position. */
+        struct
+        {
+            u16 high;
+            u16 low;
+        } halves;
+        struct
+        {
+            u8 high;
+            u8 middle_high;
+            u8 middle_low;
+            u8 low;
+        } bytes;
+        struct
+        {
+            u32 unk8 : 24;
+            u32 mode : 4;
+            u32 unk0 : 4;
+        } bits;
+#else
         struct
         {
             u16 low;
@@ -352,6 +469,7 @@ typedef struct FieldObjectPart
             u32 mode : 4;
             u32 unk8 : 24;
         } bits;
+#endif
     } orientation_flags;
     s16 unk18;
     u8 unk1A;
@@ -481,6 +599,15 @@ typedef union
     u32 word;
     u16 half[2];
     u8 bytes[4];
+#if defined(LOM_BIG_ENDIAN)
+    /* The parts run high to low so each names its PS1 bits of the word. */
+    struct
+    {
+        u16 animation_id;
+        u8 hiding_objects;
+        u8 flags;
+    } parts;
+#else
     struct
     {
         /** @brief Bit 0: FIELD_SLOT_OWNER_LINKED; bits 1-4: the action element (FIELD_SLOT_ELEMENT_BITS). */
@@ -490,6 +617,7 @@ typedef union
         /** @brief Animation resource the slot plays. */
         u16 animation_id;
     } parts;
+#endif
 } FieldActorSlotStatus;
 
 /**

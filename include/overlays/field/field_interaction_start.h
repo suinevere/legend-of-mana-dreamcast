@@ -11,6 +11,27 @@ typedef struct
     union
     {
         s32 flags;
+#if defined(LOM_BIG_ENDIAN)
+        /* flags is swapped as u32; bytes and bitfields are declared in reverse so each sits at its PS1 bit position. */
+        struct
+        {
+            u8 render_flags;
+            u8 local_variable_count;
+            u8 selector;
+            u8 kind_flags;
+        } bytes;
+        struct
+        {
+            u32 active : 1;
+            u32 hidden : 1;
+            u32 group : 2;
+            u32 palette : 4;
+            u32 local_variable_count : 8;
+            u32 selector : 8;
+            u32 kind : 4;
+            u32 trigger_group : 4;
+        } bits;
+#else
         struct
         {
             u8 kind_flags;
@@ -36,6 +57,7 @@ typedef struct
             /** @brief Set while the action is installed and active. */
             u32 active : 1;
         } bits;
+#endif
     } control;
     struct
     {
@@ -47,6 +69,21 @@ typedef struct
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* word is swapped as u32; halves and bitfields are declared in reverse so each sits at its PS1 bit position. */
+        struct
+        {
+            u16 z;
+            u16 x;
+        } halves;
+        struct
+        {
+            u32 y : 2;
+            u32 unk27 : 3;
+            u32 z : 11;
+            u32 x : 16;
+        } bits;
+#else
         struct
         {
             u16 x;
@@ -59,6 +96,7 @@ typedef struct
             u32 unk27 : 3;
             u32 y : 2;
         } bits;
+#endif
     } position;
     union
     {

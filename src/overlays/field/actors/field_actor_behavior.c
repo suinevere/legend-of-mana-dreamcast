@@ -719,7 +719,11 @@ void field_follow_leader_route(FieldActor* actor, s32 follower_index)
     for (leader_index = 0; leader_index < FIELD_ACTOR_COUNT; leader_index++)
     {
         scan = &g_field_actors[leader_index];
+#if defined(LOM_BIG_ENDIAN)
+        if (scan->presence != FIELD_ACTOR_UNUSED && !(scan->control.half[FIELD_ACTOR_CONTROL_LO] & FIELD_CONTROL_MODE_MASK))
+#else
         if (scan->presence != FIELD_ACTOR_UNUSED && !(scan->control.half[0] & FIELD_CONTROL_MODE_MASK))
+#endif
         {
             break;
         }

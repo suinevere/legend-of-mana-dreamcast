@@ -151,7 +151,11 @@ void field_set_battle_group(s32 mode, void* actor_data)
         {
             if (g_field_player_records[index].head.bytes.flags & FIELD_PLAYER_ACTIVE)
             {
+#if defined(LOM_BIG_ENDIAN)
+                if (g_field_actors[index].control.half[FIELD_ACTOR_CONTROL_LO] & FIELD_CONTROL_MODE_MASK)
+#else
                 if (g_field_actors[index].control.half[0] & FIELD_CONTROL_MODE_MASK)
+#endif
                 {
                     g_field_actors[index].command = FIELD_ACTOR_COMMAND_FOLLOW_LEADER;
                     g_field_actors[index].animation_state = 0xFFFF;

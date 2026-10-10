@@ -113,6 +113,16 @@ typedef struct
 typedef union
 {
     s32 word;
+#if defined(LOM_BIG_ENDIAN)
+    /* word is swapped as u32; the byte names are reversed so each still sits at the PS1 bit position. */
+    struct
+    {
+        u8 drift_angle;
+        u8 drift_speed;
+        u8 node_count;
+        u8 unk0;
+    } b;
+#else
     struct
     {
         u8 unk0;
@@ -124,6 +134,7 @@ typedef union
         /** 0x0F drift angle, scaled by 0x10 before rcos/rsin. */
         u8 drift_angle;
     } b;
+#endif
 } FieldObjFlags;
 
 typedef struct FieldPartDef FieldPartDef;
@@ -150,7 +161,16 @@ typedef struct
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* word is swapped as u32; low is an anonymous member so it sits at the last byte, the PS1 low byte's position. */
+        struct
+        {
+            u8 _be_pad[3];
+            u8 low;
+        };
+#else
         u8 low;
+#endif
     } flags;
     /** 0x10 x/y/z scale in percent, copied to the object as 8.8 fixed point. */
     u16 scale_x;
@@ -163,6 +183,16 @@ typedef struct
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* word is swapped as u32; the byte names are reversed so each still sits at the PS1 bit position. */
+        struct
+        {
+            u8 drift_angle;
+            u8 drift_speed;
+            u8 scroll_scale_y;
+            u8 scroll_scale_x;
+        } b;
+#else
         struct
         {
             /** Horizontal scroll factor; 0x10 means "unscaled", bit 7 negates. */
@@ -174,6 +204,7 @@ typedef struct
             /** Initial FieldObjFlags drift angle. */
             u8 drift_angle;
         } b;
+#endif
     } motion;
 } FieldObjDef;
 
@@ -203,6 +234,16 @@ struct FieldPartDef
             equal to 1 mean a single cell, bits 12-15 select
             field_emit_rotated_sprite_grid's placement mode. */
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* word is swapped as u32; the byte names are reversed so each still sits at the PS1 bit position. */
+        struct
+        {
+            u8 rows;
+            u8 cols;
+            u8 _pad1;
+            u8 flags;
+        } b;
+#else
         struct
         {
             /** 0x08 low byte of the word, read alone for the visibility bit. */
@@ -213,6 +254,7 @@ struct FieldPartDef
             /** 0x0B grid height, in cells. */
             u8 rows;
         } b;
+#endif
     } u;
     s16 x; /* 0x0C x offset within the object */
     s16 y; /* 0x0E y offset within the object */
@@ -476,6 +518,16 @@ struct FieldMarker
 typedef union
 {
     u32 word;
+#if defined(LOM_BIG_ENDIAN)
+    /* word is swapped as u32; the byte names are reversed so each still sits at the PS1 bit position. */
+    struct
+    {
+        u8 handler_group;
+        u8 frame_count;
+        u8 last_frame;
+        u8 kind_flags;
+    } b;
+#else
     struct
     {
         /** 0x04 low three bits select the handler; bits 3-7 are FIELD_ANIM_DEF_* flags. */
@@ -487,6 +539,7 @@ typedef union
         /** 0x07 scene animation list (0-3) the definition belongs to. */
         u8 handler_group;
     } b;
+#endif
 } FieldAnimDefFlags;
 
 /**
@@ -931,7 +984,47 @@ struct FieldNodeDef
  * genuinely overlap in the original. Mirrors the @c *(s32*)&def->flags idiom
  * field_animation.c uses for the same struct.
  */
+#if defined(LOM_BIG_ENDIAN)
+#define FIELD_NODE_DEF_ROWS(d) (((u8*)&(d)->flags)[1])
+#else
 #define FIELD_NODE_DEF_ROWS(d) (((u8*)&(d)->flags)[2])
+#endif
+
+/*----------------------
+ | FIELD_NODE_DEF_LOW_BYTE
+ | Description: Low byte of FieldNodeDef::flags as the PS1 reads it with lbu, which holds the enable bit.
+ | Author: suinevere
+ | Dependencies: field_scene_internal.h
+ | Globals: N/A
+ | Params: d -- FieldNodeDef pointer
+ | Returns: the flag word's PS1 byte 0
+ ----------------------*/
+#if defined(LOM_BIG_ENDIAN)
+#define FIELD_NODE_DEF_LOW_BYTE(d) (((u8*)&(d)->flags)[3])
+#else
+#define FIELD_NODE_DEF_LOW_BYTE(d) (((u8*)&(d)->flags)[0])
+#endif
+
+/*----------------------
+ | FIELD_CELL_UV16 / FIELD_CELL_UV_RIGHT / FIELD_CELL_UV_BOTTOM / FIELD_CELL_UV_TPAGE
+ | Description: Build a rotated floor quad's POLY_FT4 UV words so u and v land in the struct's first two bytes on either endianness.
+ | Author: suinevere
+ | Dependencies: field_scene_internal.h
+ | Globals: N/A
+ | Params: uv_clut -- FieldCellRec::uv_clut word; tpage_word -- FieldPart::tpage_word as the PS1 ORs it into uv1
+ | Returns: UV word, corner offset, or tpage word in the native POLY_FT4 layout
+ ----------------------*/
+#if defined(LOM_BIG_ENDIAN)
+#define FIELD_CELL_UV16(uv_clut) ((u32)(uv_clut) & 0xFFFF0000)
+#define FIELD_CELL_UV_RIGHT ((FIELD_TILE_SIZE - 1) << 24)
+#define FIELD_CELL_UV_BOTTOM ((FIELD_TILE_SIZE - 1) << 16)
+#define FIELD_CELL_UV_TPAGE(tpage_word) (((((u32)(tpage_word) & 0xFF) << 8) | (((u32)(tpage_word) >> 8) & 0xFF)) << 16 | ((u32)(tpage_word) >> 16))
+#else
+#define FIELD_CELL_UV16(uv_clut) ((u32)(uv_clut) & 0xFFFF)
+#define FIELD_CELL_UV_RIGHT (FIELD_TILE_SIZE - 1)
+#define FIELD_CELL_UV_BOTTOM ((FIELD_TILE_SIZE - 1) << 8)
+#define FIELD_CELL_UV_TPAGE(tpage_word) (tpage_word)
+#endif
 
 /**
  * @brief Element of the scene's attached-node list (FieldScene offset 0x08).
@@ -993,6 +1086,16 @@ struct FieldNode
 typedef union
 {
     u32 word;
+#if defined(LOM_BIG_ENDIAN)
+    /* word is swapped as u32; the byte names are reversed so each still sits at the PS1 bit position. */
+    struct
+    {
+        u8 b;
+        u8 g;
+        u8 r;
+        u8 flags;
+    } b;
+#else
     struct
     {
         /** Bit 0: the colour below is used; bit 1: copied to FieldMapBounds::unk4. */
@@ -1001,6 +1104,7 @@ typedef union
         u8 g;
         u8 b;
     } b;
+#endif
 } FieldMapColor;
 
 /**

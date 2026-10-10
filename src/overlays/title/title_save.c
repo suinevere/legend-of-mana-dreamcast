@@ -195,7 +195,11 @@ void handle_save_slot_input(void)
                 int rng_hi;
 
                 load_hero_template(0);
+#if defined(LOM_BIG_ENDIAN)
+                g_saved_game.layout.characters[0].info.bits.type = 0;
+#else
                 g_saved_game.layout.characters[0].info.word &= ~FIELD_CHARACTER_TYPE_MASK;
+#endif
                 rng_lo = rand();
                 rng_hi = rand();
                 rng_lo |= rng_hi << TITLE_RNG_HIGH_SHIFT;
@@ -207,7 +211,11 @@ void handle_save_slot_input(void)
                 int rng_hi;
 
                 load_hero_template(1);
+#if defined(LOM_BIG_ENDIAN)
+                g_saved_game.layout.characters[0].info.bits.type = 1;
+#else
                 g_saved_game.layout.characters[0].info.word = (g_saved_game.layout.characters[0].info.word & ~FIELD_CHARACTER_TYPE_MASK) | 1;
+#endif
                 rng_lo = rand();
                 rng_hi = rand();
                 rng_lo |= rng_hi << TITLE_RNG_HIGH_SHIFT;
@@ -580,7 +588,7 @@ void* render_save_layout_prims(u8* ptr, u_long* ot)
 
             tex2 = &(g_save_layout_tex_table)[entry->tex_slot];
             /* Form the texture-page value from the complete layout flags word. */
-            tpw = getTPage(*(u8*)&tex2->control & 3, *(u32*)entry >> 2, *(u16*)&tex2->tex_x, *(u16*)&tex2->tex_y);
+            tpw = getTPage(SAVE_LAYOUT_TEX_CONTROL_LOW_BYTE(tex2->control) & 3,*(u32*)entry >> 2, *(u16*)&tex2->tex_x, *(u16*)&tex2->tex_y);
             poly->tpage = tpw;
 
             addPrim(ot, poly);

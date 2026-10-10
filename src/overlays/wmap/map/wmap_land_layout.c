@@ -73,43 +73,8 @@ typedef struct
     u8 entry_flags[256];
 } WmapLayout;
 
-/** @brief Saved land state; coordinates share a byte and flags share a word. */
-typedef union
-{
-    u32 word;
-    struct
-    {
-        u8 flags;
-        u8 position;
-        u8 placement_order;
-        u8 artifact_order;
-    } data;
-} WmapLandStatus;
-
-/** @brief Saved placement status and eight spirit levels. */
-typedef struct
-{
-    WmapLandStatus status;
-    u8 spirits[WMAP_SPIRIT_COUNT];
-} WmapSavedLand;
-
-/** @brief Save fields used by the land-layout routines. */
-typedef struct
-{
-    u8 unknown_0x000[0x2E4];
-    union
-    {
-        u32 word;
-        struct
-        {
-            u8 unknown_0x2e4;
-            u8 placed_land_count;
-            u16 day;
-        } data;
-    } calendar;
-    u32 events[2];
-    WmapSavedLand lands[WMAP_LAND_COUNT];
-} WmapSave;
+/* WmapLandStatus, WmapSavedLand, and WmapSave moved to wmap_save_views.h for their big-endian layouts. */
+#include "../internal/wmap_save_views.h"
 
 /** @brief Timed save record updated when a travel day elapses. */
 typedef struct
@@ -149,37 +114,7 @@ typedef struct
     WmapGrowthGroup groups[4];
 } WmapGrowthSave;
 
-/** @brief Save header fields used to select the map layout. */
-typedef struct
-{
-    u8 unknown_0x00[0x28];
-    unsigned int unused_flags : 2;
-    unsigned int option : 1;
-    unsigned int other_flags : 29;
-    u8 unknown_0x2c[0xE0 - 0x2C];
-    u16 layout_id;
-} WmapSaveHeader;
-
-/** @brief Saved map entry status at its original byte offsets. */
-typedef struct
-{
-    u8 pad_000[0x2F0];
-    union
-    {
-        struct
-        {
-            unsigned int available : 1;
-            unsigned int placed : 1;
-            unsigned int other_flags : 6;
-        } flags;
-        struct
-        {
-            u8 flags;
-            u8 pad[2];
-            u8 artifact_order;
-        } data;
-    } entry;
-} WmapSavedEntry;
+/* WmapSaveHeader and WmapSavedEntry moved to wmap_save_views.h for their big-endian layouts. */
 
 /** @brief Table of 64 world-map values copied to a local buffer. */
 typedef struct

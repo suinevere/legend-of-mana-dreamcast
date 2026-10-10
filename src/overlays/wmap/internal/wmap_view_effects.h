@@ -4,6 +4,13 @@
 #include "common.h"
 #include <libgte.h>
 
+/** @brief Converts between a PS1 packed colour number (r in the low byte) and the word that holds r, g, b, code in memory order. */
+#if defined(LOM_BIG_ENDIAN)
+#define WMAP_COLOR_WORD(word) __builtin_bswap32((u32)(word))
+#else
+#define WMAP_COLOR_WORD(word) (word)
+#endif
+
 /** @brief g_wmap_view_mode values. */
 #define WMAP_VIEW_MODE_HIDDEN (-1)
 #define WMAP_VIEW_MODE_MAP 0

@@ -236,6 +236,16 @@ struct FieldCollisionMover
     union
     {
         s32 mode_flags;
+#if defined(LOM_BIG_ENDIAN)
+        /* The bitfields are declared in reverse so footprint_depth stays in the low halfword field_collision_resolve_move reads. */
+        struct
+        {
+            unsigned unused : 14;
+            unsigned airborne_high : 1;
+            unsigned airborne_low : 1;
+            unsigned footprint_depth : 16;
+        } bits;
+#else
         struct
         {
             unsigned footprint_depth : 16;
@@ -243,6 +253,7 @@ struct FieldCollisionMover
             unsigned airborne_high : 1;
             unsigned unused : 14;
         } bits;
+#endif
     } mode;
 };
 

@@ -290,6 +290,22 @@ typedef struct FieldScriptState
     union
     {
         u32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* owner_id names the word's last byte and the bitfields run in reverse, so both sit at their PS1 bit positions. */
+        struct
+        {
+            u8 owner_pad[3];
+            u8 owner_id;
+        };
+        struct
+        {
+            u32 running : 1;
+            u32 unk16 : 15;
+            u32 local_base : 7;
+            u32 unk8 : 1;
+            u32 owner_id : 8;
+        } bits;
+#else
         u8 owner_id;
         struct
         {
@@ -299,6 +315,7 @@ typedef struct FieldScriptState
             u32 unk16 : 15;
             u32 running : 1;
         } bits;
+#endif
     } status;
     s32 depth;
     FieldScriptFrame frames[FIELD_SCRIPT_FRAME_COUNT];
@@ -324,6 +341,18 @@ typedef struct FieldActorRecord
     union
     {
         s32 word;
+#if defined(LOM_BIG_ENDIAN)
+        /* The bitfields are declared in reverse so each sits at its PS1 bit position and agrees with the word masks. */
+        struct
+        {
+            unsigned active : 1;
+            unsigned script_only : 1;
+            unsigned spawned : 1;
+            unsigned reserved : 15;
+            unsigned source : 10;
+            unsigned trigger_group : 4;
+        } bits;
+#else
         struct
         {
             unsigned trigger_group : 4;
@@ -333,6 +362,7 @@ typedef struct FieldActorRecord
             unsigned script_only : 1;
             unsigned active : 1;
         } bits;
+#endif
     } flags;
 } FieldActorRecord;
 
@@ -425,6 +455,28 @@ typedef struct FieldRuntimeContext
     union
     {
         u32 flags;
+#if defined(LOM_BIG_ENDIAN)
+        /* actor_count names the word's low halfword, the bytes run high to low and the bitfields in reverse, matching the PS1 bit positions. */
+        struct
+        {
+            u16 actor_count_pad;
+            u16 actor_count;
+        };
+        struct
+        {
+            u8 trigger_group;
+            u8 low[3];
+        } bytes;
+        struct
+        {
+            u32 trigger_group : 8;
+            u32 unk20 : 4;
+            u32 talking : 1;
+            u32 party_mode : 2;
+            u32 group_active : 1;
+            u32 actor_count : 16;
+        } bits;
+#else
         u16 actor_count;
         struct
         {
@@ -440,6 +492,7 @@ typedef struct FieldRuntimeContext
             u32 unk20 : 4;
             u32 trigger_group : 8;
         } bits;
+#endif
     } state;
     s32 scene_entry;
     s32 scene_argument1;
@@ -459,6 +512,24 @@ typedef struct FieldRuntimeContext
     union
     {
         u32 flags;
+#if defined(LOM_BIG_ENDIAN)
+        /* The byte fields run high to low and the bitfields in reverse, so both agree with the PS1 word. */
+        struct
+        {
+            u8 spawn;
+            u8 object_id;
+            u16 scene_id;
+        } fields;
+        struct
+        {
+            u32 finished : 1;
+            u32 requested : 1;
+            u32 fade_started : 1;
+            u32 spawn_id : 5;
+            u32 object_id : 8;
+            u32 scene_id : 16;
+        } bits;
+#else
         struct
         {
             u16 scene_id;
@@ -479,6 +550,7 @@ typedef struct FieldRuntimeContext
             /** @brief Set when the fade is done and the field is left. */
             u32 finished : 1;
         } bits;
+#endif
     } transition;
     /** @brief Talk window state: the current window selector and plane. */
     union
