@@ -298,13 +298,15 @@ WMAP_SAVE_BIG_ENDIAN_OFFSETS = {
 #----------------------
 # | resolve_aliases
 # | Description: Maps names (splat auto names by their own address) to an equal-address defined symbol outside the secondary range, an offset into a defined size:/allow_addend symbol that contains them, a databin slot address, or a redirected buffer; names in offset_overrides get that fixed container and offset instead.
+# |              A function (classify's rule over code_ranges) is never placed inside a container, since another overlay's data can span its address.
 # | Author: suinevere
-# | Dependencies: SYMBOL_LINE, SIZED_SYMBOL, SPLAT_AUTO_NAME, SECONDARY_OVERLAY_RANGE, slot_address, BUFFER_RANGES
+# | Dependencies: SYMBOL_LINE, SIZED_SYMBOL, SPLAT_AUTO_NAME, SECONDARY_OVERLAY_RANGE, slot_address, BUFFER_RANGES, classify
 # | Globals: N/A
-# | Params: names -- undefined names, symbol_lines -- symbol_addrs lines, targets -- names that linked objects or slot scripts define, slot_overlays -- overlays whose packed ranges may resolve a name, offset_overrides -- dict of name to (container, offset) that wins over the computed alias, buffer_ranges -- redirected-buffer table
+# | Params: names -- undefined names, symbol_lines -- symbol_addrs lines, targets -- names that linked objects or slot scripts define, slot_overlays -- overlays whose packed ranges may resolve a name, offset_overrides -- dict of name to (container, offset) that wins over the computed alias, buffer_ranges -- redirected-buffer table, code_ranges -- (start, end) code ranges that make a name a function
 # | Returns: dict of name to linker expression ("_target", "_container + offset", a hex slot address or "_buffer + offset")
 #----------------------
-def resolve_aliases(names, symbol_lines, targets, slot_overlays=SLOT_OVERLAYS, offset_overrides=None, buffer_ranges=BUFFER_RANGES):
+def resolve_aliases(names, symbol_lines, targets, slot_overlays=SLOT_OVERLAYS, offset_overrides=None, buffer_ranges=BUFFER_RANGES,
+                    code_ranges=()):
     addresses, by_address, containers = {}, {}, set()
     for line in symbol_lines:
         match = SYMBOL_LINE.match(line)
@@ -316,6 +318,8 @@ def resolve_aliases(names, symbol_lines, targets, slot_overlays=SLOT_OVERLAYS, o
             if sized and name in targets:
                 containers.add((addr, int(sized.group(1), 16), name))
     aliases = {}
+    known = [name for name in set(names) if name in addresses or SPLAT_AUTO_NAME.match(name)]
+    functions = set(classify(known, symbol_lines, code_ranges)[0])
     for name in sorted(set(names)):
         own = addresses.get(name)
         if own is None and SPLAT_AUTO_NAME.match(name):
@@ -328,7 +332,7 @@ def resolve_aliases(names, symbol_lines, targets, slot_overlays=SLOT_OVERLAYS, o
             if candidates:
                 aliases[name] = "_" + candidates[0]
                 break
-        if name in aliases:
+        if name in aliases or name in functions:
             continue
         for addr in own:
             container = next(((other, addr - start) for start, size, other in sorted(containers)
@@ -676,7 +680,7 @@ def main(argv=None):
     overrides = WMAP_SAVE_BIG_ENDIAN_OFFSETS if args.overlay == "wmap" else None
     try:
         aliases = resolve_aliases(undefined - defined, symbol_lines, targets, OVERLAY_SLOTS[args.overlay], overrides,
-                                  OVERLAY_BUFFER_RANGES[args.overlay])
+                                  OVERLAY_BUFFER_RANGES[args.overlay], ranges)
         functions, data = classify(undefined - defined - set(aliases), symbol_lines, ranges)
     except UnknownSymbolError as error:
         print("gen_pending: %s" % error, file=sys.stderr)

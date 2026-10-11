@@ -1,6 +1,6 @@
 /*----------------------
  | pad_dc_map.h
- | Description: One Maple controller sample (buttons, stick and triggers) and its mapping onto the game's PAD_BTN_* layout.
+ | Description: One Maple controller sample (buttons, stick and triggers), its mapping onto the game's PAD_BTN_* layout and its encoding as the PS1 driver's held-button word.
  | Author: suinevere
  | Dependencies: stdint.h
  | Globals: N/A
@@ -31,5 +31,6 @@ typedef struct DcPadSample
 } DcPadSample;
 
 uint16_t pad_dc_logical_buttons(const DcPadSample *s);
+uint16_t pad_dc_held_word(const DcPadSample *s);
 
 #endif

@@ -40,6 +40,8 @@ __pycache__/
 
 # Dreamcast build output
 dreamcast/build/
+dreamcast/build-test/
+dreamcast/.verify/
 dreamcast/gen/
 dreamcast/cd/data/
 dreamcast/*.elf

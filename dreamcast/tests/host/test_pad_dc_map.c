@@ -1,8 +1,8 @@
 /*----------------------
  | test_pad_dc_map.c
- | Description: Host checks for the Dreamcast Maple-to-PS1 button mapping, its L1/R1/L2/R2/Select thresholds and the C/Z alias buttons.
+ | Description: Host checks for the Dreamcast Maple-to-PS1 button mapping, its L1/R1/L2/R2/Select thresholds, the C/Z alias buttons, and that pad_dc_script_fill's reverse mapping agrees with this forward mapping for every scripted button.
  | Author: suinevere
- | Dependencies: pad_dc_map.h, common/pad.h
+ | Dependencies: pad_dc_map.h, pad_dc_script_map.h, common/pad.h
  ----------------------*/
 #include <stdio.h>
 
@@ -10,6 +10,7 @@
 #include "common/pad.h"
 
 #include "pad_dc_map.h"
+#include "pad_dc_script_map.h"
 
 #define DC_CONT_C (1 << 0)
 #define DC_CONT_B (1 << 1)
@@ -136,6 +137,55 @@ static void test_c_and_z_alias_l2_r2(void)
     CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_R2);
 }
 
+static void test_script_fill_round_trips_through_real_map(void)
+{
+    static const uint16_t buttons[] = {
+        PAD_SCRIPT_BTN_UP, PAD_SCRIPT_BTN_DOWN, PAD_SCRIPT_BTN_LEFT, PAD_SCRIPT_BTN_RIGHT,
+        PAD_SCRIPT_BTN_CROSS, PAD_SCRIPT_BTN_CIRCLE, PAD_SCRIPT_BTN_SQUARE, PAD_SCRIPT_BTN_TRIANGLE,
+        PAD_SCRIPT_BTN_START, PAD_SCRIPT_BTN_SELECT,
+        PAD_SCRIPT_BTN_L1, PAD_SCRIPT_BTN_R1, PAD_SCRIPT_BTN_L2, PAD_SCRIPT_BTN_R2
+    };
+    int i;
+
+    for (i = 0; i < (int)(sizeof(buttons) / sizeof(buttons[0])); i++)
+    {
+        DcPadSample s = zero_sample();
+
+        pad_dc_script_fill(&s, buttons[i]);
+        CHECK(pad_dc_logical_buttons(&s) == buttons[i]);
+    }
+}
+
+static uint16_t title_read(uint16_t held)
+{
+    uint16_t buttons = (uint16_t)((held >> 8) | (held << 8));
+
+    return (uint16_t)PAD_REMAP_FACE_BITS(buttons);
+}
+
+static void test_held_word_reads_back_as_logical_buttons(void)
+{
+    static const unsigned dc_buttons[] = {
+        DC_CONT_A, DC_CONT_B, DC_CONT_X, DC_CONT_Y, DC_CONT_START,
+        DC_CONT_DPAD_UP, DC_CONT_DPAD_DOWN, DC_CONT_DPAD_LEFT, DC_CONT_DPAD_RIGHT
+    };
+    int i;
+
+    for (i = 0; i < (int)(sizeof(dc_buttons) / sizeof(dc_buttons[0])); i++)
+    {
+        DcPadSample s = zero_sample();
+
+        s.buttons = dc_buttons[i];
+        CHECK(title_read(pad_dc_held_word(&s)) == pad_dc_logical_buttons(&s));
+    }
+    {
+        DcPadSample s = zero_sample();
+
+        s.buttons = DC_CONT_A;
+        CHECK(pad_dc_held_word(&s) == 0x4000);
+    }
+}
+
 int main(void)
 {
     test_all_zero_gives_nothing();
@@ -144,6 +194,8 @@ int main(void)
     test_trigger_thresholds();
     test_stick_thresholds();
     test_c_and_z_alias_l2_r2();
+    test_script_fill_round_trips_through_real_map();
+    test_held_word_reads_back_as_logical_buttons();
     if (s_failures == 0)
     {
         printf("OK\n");

@@ -1,6 +1,6 @@
 /*----------------------
  | pad_dc_map.c
- | Description: Maps a Dreamcast Maple controller sample onto the game's PAD_BTN_* layout, with every PS1 button reachable from the Dreamcast pad.
+ | Description: Maps a Dreamcast Maple controller sample onto the game's PAD_BTN_* layout, with every PS1 button reachable from the Dreamcast pad, and encodes it as the PS1 held-button word.
  | Author: suinevere
  | Dependencies: pad_dc_map.h, common/pad.h
  | Globals: N/A
@@ -87,4 +87,21 @@ uint16_t pad_dc_logical_buttons(const DcPadSample *s)
     if (s->joyx >= PAD_DC_STICK_THRESHOLD || (buttons & DC_CONT_Z)) out |= PAD_BTN_R2;
     if (s->joyy >= PAD_DC_STICK_THRESHOLD) out |= PAD_BTN_SELECT;
     return out;
+}
+
+/*----------------------
+ | pad_dc_held_word
+ | Description: Encodes a Maple sample as the PS1 driver's SCDRegs.held_buttons word, undoing the readers' byte swap and face-button remap as saturn/src/input/pad_encode.c does.
+ | Author: suinevere
+ | Dependencies: pad_dc_logical_buttons
+ | Globals: N/A
+ | Params: s -- Maple controller sample
+ | Returns: value to store in held_buttons
+ ----------------------*/
+uint16_t pad_dc_held_word(const DcPadSample *s)
+{
+    uint16_t b = pad_dc_logical_buttons(s);
+    uint16_t raw = (uint16_t)(((b & 0x40) >> 1) | ((b & 0x20) << 1) | ((b & 0x80) >> 3) | ((b & 0x10) << 3) | (b & ~0xF0));
+
+    return (uint16_t)((raw >> 8) | (raw << 8));
 }

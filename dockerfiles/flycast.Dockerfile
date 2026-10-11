@@ -1,6 +1,6 @@
 #----------------------
 # | flycast.Dockerfile
-# | Description: Headless Linux Flycast v2.7 (built from source, GDB server on) under Xvfb, for the Dreamcast port's boot check.
+# | Description: Headless Linux Flycast v2.7 (built from source, GDB server on) under Xvfb, for the Dreamcast port's boot check and scripted screen captures.
 # | Author: suinevere
 # | Dependencies: github.com/flyinghead/flycast (tag v2.7, commit 5aa091fde632fb332c8d8c34e280d62dc951954c)
 # | Globals: N/A
@@ -24,5 +24,19 @@ RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build -j"$(nproc)" \
     && cp build/flycast /usr/local/bin/flycast \
     && rm -rf build
+
+#----------------------
+# | x11-apps / imagemagick layer
+# | Description: xwd (x11-apps) dumps the capturing Xvfb's root window; convert (imagemagick) turns that XWD dump into a PNG; kept as its own layer so adding them does not invalidate the Flycast source-build cache above.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    x11-apps imagemagick \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV SDL_AUDIODRIVER=dummy
 WORKDIR /work

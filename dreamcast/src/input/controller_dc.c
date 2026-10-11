@@ -53,9 +53,9 @@ _Static_assert(offsetof(ControllerState, ports) + offsetof(ControllerPortState, 
 
 /*----------------------
  | dc_pad_encode_sample
- | Description: Builds the PadSample pad_publish_port expects from a Maple read: a digital pad with the PS1 logical buttons, or a disconnected port.
+ | Description: Builds the PadSample pad_publish_port expects from a Maple read: a digital pad whose held word reads back as the PS1 logical buttons, or a disconnected port.
  | Author: suinevere
- | Dependencies: pad_dc_logical_buttons
+ | Dependencies: pad_dc_held_word
  | Globals: N/A
  | Params: connected -- nonzero when a Maple controller answered, sample -- its Maple read
  | Returns: PadSample for ControllerSample.device_type and held_buttons
@@ -65,7 +65,7 @@ static PadSample dc_pad_encode_sample(int connected, const DcPadSample *sample)
     PadSample out;
 
     out.device_type = connected ? PAD_SAMPLE_DIGITAL : PAD_SAMPLE_DISCONNECTED;
-    out.held_buttons = connected ? pad_dc_logical_buttons(sample) : 0;
+    out.held_buttons = connected ? pad_dc_held_word(sample) : 0;
     return out;
 }
 

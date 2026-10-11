@@ -45,6 +45,15 @@ extern void dc_halt(const char *message);
  ----------------------*/
 static uintptr_t s_host_base;
 
+/*----------------------
+ | ot_walk_set_base
+ | Description: Sets s_host_base, the host address the 24-bit tag field 0 maps to, for host tests.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_host_base
+ | Params: base -- host address field 0 maps to
+ | Returns: N/A
+ ----------------------*/
 void ot_walk_set_base(uintptr_t base)
 {
     s_host_base = base;

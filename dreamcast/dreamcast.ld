@@ -1,6 +1,7 @@
 /*----------------------
  | dreamcast.ld
  | Description: KallistiOS v2.1.1's utils/ldscripts/shlelf.xc plus the 6 MB NOLOAD overlay arena at 0x8C800000 and ASSERTs on both of its edges.
+ |              It also places every section the toolchain emits (DWARF 5, crt1's FDPIC tables, .tm_clone_table) so the main link runs with --orphan-handling=error.
  |              _end, where the KallistiOS heap starts, moves above the arena, so the heap and stack live above 0x8CE00000.
  |              g_overlay_load_base, the PS1 linker symbol field_runtime.c's g_overlay_load_address points at, is the arena base.
  | Author: suinevere
@@ -74,6 +75,7 @@ SECTIONS
       *(.rela.ctors)
       *(.rela.dtors)
       *(.rela.got)
+      *(.rela.got.funcdesc)
       *(.rela.sdata .rela.sdata.* .rela.gnu.linkonce.s.*)
       *(.rela.sbss .rela.sbss.* .rela.gnu.linkonce.sb.*)
       *(.rela.sdata2 .rela.sdata2.* .rela.gnu.linkonce.s2.*)
@@ -98,6 +100,7 @@ SECTIONS
     . = ALIGN(4);
   }
   .rodata1        : { *(.rodata1) }
+  .rofixup        : { *(.rofixup) }
   .sdata2         :
   {
     *(.sdata2 .sdata2.* .gnu.linkonce.s2.*)
@@ -184,10 +187,11 @@ SECTIONS
   .data           :
   {
     *(.data .data.* .gnu.linkonce.d.*)
+    *(.tm_clone_table)
     SORT(CONSTRUCTORS)
   }
   .data1          : { *(.data1) }
-  .got            : { *(.got.plt) *(.got) }
+  .got            : { *(.got.plt) *(.got) *(.got.funcdesc) }
   /* We want the small data sections together, so single-instruction offsets
      can access them all, and initialized data all before uninitialized, so
      we can shorten the on-disk segment size.  */
@@ -270,6 +274,12 @@ SECTIONS
   /* DWARF 3 */
   .debug_pubtypes 0 : { *(.debug_pubtypes) }
   .debug_ranges   0 : { *(.debug_ranges) }
+  /* DWARF 5 */
+  .debug_loclists 0 : { *(.debug_loclists) }
+  .debug_rnglists 0 : { *(.debug_rnglists) }
+  .debug_addr     0 : { *(.debug_addr) }
+  .debug_line_str 0 : { *(.debug_line_str) }
+  .debug_str_offsets 0 : { *(.debug_str_offsets) }
   .gnu.attributes 0 : { KEEP (*(.gnu.attributes)) }
   /DISCARD/ : { *(.note.GNU-stack) *(.gnu_debuglink) }
 }

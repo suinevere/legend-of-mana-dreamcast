@@ -3,7 +3,7 @@
  | Description: The Dreamcast memory map behind lom_prefix.h: packet tags cover all 16 MB of main RAM, and regions of states D1 never reaches point at the trap buffer.
  | Author: suinevere
  | Dependencies: main_globals_dc.c
- | Globals: lom_trap_buffer
+ | Globals: lom_trap_buffer, lom_secondary_overlay
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -33,15 +33,27 @@
 #define LOM_RENDER_ARENA_SIZE 0x20000
 
 /*----------------------
- | SECONDARY_OVERLAY_ADDRESS / SECONDARY_OVERLAY_AT
- | Description: The PS1 secondary overlay region at 0x80140000; overlays load at their own arena addresses, and GNAME and WSEL render areas are past D1, so it traps.
+ | LOM_SECONDARY_OVERLAY_SIZE
+ | Description: Bytes in lom_secondary_overlay: the PS1 secondary region up to the end of WSEL's two 0x80CC-byte render buffers at +0x30000.
  | Author: suinevere
- | Dependencies: N/A
- | Globals: lom_trap_buffer
+ | Dependencies: main_globals_dc.c, common/render_context.h, overlays/wsel/wsel.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define LOM_SECONDARY_OVERLAY_SIZE 0x401A0
+
+/*----------------------
+ | SECONDARY_OVERLAY_ADDRESS / SECONDARY_OVERLAY_AT
+ | Description: The PS1 secondary overlay region at 0x80140000; overlays load at their own arena addresses, so it only holds GNAME's and WSEL's render buffers.
+ | Author: suinevere
+ | Dependencies: main_globals_dc.c
+ | Globals: lom_secondary_overlay
  | Params: offset -- byte offset
  | Returns: N/A
  ----------------------*/
-#define SECONDARY_OVERLAY_ADDRESS ((unsigned int)lom_trap_buffer)
+extern unsigned char lom_secondary_overlay[];
+#define SECONDARY_OVERLAY_ADDRESS ((unsigned int)lom_secondary_overlay)
 #define SECONDARY_OVERLAY_AT(offset) (SECONDARY_OVERLAY_ADDRESS + (offset))
 
 /*----------------------

@@ -58,6 +58,8 @@ SATURN = Target("saturn", True, None, True)
 # | DREAMCAST
 # | Description: Dreamcast profile: little-endian PS1 bytes kept as they are, each ported overlay given its own code and data region in the arena.
 # |              TITLE's data region is 0xC0000 because its packed blob is 0xB03E4 bytes.
+# |              GNAME's data region holds its 0xCB18-byte blob and bss with room to spare; its render contexts live in main.
+# |              WSEL's data region holds its 0x782DC-byte blob; its render buffers live in main.
 # | Author: suinevere
 # | Dependencies: Region, ARENA_BASE
 # | Globals: N/A
@@ -67,6 +69,8 @@ SATURN = Target("saturn", True, None, True)
 DREAMCAST = Target("dreamcast", False, {
     "checkps": Region(0x8C800000, 0x40000, 0x8C840000, 0x40000),
     "title": Region(0x8C880000, 0x40000, 0x8C8C0000, 0xC0000),
+    "gname": Region(0x8C980000, 0x40000, 0x8C9C0000, 0x40000),
+    "wsel": Region(0x8CA00000, 0x40000, 0x8CA40000, 0xC0000),
 }, False)
 
 #----------------------

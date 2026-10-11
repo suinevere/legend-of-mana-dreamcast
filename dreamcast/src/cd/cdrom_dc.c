@@ -54,10 +54,37 @@
  ----------------------*/
 #define CD_SECTOR_BYTES 2048
 
+/*----------------------
+ | s_index_blob
+ | Description: The resource index blob read from LOM_CD_ROOT at init, keyed by PS1 resource index as resource_index.c and convert_disc.py pack it.
+ | Author: suinevere
+ | Dependencies: resource_index.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 static u8 s_index_blob[4 + CDROM_INDEX_BLOB_RESOURCE_MAX * 8];
 
+/*----------------------
+ | g_cd_data_ready_pending
+ | Description: Nonzero while a queued read's disc copy is outstanding; cdrom_process_state clears it once the copy and any deferred callback complete.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 u8 g_cd_data_ready_pending;
 
+/*----------------------
+ | s_halt_message
+ | Description: Static buffer cdrom_format_resource_halt writes a resource-naming halt message into.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 static char s_halt_message[CDROM_HALT_MESSAGE_MAX];
 
 /*----------------------
@@ -77,6 +104,15 @@ typedef struct
     s32 size;
 } PendingCallbackRead;
 
+/*----------------------
+ | s_pending_callback_read
+ | Description: The single in-flight PendingCallbackRead; cdrom_dc.c queues reads one at a time, so one slot suffices.
+ | Author: suinevere
+ | Dependencies: PendingCallbackRead
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 static PendingCallbackRead s_pending_callback_read;
 
 /*----------------------

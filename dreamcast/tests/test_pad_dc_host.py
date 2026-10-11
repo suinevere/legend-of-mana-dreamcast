@@ -1,8 +1,8 @@
 #----------------------
 # | test_pad_dc_host.py
-# | Description: Builds and runs the host C test for the Dreamcast Maple-to-PS1 pad mapping with the host gcc.
+# | Description: Builds and runs the host C test for the Dreamcast Maple-to-PS1 pad mapping and its pad-script reverse mapping with the host gcc.
 # | Author: suinevere
-# | Dependencies: tests/host/test_pad_dc_map.c, src/input/pad_dc_map.c
+# | Dependencies: tests/host/test_pad_dc_map.c, src/input/pad_dc_map.c, src/input/pad_dc_script_map.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -28,7 +28,8 @@ def test_pad_dc_map_host():
                     "-I", input_dir, "-isystem", os.path.join(REPO, "include"),
                     "-o", exe,
                     os.path.join(DC, "tests", "host", "test_pad_dc_map.c"),
-                    os.path.join(input_dir, "pad_dc_map.c")], check=True)
+                    os.path.join(input_dir, "pad_dc_map.c"),
+                    os.path.join(input_dir, "pad_dc_script_map.c")], check=True)
     result = subprocess.run([exe], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout
     assert "OK" in result.stdout

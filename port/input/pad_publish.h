@@ -49,6 +49,15 @@ typedef struct PadSample
     uint16_t held_buttons;
 } PadSample;
 
+/*----------------------
+ | pad_publish_port
+ | Description: Replays a frame's sample into a decomp ControllerPortState, defined by main/controller.h, which this header only forward-declares to avoid depending on it.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: port -- ControllerPortState, sample -- encoded sample, vblanks -- vblanks since the last publish, fast_repeat, sample_unavailable -- CONTROLLER_STATE flags
+ | Returns: N/A
+ ----------------------*/
 struct ControllerPortState;
 void pad_publish_port(struct ControllerPortState *port, PadSample sample, int vblanks, int fast_repeat, int sample_unavailable);
 

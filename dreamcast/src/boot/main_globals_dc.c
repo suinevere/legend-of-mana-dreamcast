@@ -2,8 +2,8 @@
  | main_globals_dc.c
  | Description: Dreamcast definitions of the PS1 fixed-address buffers lom_prefix.h redirects to, typed main-executable globals with their PS1 initial values, and the libc references real overlays resolve from main's ELF.
  | Author: suinevere
- | Dependencies: lom_prefix.h, lom_platform_memory.h, main/main.h, main/game_state.h, main/audio/game_audio.h, main/field_runtime.h, stdlib.h, saturn/src/boot/main_globals.c
- | Globals: the lom_* fixed-address buffers, the g_* state listed below, g_overlay_exit, g_overlay_abort, g_overlay_abs
+ | Dependencies: lom_prefix.h, lom_platform_memory.h, main/main.h, main/game_state.h, main/audio/game_audio.h, main/field_runtime.h, main/audio/akao.h, common/saved_game.h, overlays/field/field_text.h, stdlib.h, saturn/src/boot/main_globals.c
+ | Globals: the lom_* fixed-address buffers, the g_* main and resident-FIELD state listed below, g_overlay_exit, g_overlay_abort, g_overlay_abs
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -13,7 +13,19 @@
 #include "main/game_state.h"
 #include "main/audio/game_audio.h"
 #include "main/field_runtime.h"
+#include "main/audio/akao.h"
+#include "common/saved_game.h"
+#include "overlays/field/field_text.h"
 
+/*----------------------
+ | lom_resident_state / lom_load_buffer
+ | Description: PS1 fixed-address scratch state and FIELD's CD load buffer, sized as the Saturn's but aligned for the SH4 instead of pinned to LWRAM.
+ | Author: suinevere
+ | Dependencies: lom_prefix.h, lom_platform_memory.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 u8 lom_resident_state[0x1000] __attribute__((aligned(32)));
 u8 lom_load_buffer[LOM_LOAD_BUFFER_SIZE] __attribute__((aligned(32)));
 
@@ -27,11 +39,32 @@ u8 lom_load_buffer[LOM_LOAD_BUFFER_SIZE] __attribute__((aligned(32)));
  | Returns: N/A
  ----------------------*/
 u8 lom_sound_bank[0x4000] __attribute__((aligned(32)));
+
+/*----------------------
+ | lom_font_buffer / lom_scratchpad / lom_text_cache / lom_trap_buffer / lom_render_arena
+ | Description: The remaining PS1 fixed-address buffers lom_prefix.h redirects to, sized as the Saturn's and 32-byte aligned for the SH4.
+ | Author: suinevere
+ | Dependencies: lom_prefix.h, lom_platform_memory.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 u8 lom_font_buffer[0xBE00] __attribute__((aligned(32)));
 u8 lom_scratchpad[0x400] __attribute__((aligned(32)));
 u8 lom_text_cache[0x3000] __attribute__((aligned(32)));
 u8 lom_trap_buffer[0x100] __attribute__((aligned(32)));
 u8 lom_render_arena[LOM_RENDER_ARENA_SIZE] __attribute__((aligned(32)));
+
+/*----------------------
+ | lom_secondary_overlay
+ | Description: SECONDARY_OVERLAY_ADDRESS's storage, sized so main.c's GNAME_RENDER_ADDRESS (+0x20000) and WSEL_RENDER_ADDRESS (+0x30000) hold their render buffers.
+ | Author: suinevere
+ | Dependencies: lom_platform_memory.h, src/main/main.c (GNAME_RENDER_ADDRESS, WSEL_RENDER_ADDRESS)
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+u8 lom_secondary_overlay[LOM_SECONDARY_OVERLAY_SIZE] __attribute__((aligned(32)));
 
 /*----------------------
  | lom_primary_upper
@@ -44,6 +77,15 @@ u8 lom_render_arena[LOM_RENDER_ARENA_SIZE] __attribute__((aligned(32)));
  ----------------------*/
 extern u8 lom_primary_upper[LOM_RENDER_ARENA_SIZE] __attribute__((alias("lom_render_arena")));
 
+/*----------------------
+ | g_game_state / g_previous_game_state / g_field_spawn_id / D_8003EC8C
+ | Description: Core game-state globals from the PS1 executable's data segment, zero-initialised like the original.
+ | Author: suinevere
+ | Dependencies: main/game_state.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 u32 g_game_state;
 u32 g_previous_game_state;
 u32 g_field_spawn_id;
@@ -60,6 +102,15 @@ s32 D_8003EC8C;
  ----------------------*/
 u16 g_field_scene_id;
 
+/*----------------------
+ | g_field_sound_bank_id / g_field_audio_timer / g_save_compatibility_tag / g_field_music_id / g_field_object_id / D_80042FD0 / g_field_secondary_music_id / g_music_track_index / g_script_pair_value_49 / g_playtime_vsync_origin
+ | Description: FIELD's audio and save-compatibility state from the PS1 executable's data segment, zero-initialised like the original.
+ | Author: suinevere
+ | Dependencies: main/audio/game_audio.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 s32 g_field_sound_bank_id;
 s32 g_field_audio_timer;
 s32 g_save_compatibility_tag;
@@ -108,6 +159,60 @@ FieldRenderHalf *g_field_current_render_half;
 s32 g_text_clut_base;
 s32 g_text_cursor_x;
 s32 g_text_cursor_y;
+
+/*----------------------
+ | g_pad_input / g_pad_input_inject / g_frame_counter / g_saved_game_ctx
+ | Description: FIELD's delivered pad buttons, frame counter and saved-game pointer that GNAME reads, zero like FIELD's freshly loaded databin.
+ | Author: suinevere
+ | Dependencies: main/main.h, common/saved_game.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+s32 g_pad_input;
+s32 g_pad_input_inject;
+s32 g_frame_counter;
+SavedGameLayout *g_saved_game_ctx;
+
+/*----------------------
+ | g_field_buffered_input / g_field_modal_state / g_field_primary_held_buttons / g_field_primary_repeat_delay / g_field_secondary_held_buttons / g_field_secondary_repeat_delay
+ | Description: field_update_input_repeat's held-button and repeat-delay state, which GNAME's frame loop drives.
+ | Author: suinevere
+ | Dependencies: src/overlays/field/ui/field_modal_runtime.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+s32 g_field_buffered_input;
+s32 g_field_modal_state;
+s32 g_field_primary_held_buttons;
+s32 g_field_primary_repeat_delay;
+s32 g_field_secondary_held_buttons;
+s32 g_field_secondary_repeat_delay;
+
+/*----------------------
+ | g_field_instrument_bank / g_field_song_handles / g_field_song_volume
+ | Description: FIELD's resident instrument bank pointer, song handles and song volume, which its entry music and sound effects use.
+ | Author: suinevere
+ | Dependencies: src/overlays/field/runtime/field_audio_runtime.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+AkaoHeader *g_field_instrument_bank;
+s32 g_field_song_handles[2];
+s32 g_field_song_volume;
+
+/*----------------------
+ | g_field_text_macros
+ | Description: FIELD's sixteen text macro slots (PS1 0x80122B80), which the text renderer expands.
+ | Author: suinevere
+ | Dependencies: overlays/field/field_text.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+FieldTextMacro g_field_text_macros[16];
 
 /*----------------------
  | g_overlay_exit

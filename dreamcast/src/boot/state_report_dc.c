@@ -1,8 +1,8 @@
 /*----------------------
  | state_report_dc.c
- | Description: Serial progress report for the Dreamcast boot: logs every g_game_state change and, once per 60 vblanks, the primitives drawn in that second.
+ | Description: Serial progress report for the Dreamcast boot: logs every g_game_state change, once per 60 vblanks the primitives drawn, and drives the frame probe; under LOM_PAD_SCRIPT also the pad script.
  | Author: suinevere
- | Dependencies: lom_prefix.h, main/game_state.h, dc_system.h, vsync_pacer.h, libgpu_dc.h
+ | Dependencies: lom_prefix.h, main/game_state.h, dc_system.h, vsync_pacer.h, libgpu_dc.h, frame_probe.h, pad_script.h (LOM_PAD_SCRIPT)
  | Globals: g_game_state, s_reported_state, s_next_report
  | Params: N/A
  | Returns: N/A
@@ -13,6 +13,11 @@
 #include "dc_system.h"
 #include "vsync_pacer.h"
 #include "libgpu_dc.h"
+#include "frame_probe.h"
+
+#ifdef LOM_PAD_SCRIPT
+#include "pad_script.h"
+#endif
 
 /*----------------------
  | STATE_REPORT_PERIOD
@@ -49,9 +54,9 @@ static unsigned s_next_report = STATE_REPORT_PERIOD;
 
 /*----------------------
  | state_report_poll
- | Description: Logs "state <n>" when g_game_state changed since the last poll, and "frame <count> prims <n>" once each period has passed.
+ | Description: Logs "state <n>" on a g_game_state change and "frame <count> prims <n>" each period, ticks the frame probe and, under LOM_PAD_SCRIPT, advances the pad script.
  | Author: suinevere
- | Dependencies: dc_log, vsync_count, dc_frame_primitives
+ | Dependencies: dc_log, vsync_count, dc_frame_primitives, frame_probe_vblank, pad_script_poll (LOM_PAD_SCRIPT)
  | Globals: g_game_state, s_reported_state, s_next_report
  | Params: N/A
  | Returns: N/A
@@ -70,4 +75,8 @@ void state_report_poll(void)
         s_next_report = now + STATE_REPORT_PERIOD;
         dc_log("frame %u prims %u", now, dc_frame_primitives());
     }
+    frame_probe_vblank();
+#ifdef LOM_PAD_SCRIPT
+    pad_script_poll(now, (int)g_game_state);
+#endif
 }

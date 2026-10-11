@@ -1,8 +1,8 @@
 #----------------------
 # | test_overlay_link_build.py
-# | Description: In lom-dc, checks lom.elf's overlay arena and heap start, then links a stand-in CHECKPS overlay against lom.elf with overlay_link.py and checks its packed OVL15C.BIN.
+# | Description: In lom-dc, checks lom.elf's overlay arena, heap start, GNAME and WSEL regions and WSEL's entry, then links a stand-in CHECKPS overlay against lom.elf with overlay_link.py and checks its packed OVL15C.BIN.
 # | Author: suinevere
-# | Dependencies: makefile, dreamcast.ld, tests/overlay/checkps_probe.c, ../port/tools/overlay_link.py, gen/checkps_symbols.ld, cd/data/OVL/OVL15.BIN
+# | Dependencies: makefile, dreamcast.ld, tests/overlay/checkps_probe.c, ../port/tools/overlay_link.py, ../port/tools/targets.py, gen/checkps_symbols.ld, cd/data/OVL/OVL15.BIN
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -12,12 +12,16 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 
 import pytest
 
 DC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 REPO = os.path.dirname(DC)
 WORK = os.path.join(DC, "build", "test_overlay")
+sys.path.insert(0, os.path.join(REPO, "port", "tools"))
+
+import targets
 
 STEPS = " && ".join([
     "make all",
@@ -37,6 +41,16 @@ def nm_map(path):
             parts = line.split()
             if len(parts) == 3:
                 out[parts[2]] = int(parts[0], 16)
+    return out
+
+
+def nm_types(path):
+    out = {}
+    with open(path) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) == 3:
+                out[parts[2]] = parts[1]
     return out
 
 
@@ -63,6 +77,35 @@ def test_lom_elf_places_the_arena_and_starts_the_heap_above_it(linked):
     assert main["_end"] == 0x8CE00000
     assert main["_run_checkps"] == 0x8C800000
     assert main["_run_title"] == 0x8C880000
+    assert main["_gname_run"] == 0x8C980000
+
+
+def region_sits_in_the_arena_clear_of(name, others):
+    regions = targets.DREAMCAST.regions
+    own = regions[name]
+    spans = [(own.code_base, own.code_base + own.code_size), (own.data_base, own.data_base + own.data_size)]
+    for start, end in spans:
+        assert targets.ARENA_BASE <= start < end <= targets.ARENA_END
+        for other in others:
+            r = regions[other]
+            for o_start, o_end in ((r.code_base, r.code_base + r.code_size), (r.data_base, r.data_base + r.data_size)):
+                assert end <= o_start or o_end <= start, (other, hex(start), hex(o_start))
+
+
+def test_gname_region_sits_in_the_arena_clear_of_checkps_and_title():
+    region_sits_in_the_arena_clear_of("gname", ("checkps", "title"))
+
+
+def test_wsel_region_sits_in_the_arena_clear_of_checkps_title_and_gname():
+    region_sits_in_the_arena_clear_of("wsel", ("checkps", "title", "gname"))
+
+
+def test_wsel_main_is_wsel_code_not_a_trap_buffer_alias(linked):
+    _, main, _, _ = linked
+    types = nm_types(os.path.join(WORK, "lom.nm"))
+    assert main["_wsel_main"] == targets.DREAMCAST.regions["wsel"].code_base
+    assert main["_wsel_main"] != main["_lom_trap_buffer"]
+    assert types["_wsel_main"] not in "BbDd"
 
 
 def test_probe_header_matches_the_checkps_regions(linked):

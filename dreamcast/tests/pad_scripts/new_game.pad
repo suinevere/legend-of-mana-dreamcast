@@ -1,0 +1,27 @@
+# New game path for the D2 captures; timings are vblanks at 60 Hz.
+wait state 2
+wait 600
+capture title
+press CROSS 6
+wait 240
+capture gname-select-character
+press CROSS 6
+wait 180
+capture gname-select-weapon
+press CROSS 6
+wait state 3
+wait 300
+capture gname-name-entry
+press CROSS 6
+wait state 5
+wait 180
+capture wsel-room
+press CROSS 6
+wait 120
+capture wsel-prompt
+press CROSS 6
+wait 120
+capture wsel-cursor
+press CROSS 6
+wait 120
+capture wsel-cursor-confirmed

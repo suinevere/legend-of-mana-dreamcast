@@ -42,3 +42,12 @@ def test_saturn_render_is_unchanged():
     c_text, _ = gp.render(["foo"], [])
     assert 'saturn_halt("FIELD function foo not ported yet");' in c_text
     assert '#include "saturn_system.h"\n' in c_text
+
+
+def test_a_function_inside_another_overlays_sized_data_stays_a_stub():
+    lines = ["g_table = 0x800C3000; // size:0x1000 allow_addend:True",
+             "field_rebuild = 0x800C3BB0;",
+             "g_inside = 0x800C3104;"]
+    aliases = gp.resolve_aliases(["field_rebuild", "g_inside"], lines, {"g_table"}, gp.OVERLAY_SLOTS["dreamcast"],
+                                 None, gp.OVERLAY_BUFFER_RANGES["dreamcast"], code_ranges=[(0x800C3800, 0x800C3C00)])
+    assert aliases == {"g_inside": "_g_table + 0x104"}
