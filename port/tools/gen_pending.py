@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import overlay_rules  # noqa: E402
+import targets  # noqa: E402
 
 #----------------------
 # | CODE_YAMLS
@@ -297,7 +298,9 @@ WMAP_SAVE_BIG_ENDIAN_OFFSETS = {
 
 #----------------------
 # | resolve_aliases
-# | Description: Maps names (splat auto names by their own address) to an equal-address defined symbol outside the secondary range, an offset into a defined size:/allow_addend symbol that contains them, a databin slot address, or a redirected buffer; names in offset_overrides get that fixed container and offset instead.
+# | Description: Maps names (splat auto names by their own address) to an equal-address defined symbol outside the secondary range.
+# |              Or an offset into a defined size:/allow_addend symbol that contains them, a databin slot address, or a redirected buffer.
+# |              Names in offset_overrides get that fixed container and offset instead.
 # |              A function (classify's rule over code_ranges) is never placed inside a container, since another overlay's data can span its address.
 # | Author: suinevere
 # | Dependencies: SYMBOL_LINE, SIZED_SYMBOL, SPLAT_AUTO_NAME, SECONDARY_OVERLAY_RANGE, slot_address, BUFFER_RANGES, classify
@@ -390,15 +393,30 @@ BENIGN = {
 }
 
 #----------------------
-# | OVERLAY_BENIGN
-# | Description: Per --overlay run, the BENIGN table it applies; WMAP's pending functions all halt.
+# | DREAMCAST_BENIGN
+# | Description: Pending Dreamcast functions GNAME's path reaches with no input once FIELD got its own overlay (Task 6); McxCardType is Saturn's memory-card probe, absent hardware on Dreamcast; akao_set_master_volume is sound, stubbed until D6.
 # | Author: suinevere
-# | Dependencies: BENIGN
+# | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_BENIGN = {"field": BENIGN, "wmap": {}, "dreamcast": {}}
+DREAMCAST_BENIGN = {
+    "McxCardType": "zero",
+    "cdrom_set_audio_volume": "void",
+    "akao_set_master_volume": "zero",
+}
+
+#----------------------
+# | OVERLAY_BENIGN
+# | Description: Per --overlay run, the BENIGN table it applies; WMAP's pending functions all halt.
+# | Author: suinevere
+# | Dependencies: BENIGN, DREAMCAST_BENIGN
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+OVERLAY_BENIGN = {"field": BENIGN, "wmap": {}, "dreamcast": DREAMCAST_BENIGN}
 
 
 #----------------------
@@ -431,41 +449,46 @@ class UnmatchedBenignNameError(Exception):
 
 #----------------------
 # | render_benign_function
-# | Description: Builds one BENIGN stub: logs once through saturn_log_once, then returns void, zero or its second argument unchanged.
+# | Description: Builds one BENIGN stub: logs once (saturn_log_once on Saturn, or a static-flag-guarded dc_log call on Dreamcast), then returns void, zero or its second argument unchanged.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
-# | Params: name -- function name, kind -- "void", "zero" or "arg:<param>"
+# | Params: name -- function name, kind -- "void", "zero" or "arg:<param>", overlay -- OVERLAY_LABELS key, selecting the logging call
 # | Returns: C source text for the one function
 #----------------------
-def render_benign_function(name, kind):
+def render_benign_function(name, kind, overlay="field"):
+    if overlay == "dreamcast":
+        log_dep = "dc_log"
+        log_line = ("    static int logged;\n    if (!logged) { logged = 1; dc_log(\"field: %s skipped\"); }\n" % name)
+    else:
+        log_dep = "saturn_log_once"
+        log_line = "    saturn_log_once(\"field: %s skipped\");\n" % name
     if kind == "void":
         signature = "void lom_pending_%s(void)" % name
-        body = "    saturn_log_once(\"field: %s skipped\");\n" % name
+        body = log_line
     elif kind == "zero":
         signature = "int lom_pending_%s(void)" % name
-        body = "    saturn_log_once(\"field: %s skipped\");\n    return 0;\n" % name
+        body = log_line + "    return 0;\n"
     elif kind.startswith("arg:"):
         param = kind[len("arg:"):]
         signature = "void *lom_pending_%s(void *lom_pending_unused0, void *%s)" % (name, param)
-        body = "    saturn_log_once(\"field: %s skipped\");\n    return %s;\n" % (name, param)
+        body = log_line + "    return %s;\n" % param
     else:
         raise ValueError("unknown BENIGN kind for %s: %s" % (name, kind))
-    return (
+    header = (
         "\n/*----------------------\n"
         " | %s\n"
         " | Description: Benign; Home's path reaches it with no input, so it logs once and returns safely instead of halting.\n"
         " | Author: suinevere\n"
-        " | Dependencies: saturn_log_once\n"
+        " | Dependencies: %s\n"
         " | Globals: N/A\n"
         " | Params: N/A\n"
         " | Returns: N/A\n"
-        " ----------------------*/\n"
-        "%s __asm__(\"_%s\");\n"
-        "%s\n"
-        "{\n"
-        "%s"
-        "}\n" % (name, signature, name, signature, body)
+        " ----------------------*/\n" % (name, log_dep)
+    )
+    return (
+        header
+        + "%s __asm__(\"_%s\");\n%s\n{\n%s}\n" % (signature, name, signature, body)
     )
 
 
@@ -499,7 +522,7 @@ def render(functions, data, aliases=None, benign=None, overlay="field"):
     ]
     for name in sorted(functions):
         if benign and name in benign:
-            c_parts.append(render_benign_function(name, benign[name]))
+            c_parts.append(render_benign_function(name, benign[name], overlay))
             continue
         c_parts.append(
             "\n/*----------------------\n"
@@ -630,10 +653,110 @@ def run_nm(nm, objects):
 
 
 #----------------------
-# | main
-# | Description: Collects the given objects' unresolved names, aliases those --objects or --alias-defined resolve, classifies the rest and writes the outputs.
+# | defined_by
+# | Description: Names the given objects and linker scripts define.
 # | Author: suinevere
-# | Dependencies: run_nm, parse_nm, parse_ld_defined, resolve_aliases, classify, render, code_range
+# | Dependencies: run_nm, parse_nm, parse_ld_defined, LINKER_SCRIPT_SUFFIXES
+# | Globals: N/A
+# | Params: nm -- nm executable, paths -- object and linker script paths
+# | Returns: set of names
+#----------------------
+def defined_by(nm, paths):
+    _, names = parse_nm(run_nm(nm, [p for p in paths if not p.endswith(LINKER_SCRIPT_SUFFIXES)]))
+    for path in paths:
+        if path.endswith(LINKER_SCRIPT_SUFFIXES):
+            with open(path, "r", encoding="utf-8") as handle:
+                names |= parse_ld_defined(handle.read())
+    return names
+
+
+#----------------------
+# | GROUP_SCRIPT
+# | Description: Matches an overlay group's data script file name, <overlay>_symbols.ld, capturing the overlay name.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+GROUP_SCRIPT = re.compile(r"^(\w+)_symbols\.ld$")
+
+
+#----------------------
+# | group_overlay
+# | Description: Names the overlay an --overlay-group belongs to, from its data script, when the Dreamcast gives that overlay a region.
+# | Author: suinevere
+# | Dependencies: GROUP_SCRIPT, targets.DREAMCAST
+# | Globals: N/A
+# | Params: group -- object and script paths
+# | Returns: overlay name, or None
+#----------------------
+def group_overlay(group):
+    for path in group:
+        match = GROUP_SCRIPT.match(os.path.basename(path))
+        if match and match.group(1) in targets.DREAMCAST.regions:
+            return match.group(1)
+    return None
+
+
+#----------------------
+# | own_data_aliases
+# | Description: Maps names that fall inside an overlay's own packed data, by symbol file or splat auto-name address, to their Dreamcast data-region address.
+# | Author: suinevere
+# | Dependencies: SYMBOL_LINE, SPLAT_AUTO_NAME, overlay_rules.target_spec, overlay_rules.packed_offset, targets.DREAMCAST
+# | Globals: N/A
+# | Params: names -- unresolved names, symbol_lines -- symbol_addrs lines, overlay -- overlay name
+# | Returns: dict of name to address
+#----------------------
+def own_data_aliases(names, symbol_lines, overlay):
+    spec = overlay_rules.target_spec(next(s for s in overlay_rules.OVERLAYS.values() if s.name == overlay), targets.DREAMCAST)
+    base = targets.DREAMCAST.regions[overlay].data_base
+    addresses = {}
+    for line in symbol_lines:
+        match = SYMBOL_LINE.match(line)
+        if match:
+            addresses.setdefault(match.group(1), []).append(int(match.group(2), 16))
+    out = {}
+    for name in sorted(names):
+        own = addresses.get(name, [int(name[-8:], 16)] if SPLAT_AUTO_NAME.match(name) else [])
+        for addr in own:
+            offset = overlay_rules.packed_offset(addr, spec)
+            if offset is not None:
+                out[name] = base + offset
+                break
+    return out
+
+
+#----------------------
+# | render_group
+# | Description: Builds an overlay's <overlay>_pending.ld: its own unnamed data at a fixed address. dependency_aliases adds a dependent's equal-address names (e.g. GNAME's play_menu_sfx) aliased to this overlay's own symbol, so linking the dependent against this overlay's elf resolves them.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: overlay -- overlay name, aliases -- dict of name to data-region address (int), dependency_aliases -- dict of name to linker expression (str, e.g. "_field_play_sound"), for a dependent group's names this overlay's own objects resolve by equal PS1 address
+# | Returns: linker script text
+#----------------------
+def render_group(overlay, aliases, dependency_aliases=None):
+    lines = ["/*----------------------",
+             " | %s_pending.ld" % overlay,
+             " | Description: Generated by port/tools/gen_pending.py (make -C dreamcast pending); %s's own data its symbol files leave unnamed, plus any dependent overlay's equal-address names." % overlay.upper(),
+             " | Author: suinevere",
+             " | Dependencies: gen/%s_symbols.ld" % overlay,
+             " | Globals: N/A",
+             " | Params: N/A",
+             " | Returns: N/A",
+             " ----------------------*/"]
+    lines += ["_%s = 0x%08X;" % (name, addr) for name, addr in sorted(aliases.items())]
+    lines += ["_%s = %s;" % (name, target) for name, target in sorted((dependency_aliases or {}).items())]
+    return "\n".join(lines) + "\n"
+
+
+#----------------------
+# | main
+# | Description: Collects names the objects, or each --overlay-group (one overlay's objects and data script, linked against the objects alone, plus any --group-links dependency's own objects), leave unresolved.
+# |              A group's own unnamed data goes to <overlay>_pending.ld in --group-out-dir; the rest is aliased, stubbed and written as before.
+# | Author: suinevere
+# | Dependencies: run_nm, parse_nm, defined_by, group_overlay, own_data_aliases, render_group, resolve_aliases, classify, render, code_range
 # | Globals: CODE_YAMLS
 # | Params: argv -- command-line arguments
 # | Returns: 0 on success, 1 on an unknown symbol
@@ -647,46 +770,90 @@ def main(argv=None):
     parser.add_argument("--symbols", nargs="+", required=True)
     parser.add_argument("--defined", nargs="*", default=[])
     parser.add_argument("--alias-defined", nargs="*", default=[])
+    parser.add_argument("--overlay-group", nargs="+", action="append", default=[])
+    parser.add_argument("--group-links", nargs="+", action="append", default=[],
+                        help="NAME:DEP pairs; NAME's group also resolves against DEP's group objects (e.g. gname:field)")
+    parser.add_argument("--group-out-dir", default=None)
     parser.add_argument("--out-c", required=True)
     parser.add_argument("--out-ld", required=True)
     parser.add_argument("--nm", default="sh2eb-elf-nm")
     parser.add_argument("--yamls", nargs="+", default=[os.path.join(repo, p) for p in CODE_YAMLS])
     args = parser.parse_args(argv)
 
-    undefined, defined = parse_nm(run_nm(args.nm, args.objects))
-    other_objects = [p for p in args.defined if not p.endswith(LINKER_SCRIPT_SUFFIXES)]
-    _, other_defined = parse_nm(run_nm(args.nm, other_objects))
-    defined |= other_defined
-    for path in args.defined:
-        if path.endswith(LINKER_SCRIPT_SUFFIXES):
-            with open(path, "r", encoding="utf-8") as handle:
-                defined |= parse_ld_defined(handle.read())
-
-    _, targets = parse_nm(run_nm(args.nm, args.objects))
-    alias_objects = [p for p in args.alias_defined if not p.endswith(LINKER_SCRIPT_SUFFIXES)]
-    _, alias_object_defined = parse_nm(run_nm(args.nm, alias_objects))
-    targets |= alias_object_defined
-    for path in args.alias_defined:
-        if path.endswith(LINKER_SCRIPT_SUFFIXES):
-            with open(path, "r", encoding="utf-8") as handle:
-                targets |= parse_ld_defined(handle.read())
-
     symbol_lines = []
     for path in args.symbols:
         with open(path, "r", encoding="utf-8") as handle:
             symbol_lines.extend(handle.read().splitlines())
 
+    undefined, object_defined = parse_nm(run_nm(args.nm, args.objects))
+    resolved = object_defined | defined_by(args.nm, args.defined)
+    missing = undefined - resolved
+
+    group_by_overlay = {group_overlay(group): group for group in args.overlay_group}
+    links = {}
+    for pair in args.group_links:
+        for item in pair:
+            name, dep = item.split(":", 1)
+            links.setdefault(name, []).append(dep)
+
+    group_undefined_by_overlay = {}
+    group_defined_by_overlay = {}
+    for group in args.overlay_group:
+        overlay = group_overlay(group)
+        group_undefined_by_overlay[overlay], _ = parse_nm(run_nm(args.nm, [p for p in group if not p.endswith(LINKER_SCRIPT_SUFFIXES)]))
+        group_defined_by_overlay[overlay] = defined_by(args.nm, group)
+
+    #----------------------
+    # | Cross-overlay equal-address aliasing
+    # | Description: A dependent's names left unresolved by exact name (e.g. GNAME's play_menu_sfx) go through resolve_aliases against each dependency's own defined names (field_play_sound shares its PS1 address). A hit lands in the dependency's own pending.ld, not the dependent's, and drops out of the dependent's own missing contribution.
+    #----------------------
+    dependency_aliases_by_overlay = {}
+    consumed_by_dependent = {}
+    for dependent, deps in links.items():
+        if dependent not in group_undefined_by_overlay:
+            continue
+        remaining = group_undefined_by_overlay[dependent] - resolved - group_defined_by_overlay[dependent]
+        for dep in deps:
+            remaining -= group_defined_by_overlay.get(dep, set())
+        if not remaining:
+            continue
+        for dep in deps:
+            dep_defined = group_defined_by_overlay.get(dep)
+            if not dep_defined:
+                continue
+            found = resolve_aliases(remaining, symbol_lines, dep_defined, OVERLAY_SLOTS[args.overlay], None,
+                                    OVERLAY_BUFFER_RANGES[args.overlay])
+            if found:
+                dependency_aliases_by_overlay.setdefault(dep, {}).update(found)
+                consumed_by_dependent.setdefault(dependent, set()).update(found)
+
+    for group in args.overlay_group:
+        overlay = group_overlay(group)
+        linked_defined = set()
+        for dep in links.get(overlay, []):
+            linked_defined |= group_defined_by_overlay.get(dep, set())
+        group_missing = (group_undefined_by_overlay[overlay] - resolved - group_defined_by_overlay[overlay]
+                         - linked_defined - consumed_by_dependent.get(overlay, set()))
+        if args.group_out_dir is not None and overlay is not None:
+            local = own_data_aliases(group_missing, symbol_lines, overlay)
+            with open(os.path.join(args.group_out_dir, "%s_pending.ld" % overlay), "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(render_group(overlay, local, dependency_aliases_by_overlay.get(overlay)))
+            group_missing -= set(local)
+        missing |= group_missing
+    alias_targets = object_defined | defined_by(args.nm, args.alias_defined)
+
     ranges = [code_range(path) for path in args.yamls]
     overrides = WMAP_SAVE_BIG_ENDIAN_OFFSETS if args.overlay == "wmap" else None
     try:
-        aliases = resolve_aliases(undefined - defined, symbol_lines, targets, OVERLAY_SLOTS[args.overlay], overrides,
+        aliases = resolve_aliases(missing, symbol_lines, alias_targets, OVERLAY_SLOTS[args.overlay], overrides,
                                   OVERLAY_BUFFER_RANGES[args.overlay], ranges)
-        functions, data = classify(undefined - defined - set(aliases), symbol_lines, ranges)
+        functions, data = classify(missing - set(aliases), symbol_lines, ranges)
     except UnknownSymbolError as error:
         print("gen_pending: %s" % error, file=sys.stderr)
         return 1
 
-    c_text, ld_text = render(functions, data, aliases, benign=OVERLAY_BENIGN[args.overlay], overlay=args.overlay)
+    applicable_benign = {name: kind for name, kind in OVERLAY_BENIGN[args.overlay].items() if name in functions}
+    c_text, ld_text = render(functions, data, aliases, benign=applicable_benign, overlay=args.overlay)
     with open(args.out_c, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(c_text)
     with open(args.out_ld, "w", encoding="utf-8", newline="\n") as handle:

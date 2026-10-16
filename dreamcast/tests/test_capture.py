@@ -2,7 +2,7 @@
 # | test_capture.py
 # | Description: Boots the scripted test image in Flycast and checks the harness saves a 640x480 grab at the title capture marker.
 # | Author: suinevere
-# | Dependencies: tools/flycast_run.py, lom_test.cdi, lom.elf, tests/pad_scripts/new_game.pad
+# | Dependencies: tools/flycast_run.py, stale_image.py, lom_test.cdi, lom.elf, tests/pad_scripts/new_game.pad
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -16,16 +16,16 @@ from PIL import Image
 
 DC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.join(DC, "tools"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import flycast_run
+import stale_image
 
 
 def test_title_capture_is_saved():
     if flycast_run.find_flycast() is None:
         pytest.skip("no flycast")
-    image = os.path.join(DC, "lom_test.cdi")
-    if not os.path.exists(image):
-        pytest.skip("lom_test.cdi not built")
+    image = stale_image.require_fresh_test_image(DC)
     out = tempfile.mkdtemp(prefix="lom-cap-")
     code, lines = flycast_run.run_flycast(image, seconds=90, until="LOM: capture title", captures=out)
     assert code == 0, "\n".join(lines[-40:])

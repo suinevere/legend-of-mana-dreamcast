@@ -54,6 +54,12 @@ def test_dreamcast_checkps_script_links_little_endian_at_its_code_base():
     assert "INCLUDE gen/checkps_symbols.ld" in script
 
 
+def test_dreamcast_scripts_include_their_own_pending_aliases():
+    files = files_in(run("--target", "dreamcast", "--dry-run"))
+    for name in targets.DREAMCAST.regions:
+        assert "INCLUDE gen/%s_pending.ld" % name in files["%s.ld" % name]
+
+
 def test_dreamcast_scripts_assert_every_region_limit():
     files = files_in(run("--target", "dreamcast", "--dry-run"))
     for name, region in targets.DREAMCAST.regions.items():
@@ -75,6 +81,15 @@ def test_dreamcast_entries_point_at_each_code_base():
     assert "_run_checkps = 0x8C800000;" in entries
     assert "_run_title = 0x8C880000;" in entries
     assert "_lom_code_floor" not in entries
+
+
+def test_dreamcast_entries_leave_unlinked_overlays_to_main():
+    entries = files_in(run("--target", "dreamcast", "--dry-run"))["overlay_entries.ld"]
+    for ovl in overlay_link.OVERLAYS:
+        if ovl.name in targets.DREAMCAST_UNLINKED_OVERLAYS:
+            for fn in ovl.entries:
+                assert "_%s =" % fn not in entries, fn
+    assert "_gname_run = 0x8C980000;" in entries
 
 
 def test_dreamcast_region_header_matches_targets():
@@ -143,7 +158,7 @@ def test_dreamcast_header_packs_the_region_code_base():
 
 
 def test_dreamcast_rejects_an_overlay_without_a_region():
-    result = subprocess.run([sys.executable, TOOL, "--target", "dreamcast", "header", "field", "x", "y"],
+    result = subprocess.run([sys.executable, TOOL, "--target", "dreamcast", "header", "nosuchoverlay", "x", "y"],
                             capture_output=True, text=True)
     assert result.returncode != 0
-    assert "field" in result.stdout + result.stderr
+    assert "nosuchoverlay" in result.stdout + result.stderr

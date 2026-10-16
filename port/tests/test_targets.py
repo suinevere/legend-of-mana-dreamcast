@@ -7,7 +7,9 @@
 # | Params: N/A
 # | Returns: N/A
 #----------------------
+import functools
 import os
+import struct
 import sys
 
 PORT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -31,6 +33,20 @@ def test_regions_fit_arena_and_do_not_overlap():
         assert targets.ARENA_BASE <= start < end <= targets.ARENA_END
     for (_, end), (start, _) in zip(spans, spans[1:]):
         assert end <= start
+
+
+def test_dreamcast_regions_fit_the_arena_without_overlap():
+    spans = []
+    for name, r in targets.DREAMCAST.regions.items():
+        spans.append((r.code_base, r.code_base + r.code_size, name))
+        spans.append((r.data_base, r.data_base + r.data_size, name))
+    spans.sort()
+    for lo, hi, name in spans:
+        assert targets.ARENA_BASE <= lo < hi <= targets.ARENA_END, name
+    for (alo, ahi, a), (blo, bhi, b) in zip(spans, spans[1:]):
+        assert ahi <= blo, (a, b)
+    assert {"wmap", "field"} <= set(targets.DREAMCAST.regions)
+    assert targets.ARENA_BASE == 0x8C400000
 
 
 def test_pointer_inside_ranges_relocates_to_data_region():
@@ -116,3 +132,40 @@ def test_dreamcast_build_rejects_blob_over_data_size(monkeypatch):
         assert "region holds 0x3F" in str(exc)
     else:
         raise AssertionError("expected an overflow ValueError")
+
+
+def test_dreamcast_packs_wmap_whole_with_no_placed_buffers():
+    spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[3], targets.DREAMCAST)
+    assert spec.ranges == [(0x8004FC74, 0x80054A2C), (0x800C4588, 0x801B32D8)]
+    assert spec.placed == ()
+
+
+def test_saturn_keeps_wmap_split_and_placed():
+    spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[3], targets.SATURN)
+    assert spec is overlay_rules.OVERLAYS[3]
+    assert spec.placed
+
+
+def test_dreamcast_build_places_a_cut_buffer_at_its_ps1_offset():
+    spec, overlay = synth_overlay()
+    split = spec._replace(ranges=overlay_rules.split_ranges(spec.ranges, [(SYNTH_START + 0x20, SYNTH_START + 0x30)]),
+                          placed=(("synth_buf", 0x002F0000),), unsplit_ranges=spec.ranges)
+    symbols = dict(SYNTH_SYMBOLS, synth_buf=SYNTH_START + 0x20, synth_after=SYNTH_START + 0x30)
+    buf, script = overlay_rules.build_overlay(split, overlay, symbols, synth_target(0x40))
+    assert len(buf) == 0x40
+    assert "_synth_buf = 0x8C801020;" in script
+    assert "_synth_after = 0x8C801030;" in script
+    assert "0x002F0000" not in script
+
+
+def test_dreamcast_wmap_relocates_its_input_script_pointers():
+    import convert_disc
+    spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[3], targets.DREAMCAST)
+    symbols = convert_disc.load_spec_symbols(spec, os.path.join(PORT, "..", "config", "us", "symbols"))
+    off = functools.partial(overlay_rules.symbol_offset, symbols, spec)
+    buf = bytearray(sum(end - start for start, end in spec.ranges))
+    scripts = off("g_wmap_input_scripts")
+    struct.pack_into("<3I", buf, scripts, symbols["D_800D0460"], symbols["D_800D0460"] + 4, 0)
+    overlay_rules.POINTER_RULES["wmap"](buf, off, targets.DREAMCAST)
+    base = targets.DREAMCAST.regions["wmap"].data_base
+    assert struct.unpack_from("<3I", buf, scripts) == (base + off("D_800D0460"), base + off("D_800D0460") + 4, 0)

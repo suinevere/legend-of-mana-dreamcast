@@ -1,8 +1,9 @@
 /*----------------------
  | overlay_loader_dc.c
  | Description: Dreamcast overlay loading: reads OVLnnC.BIN and OVLnn.BIN from /cd/OVL into the overlay's fixed arena regions, zeroes its .bss and flushes the caches over its code.
+ |              The test image calls FIELD's field_watch_entry (its Dreamcast-only extra vector slot) right after FIELD finishes loading.
  | Author: suinevere
- | Dependencies: overlay_loader_dc.h, overlay_region.h, overlay_header.h, gen/overlay_regions.h, dc_system.h, arch/cache.h
+ | Dependencies: overlay_loader_dc.h, overlay_region.h, overlay_header.h, gen/overlay_regions.h, dc_system.h, arch/cache.h, texture_cache.h, src/overlays/field_watch_entry.c
  | Globals: s_regions
  | Params: N/A
  | Returns: N/A
@@ -18,6 +19,7 @@
 #include "overlay_header.h"
 #include "overlay_regions.h"
 #include "dc_system.h"
+#include "texture_cache.h"
 
 /*----------------------
  | OVERLAY_DIR
@@ -29,6 +31,30 @@
  | Returns: N/A
  ----------------------*/
 #define OVERLAY_DIR "/cd/OVL/"
+
+/*----------------------
+ | FIELD_RESOURCE
+ | Description: FIELD's PS1 CD resource index, matching overlay_rules.OVERLAYS[2] and saturn/makefile's OVERLAY_RESOURCE_field.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FIELD_RESOURCE 2
+
+#ifdef LOM_PAD_SCRIPT
+/*----------------------
+ | field_watch_entry
+ | Description: FIELD's Dreamcast-only extra vector slot (src/overlays/field_watch_entry.c), called once FIELD has finished loading.
+ | Author: suinevere
+ | Dependencies: src/overlays/field_watch_entry.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void field_watch_entry(void);
+#endif
 
 /*----------------------
  | s_regions
@@ -97,9 +123,10 @@ void overlay_loader_init(void)
 
 /*----------------------
  | load_overlay
- | Description: Reads the OVLnnC.BIN header, checks code and data against the overlay's regions, reads code to code_base and data to data_base, zeroes .bss, then flushes the d-cache and invalidates the i-cache over the code.
+ | Description: Flushes the texture cache, reads the OVLnnC.BIN header, checks code and data against the overlay's regions, then reads code and data to their bases and zeroes .bss.
+ |              Flushes the d-cache and invalidates the i-cache over the code; the texture flush reclaims the outgoing overlay's PVR memory for the new one's heavier load.
  | Author: suinevere
- | Dependencies: overlay_region_find, overlay_header_parse, overlay_region_check, overlay_open, overlay_halt, dcache_flush_range, icache_flush_range, dc_halt
+ | Dependencies: overlay_region_find, overlay_header_parse, overlay_region_check, overlay_open, overlay_halt, dcache_flush_range, icache_flush_range, dc_halt, texture_cache_flush_now
  | Globals: s_regions
  | Params: resource_index -- PS1 CD resource index of the overlay
  | Returns: N/A
@@ -117,6 +144,7 @@ void load_overlay(int resource_index)
     {
         dc_halt("overlay not linked for the Dreamcast");
     }
+    texture_cache_flush_now();
     code = overlay_open(resource_index, 1);
     if (code == 0 || fread(raw, 1, sizeof(raw), code) != sizeof(raw) || overlay_header_parse(raw, &header) != 0)
     {
@@ -141,4 +169,10 @@ void load_overlay(int resource_index)
     memset((void *)(uintptr_t)header.bss_start, 0, header.bss_end - header.bss_start);
     dcache_flush_range(region->code_base, header.code_size);
     icache_flush_range(region->code_base, header.code_size);
+#ifdef LOM_PAD_SCRIPT
+    if (resource_index == FIELD_RESOURCE)
+    {
+        field_watch_entry();
+    }
+#endif
 }

@@ -262,14 +262,22 @@ def matches(result):
 #----------------------
 # | CROP_SIBLINGS
 # | Description: Screenshots whose picture leaves its own edge columns black, mapped to a sibling from the same capture session whose detected pillarbox they share.
-# |              GNAME's name entry draws nothing in its leftmost columns, so content detection would shift its box.
+# |              GNAME's name entry draws nothing in its leftmost columns, and 09-16's dark WMAP content leaves content detection latching onto a bright patch inside the picture instead of the window.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-CROP_SIBLINGS = {"04-gname-name-entry": "03-gname-select-weapon"}
+CROP_SIBLINGS = {"04-gname-name-entry": "03-gname-select-weapon",
+                  "09-wmap-loading": "01-title",
+                  "10-wmap-mailbox": "01-title",
+                  "11-wmap-mailbox-carried": "01-title",
+                  "12-wmap-place-mailbox-prompt": "01-title",
+                  "13-wmap-land-flash": "01-title",
+                  "14-wmap-home-rising": "01-title",
+                  "15-wmap-home-dark": "01-title",
+                  "16-wmap-board-home": "01-title"}
 
 
 #----------------------

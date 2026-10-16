@@ -1,8 +1,8 @@
 /*----------------------
  | state_report_dc.c
- | Description: Serial progress report for the Dreamcast boot: logs every g_game_state change, once per 60 vblanks the primitives drawn, and drives the frame probe; under LOM_PAD_SCRIPT also the pad script.
+ | Description: Serial progress report for the Dreamcast boot: logs every g_game_state change, once per 60 vblanks the primitives drawn, and drives the frame probe. Under LOM_PAD_SCRIPT it also advances the pad script and watcher.
  | Author: suinevere
- | Dependencies: lom_prefix.h, main/game_state.h, dc_system.h, vsync_pacer.h, libgpu_dc.h, frame_probe.h, pad_script.h (LOM_PAD_SCRIPT)
+ | Dependencies: lom_prefix.h, main/game_state.h, dc_system.h, vsync_pacer.h, libgpu_dc.h, frame_probe.h, pad_script.h (LOM_PAD_SCRIPT), watch.h (LOM_PAD_SCRIPT)
  | Globals: g_game_state, s_reported_state, s_next_report
  | Params: N/A
  | Returns: N/A
@@ -17,6 +17,7 @@
 
 #ifdef LOM_PAD_SCRIPT
 #include "pad_script.h"
+#include "watch.h"
 #endif
 
 /*----------------------
@@ -54,9 +55,9 @@ static unsigned s_next_report = STATE_REPORT_PERIOD;
 
 /*----------------------
  | state_report_poll
- | Description: Logs "state <n>" on a g_game_state change and "frame <count> prims <n>" each period, ticks the frame probe and, under LOM_PAD_SCRIPT, advances the pad script.
+ | Description: Logs "state <n>" on a g_game_state change and "frame <count> prims <n>" each period, ticks the frame probe and, under LOM_PAD_SCRIPT, advances the pad script and the watcher hook.
  | Author: suinevere
- | Dependencies: dc_log, vsync_count, dc_frame_primitives, frame_probe_vblank, pad_script_poll (LOM_PAD_SCRIPT)
+ | Dependencies: dc_log, vsync_count, dc_frame_primitives, frame_probe_vblank, pad_script_poll (LOM_PAD_SCRIPT), g_dc_watch_poll (LOM_PAD_SCRIPT)
  | Globals: g_game_state, s_reported_state, s_next_report
  | Params: N/A
  | Returns: N/A
@@ -78,5 +79,9 @@ void state_report_poll(void)
     frame_probe_vblank();
 #ifdef LOM_PAD_SCRIPT
     pad_script_poll(now, (int)g_game_state);
+    if (g_dc_watch_poll != NULL)
+    {
+        g_dc_watch_poll();
+    }
 #endif
 }

@@ -57,6 +57,17 @@
 #define PAD_OP_CAPTURE 3
 
 /*----------------------
+ | PAD_OP_MASH
+ | Description: Step op: every arg vblanks hold the step's buttons for 6 vblanks, but check the stop first: game_state == stop_state, or (when name is non-empty) watch_seen(name).
+ | Author: suinevere
+ | Dependencies: watch_seen
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_MASH 4
+
+/*----------------------
  | PAD_SCRIPT_BTN_L2
  | Description: PS1 active-high L2 bit, numerically equal to common/pad.h's PAD_BTN_L2.
  | Author: suinevere
@@ -212,7 +223,7 @@
 
 /*----------------------
  | PadScriptStep
- | Description: One pad script step: an op, its wait/hold count, the buttons a press step holds, and a capture step's marker name.
+ | Description: One pad script step: an op, its wait/hold/period count, the buttons a press or mash step holds, a capture or mash-marker name, and a mash step's stop state.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -225,6 +236,7 @@ typedef struct
     uint16_t arg;
     uint16_t buttons;
     const char *name;
+    uint16_t stop_state;
 } PadScriptStep;
 
 /*----------------------

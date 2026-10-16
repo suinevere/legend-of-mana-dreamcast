@@ -1,13 +1,14 @@
 /*----------------------
  | pad_script.c
- | Description: Interpreter for a compiled-in pad script: one step runs per vblank, advancing on a wait, a state match, a hold-then-release, or a one-shot capture log.
+ | Description: Interpreter for a compiled-in pad script: one step runs per vblank, advancing on a wait, a state match, a hold-then-release, a one-shot capture log, or a mash's stop check.
  | Author: suinevere
- | Dependencies: pad_script.h, dc_system.h (LOM_HOST_TEST off), stdio.h (LOM_HOST_TEST on)
+ | Dependencies: pad_script.h, watch.h, dc_system.h (LOM_HOST_TEST off), stdio.h (LOM_HOST_TEST on)
  | Globals: s_steps, s_count, s_index, s_remaining, s_releasing, s_buttons, s_printer
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 #include "pad_script.h"
+#include "watch.h"
 
 #ifdef LOM_HOST_TEST
 #include <stdio.h>
@@ -25,6 +26,17 @@
  | Returns: N/A
  ----------------------*/
 #define PAD_SCRIPT_RELEASE_VBLANKS 8u
+
+/*----------------------
+ | PAD_SCRIPT_MASH_PRESS_VBLANKS
+ | Description: Vblanks a mash step holds buttons at the start of each period before idling.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_SCRIPT_MASH_PRESS_VBLANKS 6u
 
 /*----------------------
  | s_steps
@@ -127,10 +139,31 @@ static void enter_step(void)
     case PAD_OP_PRESS:
         s_remaining = s_steps[s_index].arg;
         break;
+    case PAD_OP_MASH:
+        s_remaining = PAD_SCRIPT_MASH_PRESS_VBLANKS;
+        break;
     default:
         s_remaining = 0;
         break;
     }
+}
+
+/*----------------------
+ | mash_stopped
+ | Description: Reports whether a mash step's stop condition holds: a watcher marker seen in step->name, or else game_state equal to step->stop_state.
+ | Author: suinevere
+ | Dependencies: watch_seen
+ | Globals: N/A
+ | Params: step -- the running PAD_OP_MASH step, game_state -- current g_game_state
+ | Returns: 1 if the step should stop mashing and advance, else 0
+ ----------------------*/
+static int mash_stopped(const PadScriptStep *step, int game_state)
+{
+    if (step->name[0] != '\0')
+    {
+        return watch_seen(step->name);
+    }
+    return game_state == (int)step->stop_state;
 }
 
 /*----------------------
@@ -193,9 +226,9 @@ void pad_script_start(const PadScriptStep *steps, unsigned count)
 
 /*----------------------
  | pad_script_poll
- | Description: Advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, and logs a capture marker once.
+ | Description: Advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, or mashes until its stop condition holds.
  | Author: suinevere
- | Dependencies: advance, log_capture
+ | Dependencies: advance, log_capture, mash_stopped
  | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons
  | Params: vblank -- current vblank count (unused), game_state -- current g_game_state
  | Returns: N/A
@@ -243,6 +276,32 @@ void pad_script_poll(unsigned vblank, int game_state)
             if (--s_remaining == 0)
             {
                 advance();
+            }
+        }
+        break;
+    case PAD_OP_MASH:
+        if (mash_stopped(step, game_state))
+        {
+            s_buttons = 0;
+            advance();
+            break;
+        }
+        if (!s_releasing)
+        {
+            s_buttons = step->buttons;
+            if (--s_remaining == 0)
+            {
+                s_releasing = 1;
+                s_remaining = step->arg - PAD_SCRIPT_MASH_PRESS_VBLANKS;
+            }
+        }
+        else
+        {
+            s_buttons = 0;
+            if (--s_remaining == 0)
+            {
+                s_releasing = 0;
+                s_remaining = PAD_SCRIPT_MASH_PRESS_VBLANKS;
             }
         }
         break;

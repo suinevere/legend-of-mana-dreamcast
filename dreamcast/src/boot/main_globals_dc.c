@@ -1,9 +1,10 @@
 /*----------------------
  | main_globals_dc.c
  | Description: Dreamcast definitions of the PS1 fixed-address buffers lom_prefix.h redirects to, typed main-executable globals with their PS1 initial values, and the libc references real overlays resolve from main's ELF.
+ |              Holds only the globals whose PS1 address is below 0x8004FC70 (main's range per shared_symbol_addrs.txt); FIELD's own globals live in src/overlays/field_globals_dc.c since Task 6 gave FIELD its own overlay.
  | Author: suinevere
- | Dependencies: lom_prefix.h, lom_platform_memory.h, main/main.h, main/game_state.h, main/audio/game_audio.h, main/field_runtime.h, main/audio/akao.h, common/saved_game.h, overlays/field/field_text.h, stdlib.h, saturn/src/boot/main_globals.c
- | Globals: the lom_* fixed-address buffers, the g_* main and resident-FIELD state listed below, g_overlay_exit, g_overlay_abort, g_overlay_abs
+ | Dependencies: lom_prefix.h, lom_platform_memory.h, main/main.h, main/game_state.h, main/audio/game_audio.h, main/field_runtime.h, stdlib.h, saturn/src/boot/main_globals.c
+ | Globals: the lom_* fixed-address buffers, the g_* main state listed below, g_overlay_exit, g_overlay_abort, g_overlay_abs
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -13,9 +14,6 @@
 #include "main/game_state.h"
 #include "main/audio/game_audio.h"
 #include "main/field_runtime.h"
-#include "main/audio/akao.h"
-#include "common/saved_game.h"
-#include "overlays/field/field_text.h"
 
 /*----------------------
  | lom_resident_state / lom_load_buffer
@@ -56,6 +54,31 @@ u8 lom_trap_buffer[0x100] __attribute__((aligned(32)));
 u8 lom_render_arena[LOM_RENDER_ARENA_SIZE] __attribute__((aligned(32)));
 
 /*----------------------
+ | lom_field_cd_buffer / lom_field_actor_heap
+ | Description: FIELD's own CD read buffer and actor heap, sized as the Saturn's; real storage once FIELD's actors load resources for real, instead of aliasing the tiny trap buffer.
+ | Author: suinevere
+ | Dependencies: lom_prefix.h, lom_platform_memory.h, saturn/src/boot/overlay_loader.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+u8 lom_field_cd_buffer[0x19000] __attribute__((aligned(32)));
+u8 lom_field_actor_heap[0x20000] __attribute__((aligned(32)));
+
+/*----------------------
+ | lom_cd_stream_staging / lom_cd_stream_buffer / lom_collision_lists
+ | Description: FIELD's CD stream staging area, stream sector/bank buffer and collision node lists, each its own real buffer sized from the PS1 fixed-address gaps in include/common/memory_map.h, instead of aliasing the tiny trap buffer the three used to overrun together.
+ | Author: suinevere
+ | Dependencies: lom_prefix.h, lom_platform_memory.h, include/common/memory_map.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+u8 lom_cd_stream_staging[0x2000] __attribute__((aligned(32)));
+u8 lom_cd_stream_buffer[0x2000] __attribute__((aligned(32)));
+u8 lom_collision_lists[0x200] __attribute__((aligned(32)));
+
+/*----------------------
  | lom_secondary_overlay
  | Description: SECONDARY_OVERLAY_ADDRESS's storage, sized so main.c's GNAME_RENDER_ADDRESS (+0x20000) and WSEL_RENDER_ADDRESS (+0x30000) hold their render buffers.
  | Author: suinevere
@@ -90,6 +113,55 @@ u32 g_game_state;
 u32 g_previous_game_state;
 u32 g_field_spawn_id;
 s32 D_8003EC8C;
+
+/*----------------------
+ | g_pending_game_state
+ | Description: Next top-level game state FIELD requests; real storage so it stops aliasing lom_trap_buffer, whose other tenants (CD stream staging, AKAO, collision lists) were stomping it mid-scene.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+s32 g_pending_game_state;
+
+/*----------------------
+ | g_field_scene_data_size / g_field_action_context
+ | Description: Scene-load byte count and the actor input/effect scratch word; real storage so they stop aliasing lom_trap_buffer. Both PS1 addresses (0x800473F0, 0x800473F8) sit below 0x8004FC70, main's range.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+s32 g_field_scene_data_size;
+s32 g_field_action_context;
+
+/*----------------------
+ | g_field_scene_request_pending
+ | Description: Set while a scene change is queued but not yet applied; real storage so it stops aliasing lom_trap_buffer. PS1 address 0x801158A4 is past 0x8004FC70 (FIELD's own range), but field_runtime.c's run_field_scene (linked into main, not the overlay) reads and writes it directly, so it must resolve at main's own link; defined here instead of field_globals_dc.c for that reason.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+s32 g_field_scene_request_pending;
+
+/*----------------------
+ | g_field_player_map_position
+ | Description: Party's map (x, z) in whole units, for trigger-region tests; real storage so it stops aliasing lom_trap_buffer. PS1 address 0x80042FC8 sits below 0x8004FC70, main's range. Matches FieldMapPoint's layout (field_interaction_start.c) without sharing its private typedef.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+struct
+{
+    u16 x;
+    u16 z;
+} g_field_player_map_position;
 
 /*----------------------
  | g_field_scene_id
@@ -159,60 +231,6 @@ FieldRenderHalf *g_field_current_render_half;
 s32 g_text_clut_base;
 s32 g_text_cursor_x;
 s32 g_text_cursor_y;
-
-/*----------------------
- | g_pad_input / g_pad_input_inject / g_frame_counter / g_saved_game_ctx
- | Description: FIELD's delivered pad buttons, frame counter and saved-game pointer that GNAME reads, zero like FIELD's freshly loaded databin.
- | Author: suinevere
- | Dependencies: main/main.h, common/saved_game.h
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-s32 g_pad_input;
-s32 g_pad_input_inject;
-s32 g_frame_counter;
-SavedGameLayout *g_saved_game_ctx;
-
-/*----------------------
- | g_field_buffered_input / g_field_modal_state / g_field_primary_held_buttons / g_field_primary_repeat_delay / g_field_secondary_held_buttons / g_field_secondary_repeat_delay
- | Description: field_update_input_repeat's held-button and repeat-delay state, which GNAME's frame loop drives.
- | Author: suinevere
- | Dependencies: src/overlays/field/ui/field_modal_runtime.c
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-s32 g_field_buffered_input;
-s32 g_field_modal_state;
-s32 g_field_primary_held_buttons;
-s32 g_field_primary_repeat_delay;
-s32 g_field_secondary_held_buttons;
-s32 g_field_secondary_repeat_delay;
-
-/*----------------------
- | g_field_instrument_bank / g_field_song_handles / g_field_song_volume
- | Description: FIELD's resident instrument bank pointer, song handles and song volume, which its entry music and sound effects use.
- | Author: suinevere
- | Dependencies: src/overlays/field/runtime/field_audio_runtime.c
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-AkaoHeader *g_field_instrument_bank;
-s32 g_field_song_handles[2];
-s32 g_field_song_volume;
-
-/*----------------------
- | g_field_text_macros
- | Description: FIELD's sixteen text macro slots (PS1 0x80122B80), which the text renderer expands.
- | Author: suinevere
- | Dependencies: overlays/field/field_text.h
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-FieldTextMacro g_field_text_macros[16];
 
 /*----------------------
  | g_overlay_exit

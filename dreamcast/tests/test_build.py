@@ -1,6 +1,7 @@
 #----------------------
 # | test_build.py
-# | Description: Builds the Dreamcast port in lom-dc and checks lom.elf is a little-endian SuperH ELF and lom.cdi exists; also reproduces the all/test-image/all sequence and checks each image's staged overlay BIN was linked against its own ELF, and that a second unchanged build does not rerun the disc converter.
+# | Description: Builds the Dreamcast port in lom-dc and checks lom.elf is a little-endian SuperH ELF and lom.cdi exists.
+# |              Also reproduces the all/test-image/all sequence and checks each image's staged overlay BIN was linked against its own ELF, and that a second unchanged build does not rerun the disc converter.
 # | Author: suinevere
 # | Dependencies: compile.sh, makefile, pre.makefile, ../port/tools/overlay_link.py, ../port/tools/convert_disc.py
 # | Globals: N/A
@@ -18,18 +19,19 @@ REPO = os.path.dirname(DC)
 
 #----------------------
 # | CONVERTER_START_LINE
-# | Description: The disc converter's first printed line for the committed US image and the dreamcast target (convert_disc.py's "resource %4d kind %d size 0x%X", index 2 being the first overlay resource); its absence from a build's output means pre_build's recipe did not run.
+# | Description: The disc converter's first printed line for the committed US image and the dreamcast target (convert_disc.py's "resource %4d kind %d size 0x%X", index 2 being FIELD, a real KIND_OVERLAY since Task 6 gave it its own Dreamcast link).
+# |              Its absence from a build's output means pre_build's recipe did not run.
 # | Author: suinevere
 # | Dependencies: ../port/tools/convert_disc.py
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-CONVERTER_START_LINE = "resource    2 kind 4 size 0x0"
+CONVERTER_START_LINE = "resource    2 kind 1 size 0x26324"
 
 #----------------------
 # | SECOND_BUILD_MARKER
-# | Description: Echoed between the two `make all` invocations in test_second_build_does_not_rerun_disc_converter, splitting combined stdout into each run's own output.
+# | Description: Echoed before the build under test in test_second_build_does_not_rerun_disc_converter and test_touching_splat_ext_module_reruns_disc_converter, splitting combined stdout so only that build's own output is checked.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -101,7 +103,8 @@ def test_alternating_builds_each_keep_their_own_overlay_bin():
 
 #----------------------
 # | test_second_build_does_not_rerun_disc_converter
-# | Description: Builds twice in a row with nothing changed and checks the disc converter's start-of-run line appears only in the first build's output, so pre_build's stamp skips the recipe on the second `make`.
+# | Description: Builds twice in a row with nothing changed and checks the disc converter's start-of-run line appears only in the first build's output.
+# |              So pre_build's stamp skips the recipe on the second `make`.
 # | Author: suinevere
 # | Dependencies: CONVERTER_START_LINE, SECOND_BUILD_MARKER
 # | Globals: N/A
@@ -125,3 +128,32 @@ def test_second_build_does_not_rerun_disc_converter():
 
     _, _, second_build_output = build.stdout.partition(SECOND_BUILD_MARKER)
     assert CONVERTER_START_LINE not in second_build_output, second_build_output[-4000:]
+
+
+#----------------------
+# | test_touching_splat_ext_module_reruns_disc_converter
+# | Description: Touches a repo-root tools/splat_ext module convert_disc.py reaches through its own sys.path.insert, then checks the next build's output has the disc converter's start-of-run line, so PRE_BUILD_INPUTS tracks that directory too.
+# | Author: suinevere
+# | Dependencies: CONVERTER_START_LINE, SECOND_BUILD_MARKER, ../tools/splat_ext/decompress.py
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+def test_touching_splat_ext_module_reruns_disc_converter():
+    if shutil.which("docker") is None:
+        pytest.skip("no docker")
+    if subprocess.run(["docker", "image", "inspect", "lom-dc"], capture_output=True).returncode != 0:
+        pytest.skip("lom-dc image not built")
+
+    steps = " && ".join([
+        "make -C dreamcast all",
+        "touch tools/splat_ext/decompress.py",
+        "echo %s" % SECOND_BUILD_MARKER,
+        "make -C dreamcast all",
+    ])
+    build = subprocess.run(["docker", "run", "--rm", "-v", REPO + ":/work", "-w", "/work", "lom-dc",
+                            "bash", "-lc", steps], capture_output=True, text=True)
+    assert build.returncode == 0, build.stdout[-4000:] + build.stderr[-4000:]
+
+    _, _, rebuild_output = build.stdout.partition(SECOND_BUILD_MARKER)
+    assert CONVERTER_START_LINE in rebuild_output, rebuild_output[-4000:]

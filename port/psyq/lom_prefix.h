@@ -132,7 +132,9 @@ extern unsigned char lom_trap_buffer[];
 
 #include "common.h"
 
+#ifndef LOM_SKIP_PREFIX_BCOPY
 extern void *bcopy(const unsigned char *src, unsigned char *dst, int count);
+#endif
 
 #include <libgpu.h>
 #include "common/gpu_packet.h"

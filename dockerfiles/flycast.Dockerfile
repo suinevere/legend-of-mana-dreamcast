@@ -27,7 +27,8 @@ RUN cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 
 #----------------------
 # | x11-apps / imagemagick layer
-# | Description: xwd (x11-apps) dumps the capturing Xvfb's root window; convert (imagemagick) turns that XWD dump into a PNG; kept as its own layer so adding them does not invalidate the Flycast source-build cache above.
+# | Description: xwd (x11-apps) dumps the capturing Xvfb's root window; convert (imagemagick) turns that XWD dump into a PNG.
+# |              Kept as its own layer so adding them does not invalidate the Flycast source-build cache above.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A

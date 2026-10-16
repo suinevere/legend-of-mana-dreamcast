@@ -2,7 +2,7 @@
 # | test_gname_pacing.py
 # | Description: Checks the frame probe reports GNAME running at two vblanks per frame or better in Flycast.
 # | Author: suinevere
-# | Dependencies: tools/flycast_run.py, lom_test.cdi
+# | Dependencies: tools/flycast_run.py, stale_image.py, lom_test.cdi
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -15,16 +15,16 @@ import pytest
 
 DC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.join(DC, "tools"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import flycast_run
+import stale_image
 
 
 def test_gname_runs_at_two_vblanks():
     if flycast_run.find_flycast() is None:
         pytest.skip("no flycast")
-    image = os.path.join(DC, "lom_test.cdi")
-    if not os.path.exists(image):
-        pytest.skip("lom_test.cdi not built")
+    image = stale_image.require_fresh_test_image(DC)
     code, lines = flycast_run.run_flycast(image, seconds=240, until="LOM: capture gname-name-entry")
     assert code == 0, "\n".join(lines[-60:])
     in_gname = False

@@ -2,7 +2,7 @@
 # | test_gpu_decode_host.py
 # | Description: Builds and runs the host C test for the Dreamcast GP0 packet decoder and primitive census.
 # | Author: suinevere
-# | Dependencies: tests/host/test_gpu_decode.c, src/video/gpu_decode.c, src/video/gpu_census.c, src/video/libgpu_dc.c, src/video/vram_mirror.c, src/video/ot_walk.c, ../port/system/vsync_pacer.c, ../port/psyq/lom_prefix.h
+# | Dependencies: tests/host/test_gpu_decode.c, src/video/gpu_decode.c, src/video/gpu_census.c, src/video/libgpu_dc.c, src/video/vram_mirror.c, src/video/frame_readback.c, src/video/ot_walk.c, ../port/system/vsync_pacer.c, ../port/psyq/lom_prefix.h
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -37,6 +37,7 @@ def test_gpu_decode_host():
                     os.path.join(src, "video", "gpu_census.c"),
                     os.path.join(src, "video", "libgpu_dc.c"),
                     os.path.join(src, "video", "vram_mirror.c"),
+                    os.path.join(src, "video", "frame_readback.c"),
                     os.path.join(src, "video", "ot_walk.c"),
                     os.path.join(PORT_SYSTEM, "vsync_pacer.c")], check=True)
     result = subprocess.run([exe], capture_output=True, text=True)

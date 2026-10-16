@@ -1,8 +1,8 @@
 #----------------------
 # | test_dc_video_host.py
-# | Description: Builds and runs the host C test for the Dreamcast VRAM mirror, ordering-table walker and the libgpu wiring into the decoder and PowerVR submitter.
+# | Description: Builds and runs the host C test for the Dreamcast VRAM mirror, ordering-table walker and the libgpu wiring into the decoder, PowerVR submitter and frame readback.
 # | Author: suinevere
-# | Dependencies: tests/host/test_dc_video.c, src/video/vram_mirror.c, src/video/ot_walk.c, src/video/libgpu_dc.c, src/video/gpu_decode.c, src/video/gpu_census.c, ../port/psyq/lom_prefix.h, ../port/psyq, ../port/system
+# | Dependencies: tests/host/test_dc_video.c, src/video/vram_mirror.c, src/video/ot_walk.c, src/video/libgpu_dc.c, src/video/gpu_decode.c, src/video/gpu_census.c, src/video/frame_readback.c, ../port/psyq/lom_prefix.h, ../port/psyq, ../port/system
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -37,7 +37,8 @@ def test_dc_video_host():
                     os.path.join(src, "video", "ot_walk.c"),
                     os.path.join(src, "video", "libgpu_dc.c"),
                     os.path.join(src, "video", "gpu_decode.c"),
-                    os.path.join(src, "video", "gpu_census.c")], check=True)
+                    os.path.join(src, "video", "gpu_census.c"),
+                    os.path.join(src, "video", "frame_readback.c")], check=True)
     result = subprocess.run([exe], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout
     assert "OK" in result.stdout

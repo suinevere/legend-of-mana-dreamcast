@@ -16,9 +16,28 @@
 #include "libgpu_dc.h"
 #include "state_report_dc.h"
 
+#ifdef LOM_PAD_SCRIPT
+#include "watch.h"
+#endif
+
 KOS_INIT_FLAGS(INIT_DEFAULT);
 
 void main_game_loop(void);
+
+#ifdef LOM_PAD_SCRIPT
+/*----------------------
+ | g_dc_watch_poll / g_dc_field_scene_jump / g_dc_field_battle
+ | Description: Test-image-only pad-script hooks declared in watch.h; NULL until field_watch_install sets them.
+ | Author: suinevere
+ | Dependencies: watch.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void (*g_dc_watch_poll)(void) = NULL;
+void (*g_dc_field_scene_jump)(int scene, int spawn) = NULL;
+void (*g_dc_field_battle)(void) = NULL;
+#endif
 
 /*----------------------
  | main

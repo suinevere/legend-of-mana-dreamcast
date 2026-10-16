@@ -1,8 +1,8 @@
 /*----------------------
  | gpu_decode.c
- | Description: Decodes PS1 GP0 ordering-table packets into shape-neutral DcPrim primitives, tracking draw area, offset, tpage and texture window across E1-E5 commands.
+ | Description: Decodes PS1 GP0 ordering-table packets into shape-neutral DcPrim primitives, tracking draw area, offset, tpage and texture window across E1-E5 commands; GP0 0x02 writes the VRAM mirror directly.
  | Author: suinevere
- | Dependencies: gpu_decode.h, gpu_census.h, gpu_tag.h, dc_system.c (dc_halt)
+ | Dependencies: gpu_decode.h, gpu_census.h, gpu_tag.h, vram_mirror.h, dc_system.c (dc_halt)
  | Globals: s_host_base (LOM_HOST_TEST only)
  | Params: N/A
  | Returns: N/A
@@ -10,6 +10,7 @@
 #include "gpu_decode.h"
 #include "gpu_census.h"
 #include "gpu_tag.h"
+#include "vram_mirror.h"
 
 /*----------------------
  | dc_halt
@@ -176,10 +177,104 @@ static void apply_tpage(DcPrim *prim, uint16_t tpage, uint16_t clut)
 }
 
 /*----------------------
+ | PS1_MAX_SPAN_X / PS1_MAX_SPAN_Y
+ | Description: The PS1 GPU silently skips a triangle or line whose vertices span this many pixels or more horizontally or vertically.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PS1_MAX_SPAN_X 1024
+#define PS1_MAX_SPAN_Y 512
+
+/*----------------------
+ | triangle_oversized
+ | Description: Whether the PS1 GPU would skip a triangle with these vertices because it spans PS1_MAX_SPAN_X or PS1_MAX_SPAN_Y.
+ | Author: suinevere
+ | Dependencies: PS1_MAX_SPAN_X, PS1_MAX_SPAN_Y
+ | Globals: N/A
+ | Params: a, b, c -- the triangle's vertices
+ | Returns: 1 when the hardware would not draw it, else 0
+ ----------------------*/
+static int triangle_oversized(const DcVertex *a, const DcVertex *b, const DcVertex *c)
+{
+    int min_x = a->x;
+    int max_x = a->x;
+    int min_y = a->y;
+    int max_y = a->y;
+
+    min_x = b->x < min_x ? b->x : min_x;
+    max_x = b->x > max_x ? b->x : max_x;
+    min_y = b->y < min_y ? b->y : min_y;
+    max_y = b->y > max_y ? b->y : max_y;
+    min_x = c->x < min_x ? c->x : min_x;
+    max_x = c->x > max_x ? c->x : max_x;
+    min_y = c->y < min_y ? c->y : min_y;
+    max_y = c->y > max_y ? c->y : max_y;
+    return max_x - min_x >= PS1_MAX_SPAN_X || max_y - min_y >= PS1_MAX_SPAN_Y;
+}
+
+/*----------------------
+ | line_oversized
+ | Description: Whether the PS1 GPU would skip a line segment because it spans PS1_MAX_SPAN_X or PS1_MAX_SPAN_Y.
+ | Author: suinevere
+ | Dependencies: PS1_MAX_SPAN_X, PS1_MAX_SPAN_Y
+ | Globals: N/A
+ | Params: a, b -- the segment's end points
+ | Returns: 1 when the hardware would not draw it, else 0
+ ----------------------*/
+static int line_oversized(const DcVertex *a, const DcVertex *b)
+{
+    int dx = a->x > b->x ? a->x - b->x : b->x - a->x;
+    int dy = a->y > b->y ? a->y - b->y : b->y - a->y;
+
+    return dx >= PS1_MAX_SPAN_X || dy >= PS1_MAX_SPAN_Y;
+}
+
+/*----------------------
+ | drop_oversized_halves
+ | Description: Applies the PS1 size limit to a decoded polygon, testing a quad's two triangles (0,1,2) and (1,2,3) separately and keeping a lone survivor as a triangle.
+ | Author: suinevere
+ | Dependencies: triangle_oversized
+ | Globals: N/A
+ | Params: prim -- decoded triangle or quad, rewritten in place when one half is dropped
+ | Returns: 1 when something is left to draw, else 0
+ ----------------------*/
+static int drop_oversized_halves(DcPrim *prim)
+{
+    int first;
+    int second;
+
+    if (prim->nverts == 3)
+    {
+        return !triangle_oversized(&prim->v[0], &prim->v[1], &prim->v[2]);
+    }
+    first = triangle_oversized(&prim->v[0], &prim->v[1], &prim->v[2]);
+    second = triangle_oversized(&prim->v[1], &prim->v[2], &prim->v[3]);
+    if (first && second)
+    {
+        return 0;
+    }
+    if (first)
+    {
+        prim->v[0] = prim->v[1];
+        prim->v[1] = prim->v[2];
+        prim->v[2] = prim->v[3];
+    }
+    if (first || second)
+    {
+        prim->shape = DC_SHAPE_TRI;
+        prim->nverts = 3;
+    }
+    return 1;
+}
+
+/*----------------------
  | decode_poly
  | Description: Decodes a flat or Gouraud, textured or untextured triangle or quad into a DcPrim and calls sink; textured polygons update state->tpage.
  | Author: suinevere
- | Dependencies: fill_color, fill_uv, decode_xy, apply_tpage, gpu_census_flag
+ | Dependencies: fill_color, fill_uv, decode_xy, apply_tpage, gpu_census_flag, drop_oversized_halves
  | Globals: N/A
  | Params: state -- GPU state, w -- command words, nverts -- 3 or 4, textured, gouraud -- shape flags, code -- GP0 command byte, sink, ctx -- primitive callback
  | Returns: N/A
@@ -253,7 +348,10 @@ static void decode_poly(DcGpuState *state, const uint32_t *w, unsigned nverts, i
     {
         gpu_census_flag(CENSUS_BRIGHTEN);
     }
-    sink(&prim, state, ctx);
+    if (drop_oversized_halves(&prim))
+    {
+        sink(&prim, state, ctx);
+    }
 }
 
 /*----------------------
@@ -333,7 +431,7 @@ static void decode_rect(DcGpuState *state, const uint32_t *w, int fixed_size, in
  | decode_line_fixed
  | Description: Decodes a fixed LINE_F2 or LINE_G2 into a two-vertex DcPrim and calls sink.
  | Author: suinevere
- | Dependencies: fill_color, decode_xy, gpu_census_flag
+ | Dependencies: fill_color, decode_xy, gpu_census_flag, line_oversized
  | Globals: N/A
  | Params: state -- GPU state, w -- command words, gouraud -- shape flag, code -- GP0 command byte, sink, ctx -- primitive callback
  | Returns: N/A
@@ -379,14 +477,17 @@ static void decode_line_fixed(DcGpuState *state, const uint32_t *w, int gouraud,
     {
         gpu_census_flag(CENSUS_SUBTRACT);
     }
-    sink(&prim, state, ctx);
+    if (!line_oversized(&prim.v[0], &prim.v[1]))
+    {
+        sink(&prim, state, ctx);
+    }
 }
 
 /*----------------------
  | decode_polyline
  | Description: Decodes a variable-length flat or Gouraud polyline into one DC_SHAPE_LINE per segment, stopping at the GP0 polyline terminator pattern.
  | Author: suinevere
- | Dependencies: fill_color, decode_xy, gpu_census_flag
+ | Dependencies: fill_color, decode_xy, gpu_census_flag, line_oversized
  | Globals: N/A
  | Params: state -- GPU state, w -- command words, remaining -- words available from w[0], gouraud -- shape flag, code -- GP0 command byte, sink, ctx -- primitive callback
  | Returns: words consumed, including the terminator
@@ -455,7 +556,10 @@ static unsigned decode_polyline(DcGpuState *state, const uint32_t *w, unsigned r
             {
                 gpu_census_flag(CENSUS_SUBTRACT);
             }
-            sink(&prim, state, ctx);
+            if (!line_oversized(&prim.v[0], &prim.v[1]))
+            {
+                sink(&prim, state, ctx);
+            }
             prim.v[0] = next;
         }
         else
@@ -551,10 +655,37 @@ static void decode_e5(DcGpuState *state, uint32_t word)
 }
 
 /*----------------------
- | decode_one
- | Description: Dispatches the single GP0 command at w[0] to its decoder, noting its code in the census; 0x02 (fill rectangle) is skipped without emitting a primitive.
+ | decode_fill
+ | Description: Applies GP0 0x02 (fill rectangle in VRAM) straight to the mirror: colour truncated to 15-bit, position/size unaffected by the draw offset but rounded as hardware rounds them.
  | Author: suinevere
- | Dependencies: gpu_census_note, gpu_census_unhandled, decode_e1..decode_e5, decode_poly, decode_rect, decode_line_fixed, decode_polyline
+ | Dependencies: vram_mirror_fill
+ | Globals: N/A
+ | Params: w -- command words, w[0] colour, w[1] x/y, w[2] width/height
+ | Returns: N/A
+ ----------------------*/
+static void decode_fill(const uint32_t *w)
+{
+    unsigned r = (unsigned)w[0] & 0xFFu;
+    unsigned g = (unsigned)(w[0] >> 8) & 0xFFu;
+    unsigned b = (unsigned)(w[0] >> 16) & 0xFFu;
+    int x = (int)(uint16_t)w[1];
+    int y = (int)(uint16_t)(w[1] >> 16);
+    int width = (int)(uint16_t)w[2];
+    int height = (int)(uint16_t)(w[2] >> 16);
+    uint16_t colour = (uint16_t)(((r >> 3) & 0x1Fu) | (((g >> 3) & 0x1Fu) << 5) | (((b >> 3) & 0x1Fu) << 10));
+
+    x &= 0x3F0;
+    width = ((width & 0x3FF) + 15) & ~15;
+    y &= 0x1FF;
+    height &= 0x1FF;
+    vram_mirror_fill(x, y, width, height, colour);
+}
+
+/*----------------------
+ | decode_one
+ | Description: Dispatches the single GP0 command at w[0] to its decoder, noting its code in the census; 0x02 (fill rectangle) writes the mirror without emitting a primitive.
+ | Author: suinevere
+ | Dependencies: gpu_census_note, gpu_census_unhandled, decode_fill, decode_e1..decode_e5, decode_poly, decode_rect, decode_line_fixed, decode_polyline
  | Globals: N/A
  | Params: state -- GPU state, w -- command words starting at the command's own word, remaining -- words available from w[0], sink, ctx -- primitive callback
  | Returns: words consumed by this command
@@ -599,6 +730,7 @@ static unsigned decode_one(DcGpuState *state, const uint32_t *w, unsigned remain
     }
     if (code == 0x02u)
     {
+        decode_fill(w);
         return 3;
     }
     switch (code & 0xFCu)

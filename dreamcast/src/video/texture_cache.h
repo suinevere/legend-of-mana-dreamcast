@@ -55,6 +55,7 @@ unsigned texture_cache_flushes(void);
 unsigned texture_cache_expansions(void);
 unsigned texture_cache_skips(void);
 void texture_cache_begin_frame(void);
+void texture_cache_flush_now(void);
 uint32_t texture_twiddle_index(unsigned x, unsigned y);
 void texture_read_page(int tpage_x, int tpage_y, int depth, uint8_t *out_indices, uint16_t *out_direct);
 

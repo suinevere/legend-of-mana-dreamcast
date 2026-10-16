@@ -1,6 +1,6 @@
 /*----------------------
  | pvr_submit.h
- | Description: Submits decoded PS1 primitives to one autosort-off PowerVR translucent list at 2x scale, opening a scene on first use and closing it at the flip.
+ | Description: Submits decoded PS1 primitives to one autosort-off PowerVR translucent list at 2x scale, opening a scene on first use and closing it at the flip. Also remembers the last finished frame's draw area.
  | Author: suinevere
  | Dependencies: stdint.h, gpu_decode.h (DcPrim, DcGpuState), pvr_backend.h (PvrBackend)
  | Globals: N/A
@@ -91,5 +91,28 @@ void pvr_submit_background(uint16_t ps1_colour);
  | Returns: N/A
  ----------------------*/
 void pvr_submit_rect(int x, int y, int w, int h, uint16_t ps1_colour);
+
+/*----------------------
+ | pvr_submit_scene_has_prims
+ | Description: Whether the open scene has had a triangle strip sent since it opened, so a full-area ClearImage knows whether the background alone would hide earlier prims.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: 1 if a strip was sent this scene, else 0
+ ----------------------*/
+int pvr_submit_scene_has_prims(void);
+
+/*----------------------
+ | pvr_frame_rect
+ | Description: Returns the PS1 draw-area rect and screen origin of the last scene confirmed on screen, as plain fields (not RECT) so this header still compiles under KallistiOS-only translation units.
+ | May promote a still-pending scene first, if the backend now reports it reached the screen.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: x, y, w, h, origin_x, origin_y -- outputs, filled when a confirmed frame exists
+ | Returns: 1 if a confirmed frame's rect was returned, 0 if there is none yet
+ ----------------------*/
+int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y);
 
 #endif

@@ -23,6 +23,10 @@ import frame_diff
 D2_SCREENS = ["01-title", "02-gname-select-character", "03-gname-select-weapon", "04-gname-name-entry",
               "05-wsel-room", "06-wsel-prompt", "07-wsel-cursor", "08-wsel-cursor-confirmed"]
 
+D3_WMAP_SCREENS = ["09-wmap-loading", "10-wmap-mailbox", "11-wmap-mailbox-carried",
+                    "12-wmap-place-mailbox-prompt", "13-wmap-land-flash", "14-wmap-home-rising",
+                    "15-wmap-home-dark", "16-wmap-board-home"]
+
 
 def test_crops_cover_every_d2_screen_at_four_by_three():
     with open(os.path.join(REPO, "reference", "ps1", "crops.json")) as f:
@@ -44,6 +48,20 @@ def test_name_entry_shares_the_session_pillarbox():
     with open(os.path.join(REPO, "reference", "ps1", "crops.json")) as f:
         crops = json.load(f)
     assert crops["04-gname-name-entry"] == crops["03-gname-select-weapon"]
+
+
+def test_wmap_screens_share_the_session_pillarbox():
+    with open(os.path.join(REPO, "reference", "ps1", "crops.json")) as f:
+        crops = json.load(f)
+    for name in D3_WMAP_SCREENS:
+        assert crops[name] == crops["01-title"], name
+
+
+def test_wmap_crops_json_matches_detection():
+    with open(os.path.join(REPO, "reference", "ps1", "crops.json")) as f:
+        crops = json.load(f)
+    for name in D3_WMAP_SCREENS:
+        assert tuple(crops[name]) == frame_diff.reference_crop(name), name
 
 
 def test_reference_matches_itself_shifted_one_pixel():

@@ -1,8 +1,8 @@
 /*----------------------
  | test_gpu_decode.c
- | Description: Host tests for the PS1 GP0 packet decoder and primitive census: polygon, sprite, tile and polyline decoding, environment commands, 11-bit vertex sign extension, unknown codes and OT chain walking.
+ | Description: Host tests for the PS1 GP0 packet decoder and primitive census: polygon, sprite, tile and polyline decoding, environment commands, 11-bit vertex sign extension, unknown codes, GP0 fill and OT walking.
  | Author: suinevere
- | Dependencies: gpu_decode.h, gpu_census.h, gpu_tag.h, pvr_submit.h (stubbed), gpu_decode.c, gpu_census.c, libgpu_dc.c (SetDrawEnv), vram_mirror.c, ot_walk.c, vsync_pacer.c, lom_prefix.h (forced include)
+ | Dependencies: gpu_decode.h, gpu_census.h, gpu_tag.h, pvr_submit.h (stubbed), vram_mirror.h, gpu_decode.c, gpu_census.c, libgpu_dc.c (SetDrawEnv), vram_mirror.c, ot_walk.c, vsync_pacer.c, lom_prefix.h (forced include)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -16,6 +16,7 @@
 #include "gpu_census.h"
 #include "gpu_tag.h"
 #include "pvr_submit.h"
+#include "vram_mirror.h"
 
 static int failures;
 
@@ -61,6 +62,28 @@ void pvr_submit_rect(int x, int y, int w, int h, uint16_t ps1_colour)
     (void)w;
     (void)h;
     (void)ps1_colour;
+}
+
+int pvr_submit_scene_has_prims(void)
+{
+    return 0;
+}
+
+int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y)
+{
+    (void)x;
+    (void)y;
+    (void)w;
+    (void)h;
+    (void)origin_x;
+    (void)origin_y;
+    return 0;
+}
+
+const uint16_t *pvr_backend_frame_pixels(unsigned *pitch_px)
+{
+    (void)pitch_px;
+    return 0;
 }
 
 void dc_log(const char *format, ...)
@@ -302,8 +325,8 @@ static void test_vertex_sign_extend(void)
     state.ofs_x = 16;
     words[0] = cw(1, 2, 3, 0x20);
     words[1] = xyw(0x400, 0);
-    words[2] = xyw(0, 0);
-    words[3] = xyw(0, 0);
+    words[2] = xyw(-1000, 0);
+    words[3] = xyw(-1000, 10);
     reset_recorder();
     CHECK(gpu_decode_packet(&state, words, 4, record_sink, NULL) == 4);
     CHECK(s_recorded_count == 1);
@@ -330,6 +353,84 @@ static void test_polyline(void)
     CHECK(s_recorded[1].v[0].x == 50 && s_recorded[1].v[0].y == 0);
     CHECK(s_recorded[1].v[1].x == 50 && s_recorded[1].v[1].y == 50);
     CHECK(s_recorded[0].v[0].r == 11 && s_recorded[0].v[0].g == 22 && s_recorded[0].v[0].b == 33);
+}
+
+static void test_oversized_triangle_is_dropped(void)
+{
+    DcGpuState state;
+    uint32_t words[4];
+
+    gpu_decode_reset(&state);
+    words[0] = cw(10, 20, 30, 0x20);
+    words[1] = xyw(-600, 0);
+    words[2] = xyw(424, 0);
+    words[3] = xyw(0, 100);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 4, record_sink, NULL) == 4);
+    CHECK(s_recorded_count == 0);
+    words[2] = xyw(423, 0);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 4, record_sink, NULL) == 4);
+    CHECK(s_recorded_count == 1);
+    words[2] = xyw(100, 0);
+    words[3] = xyw(0, 512);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 4, record_sink, NULL) == 4);
+    CHECK(s_recorded_count == 0);
+}
+
+static void test_quad_with_one_oversized_half_keeps_the_other(void)
+{
+    DcGpuState state;
+    uint32_t words[5];
+
+    gpu_decode_reset(&state);
+    words[0] = cw(10, 20, 30, 0x28);
+    words[1] = xyw(0, 0);
+    words[2] = xyw(100, 0);
+    words[3] = xyw(0, 100);
+    words[4] = xyw(100, 700);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 5, record_sink, NULL) == 5);
+    CHECK(s_recorded_count == 1);
+    CHECK(s_recorded[0].shape == DC_SHAPE_TRI);
+    CHECK(s_recorded[0].nverts == 3);
+    CHECK(s_recorded[0].v[0].x == 0 && s_recorded[0].v[0].y == 0);
+    CHECK(s_recorded[0].v[1].x == 100 && s_recorded[0].v[1].y == 0);
+    CHECK(s_recorded[0].v[2].x == 0 && s_recorded[0].v[2].y == 100);
+    words[1] = xyw(0, -500);
+    words[4] = xyw(100, 400);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 5, record_sink, NULL) == 5);
+    CHECK(s_recorded_count == 1);
+    CHECK(s_recorded[0].shape == DC_SHAPE_TRI);
+    CHECK(s_recorded[0].v[0].x == 100 && s_recorded[0].v[0].y == 0);
+    CHECK(s_recorded[0].v[1].x == 0 && s_recorded[0].v[1].y == 100);
+    CHECK(s_recorded[0].v[2].x == 100 && s_recorded[0].v[2].y == 400);
+    words[1] = xyw(0, 0);
+    words[4] = xyw(100, 100);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 5, record_sink, NULL) == 5);
+    CHECK(s_recorded_count == 1);
+    CHECK(s_recorded[0].shape == DC_SHAPE_QUAD);
+}
+
+static void test_oversized_line_is_dropped(void)
+{
+    DcGpuState state;
+    uint32_t words[3];
+
+    gpu_decode_reset(&state);
+    words[0] = cw(11, 22, 33, 0x40);
+    words[1] = xyw(-512, 0);
+    words[2] = xyw(512, 0);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 3, record_sink, NULL) == 3);
+    CHECK(s_recorded_count == 0);
+    words[2] = xyw(511, 0);
+    reset_recorder();
+    CHECK(gpu_decode_packet(&state, words, 3, record_sink, NULL) == 3);
+    CHECK(s_recorded_count == 1);
 }
 
 static void test_nop_and_unknown(void)
@@ -431,15 +532,17 @@ static void test_setdrawenv_roundtrip(void)
     CHECK(state.tex_window == 0);
 }
 
-static void test_fill_rect_skipped(void)
+static void test_fill_rect_writes_mirror_without_a_primitive(void)
 {
     DcGpuState state;
     uint32_t words[6];
+    uint32_t before;
 
     gpu_decode_reset(&state);
-    words[0] = cw(1, 2, 3, 0x02);
-    words[1] = xyw(0x2222, 0x6000);
-    words[2] = xyw(0x3333, 0x4444);
+    before = vram_mirror_generation(100, 40, 4, 2);
+    words[0] = cw(0xF8, 0, 0x08, 0x02);
+    words[1] = xyw(100, 40);
+    words[2] = xyw(4, 2);
     words[3] = cw(9, 8, 7, 0x60);
     words[4] = xyw(5, 5);
     words[5] = xyw(40, 24);
@@ -449,6 +552,25 @@ static void test_fill_rect_skipped(void)
     CHECK(s_recorded[0].shape == DC_SHAPE_RECT);
     CHECK(s_recorded[0].v[0].x == 5 && s_recorded[0].v[0].y == 5);
     CHECK(gpu_census_count(0x02) == 1);
+    CHECK(*vram_mirror_at(100, 40) == 0x041F);
+    CHECK(vram_mirror_generation(100, 40, 4, 2) != before);
+}
+
+static void test_fill_rect_rounds_position_and_size_like_hardware(void)
+{
+    DcGpuState state;
+    uint32_t words[3];
+    uint32_t before;
+
+    gpu_decode_reset(&state);
+    before = vram_mirror_generation(32, 80, 16, 16);
+    words[0] = cw(0xF8, 0, 0x08, 0x02);
+    words[1] = xyw(0xFC23, 0xFE50);
+    words[2] = xyw(0xF007, 0xFE10);
+    gpu_decode_packet(&state, words, 3, 0, 0);
+    CHECK(*vram_mirror_at(32, 80) == 0x041F);
+    CHECK(*vram_mirror_at(47, 95) == 0x041F);
+    CHECK(vram_mirror_generation(32, 80, 16, 16) != before);
 }
 
 int main(void)
@@ -463,11 +585,15 @@ int main(void)
     test_env_e3_e4_e5();
     test_vertex_sign_extend();
     test_polyline();
+    test_oversized_triangle_is_dropped();
+    test_quad_with_one_oversized_half_keeps_the_other();
+    test_oversized_line_is_dropped();
     test_nop_and_unknown();
     test_ot_skips_empty_middle();
     test_env_e2_then_tile();
     test_setdrawenv_roundtrip();
-    test_fill_rect_skipped();
+    test_fill_rect_writes_mirror_without_a_primitive();
+    test_fill_rect_rounds_position_and_size_like_hardware();
 
     if (failures != 0)
     {

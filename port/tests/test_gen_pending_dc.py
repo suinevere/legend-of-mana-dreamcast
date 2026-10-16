@@ -51,3 +51,64 @@ def test_a_function_inside_another_overlays_sized_data_stays_a_stub():
     aliases = gp.resolve_aliases(["field_rebuild", "g_inside"], lines, {"g_table"}, gp.OVERLAY_SLOTS["dreamcast"],
                                  None, gp.OVERLAY_BUFFER_RANGES["dreamcast"], code_ranges=[(0x800C3800, 0x800C3C00)])
     assert aliases == {"g_inside": "_g_table + 0x104"}
+
+
+def run_groups(monkeypatch, tmp_path, nm, symbol_text, scripts, groups):
+    monkeypatch.setattr(gp, "run_nm", lambda tool, objects: [line for o in objects for line in nm[os.path.basename(o)]])
+    monkeypatch.setattr(gp, "code_range", lambda path: (0x80010000, 0x80020000))
+    symbols = tmp_path / "s.txt"
+    symbols.write_text(symbol_text)
+    for name, text in scripts.items():
+        (tmp_path / name).write_text(text)
+    out_c, out_ld = tmp_path / "p.c", tmp_path / "p.ld"
+    argv = ["--overlay", "dreamcast", "--objects", str(tmp_path / "main.o"), "--symbols", str(symbols),
+            "--out-c", str(out_c), "--out-ld", str(out_ld), "--yamls", "x.yaml"]
+    for group in groups:
+        argv += ["--overlay-group"] + [str(tmp_path / p) for p in group]
+    assert gp.main(argv) == 0
+    return out_c.read_text(), out_ld.read_text()
+
+
+def test_main_never_aliases_to_another_overlays_equal_address_code(monkeypatch, tmp_path):
+    nm = {"main.o": ["         U _field_x"], "wmap.o": ["8c480010 T _wmap_y"]}
+    symbol_text = "field_x = 0x800CB0D8; // type:func\nwmap_y = 0x800CB0D8; // type:func\n"
+    c_text, ld_text = run_groups(monkeypatch, tmp_path, nm, symbol_text, {}, [["wmap.o"]])
+    assert "_wmap_y" not in ld_text
+    assert 'dc_halt("pending: field_x");' in c_text
+
+
+def test_a_name_only_another_overlay_defines_still_gets_main_storage(monkeypatch, tmp_path):
+    nm = {"main.o": ["         U _g_pending", "         U _field_text_y"],
+          "wmap.o": ["8c480010 T _field_text_y", "         U _g_wmap_data"],
+          "gname.o": ["         U _g_frame"]}
+    symbol_text = ("g_pending = 0x8010D018;\nfield_text_y = 0x80012000; // type:func\n"
+                   "g_wmap_data = 0x800D0000;\ng_frame = 0x800D1000;\n")
+    scripts = {"wmap_symbols.ld": "_g_pending = 0x8C5D0000;\n_g_wmap_data = 0x8C4F0000;\n_g_frame = 0x8C4F1000;\n"}
+    c_text, ld_text = run_groups(monkeypatch, tmp_path, nm, symbol_text, scripts,
+                                 [["wmap.o", "wmap_symbols.ld"], ["gname.o"]])
+    assert "_g_pending = _lom_trap_buffer;" in ld_text
+    assert "_g_frame = _lom_trap_buffer;" in ld_text
+    assert "g_wmap_data" not in ld_text
+    assert 'dc_halt("pending: field_text_y");' in c_text
+
+
+def test_an_overlays_own_unnamed_data_resolves_inside_its_data_region(monkeypatch, tmp_path):
+    nm = {"main.o": [], "wmap.o": ["         U _D_8004FD04", "         U _D_800D0000"]}
+    scripts = {"wmap_symbols.ld": "_g_other = 0x8C4E2000;\n"}
+    argv_extra = ["--group-out-dir", str(tmp_path)]
+    monkeypatch.setattr(gp, "run_nm", lambda tool, objects: [line for o in objects for line in nm[os.path.basename(o)]])
+    monkeypatch.setattr(gp, "code_range", lambda path: (0x80010000, 0x80020000))
+    symbols = tmp_path / "s.txt"
+    symbols.write_text("")
+    for name, text in scripts.items():
+        (tmp_path / name).write_text(text)
+    out_c, out_ld = tmp_path / "p.c", tmp_path / "p.ld"
+    assert gp.main(["--overlay", "dreamcast", "--objects", str(tmp_path / "main.o"), "--symbols", str(symbols),
+                    "--out-c", str(out_c), "--out-ld", str(out_ld), "--yamls", "x.yaml",
+                    "--overlay-group", str(tmp_path / "wmap.o"), str(tmp_path / "wmap_symbols.ld")] + argv_extra) == 0
+    spec = gp.overlay_rules.target_spec(gp.overlay_rules.OVERLAYS[3], gp.targets.DREAMCAST)
+    base = gp.targets.DREAMCAST.regions["wmap"].data_base
+    local = (tmp_path / "wmap_pending.ld").read_text()
+    assert "_D_8004FD04 = 0x%08X;" % (base + gp.overlay_rules.packed_offset(0x8004FD04, spec)) in local
+    assert "_D_800D0000 = 0x%08X;" % (base + gp.overlay_rules.packed_offset(0x800D0000, spec)) in local
+    assert "D_8004FD04" not in out_ld.read_text()

@@ -1,8 +1,10 @@
 /*----------------------
  | test_pvr_submit.c
- | Description: Host tests for the PowerVR submitter through libgpu with a fake backend: VSync(1) never flips, clear-only frames still open and show a scene, and colours above 0x80 brighten in an extra pass.
+ | Description: Host tests for the PowerVR submitter through libgpu with a fake backend: VSync(1) never flips, clear-only frames still open and show a scene.
+ | Also checks colours above 0x80 brighten in an extra pass, and a full-area clear over already-submitted prims redraws them with a full-area rect.
+ | A scene whose flip wait expired skips the pending texture flush, leaving it for the next scene whose wait succeeds.
  | Author: suinevere
- | Dependencies: pvr_submit.h, pvr_backend.h, libgpu_dc.c, pvr_submit.c, gpu_decode.c, gpu_census.c, clip.c, blend.c, palette_bank.c, texture_cache.c, vram_mirror.c, lom_prefix.h (forced include)
+ | Dependencies: pvr_submit.h, pvr_backend.h, libgpu_dc.c, pvr_submit.c, gpu_decode.c, gpu_census.c, clip.c, blend.c, palette_bank.c, texture_cache.c, vram_mirror.c, frame_readback.c, lom_prefix.h (forced include)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -30,6 +32,8 @@ static int s_strips_in_scene;
 static int s_strips_in_last_scene;
 static int s_bg_in_open_scene;
 static int s_open;
+static int s_scene_begin_result;
+static int s_free_all_calls;
 
 #define CHECK(cond) do { if (!(cond)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
 
@@ -77,12 +81,29 @@ void frame_probe_prim(void)
 {
 }
 
-static void fake_scene_begin(unsigned scenes_closed)
+static uint16_t s_frame_pixels[640 * 480];
+
+const uint16_t *pvr_backend_frame_pixels(unsigned *pitch_px)
+{
+    *pitch_px = 640;
+    return s_frame_pixels;
+}
+
+static int fake_scene_begin(unsigned scenes_closed)
 {
     (void)scenes_closed;
     s_begins++;
     s_open = 1;
     s_strips_in_scene = 0;
+    return s_scene_begin_result;
+}
+
+static int s_scene_shown_result;
+
+static int fake_scene_shown(unsigned scenes_closed)
+{
+    (void)scenes_closed;
+    return s_scene_shown_result;
 }
 
 static void fake_scene_finish(void)
@@ -104,6 +125,9 @@ static void fake_background(uint8_t r, uint8_t g, uint8_t b)
 static int s_headers;
 static BlendPass s_header_log[8];
 static uint32_t s_strip_colour[8];
+static float s_strip_min_x, s_strip_max_x, s_strip_min_y, s_strip_max_y;
+static float s_last_strip_min_x, s_last_strip_max_x, s_last_strip_min_y, s_last_strip_max_y;
+static int s_strip_has_vertex;
 
 static void fake_header(const DcSurfaceTexture *tex, const BlendPass *pass)
 {
@@ -117,22 +141,38 @@ static void fake_header(const DcSurfaceTexture *tex, const BlendPass *pass)
 
 static void fake_vertex(float x, float y, float u, float v, uint32_t argb, int last)
 {
-    (void)x;
-    (void)y;
     (void)u;
     (void)v;
+    if (!s_strip_has_vertex)
+    {
+        s_strip_min_x = s_strip_max_x = x;
+        s_strip_min_y = s_strip_max_y = y;
+        s_strip_has_vertex = 1;
+    }
+    else
+    {
+        if (x < s_strip_min_x) { s_strip_min_x = x; }
+        if (x > s_strip_max_x) { s_strip_max_x = x; }
+        if (y < s_strip_min_y) { s_strip_min_y = y; }
+        if (y > s_strip_max_y) { s_strip_max_y = y; }
+    }
     if (last && s_strips < 8)
     {
         s_strip_colour[s_strips] = argb & 0x00FFFFFFu;
     }
     if (last)
     {
+        s_last_strip_min_x = s_strip_min_x;
+        s_last_strip_max_x = s_strip_max_x;
+        s_last_strip_min_y = s_strip_min_y;
+        s_last_strip_max_y = s_strip_max_y;
+        s_strip_has_vertex = 0;
         s_strips++;
         s_strips_in_scene++;
     }
 }
 
-static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_vertex };
+static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_vertex, fake_scene_shown };
 
 static void *fake_alloc(unsigned bytes)
 {
@@ -147,7 +187,12 @@ static void fake_set_entry(unsigned index, uint32_t argb)
     (void)argb;
 }
 
-static const TextureOps s_texture_ops = { fake_alloc, 0, 0 };
+static void fake_free_all(void)
+{
+    s_free_all_calls++;
+}
+
+static const TextureOps s_texture_ops = { fake_alloc, fake_free_all, 0 };
 static const PaletteOps s_palette_ops = { fake_set_entry };
 
 static void reset(void)
@@ -158,6 +203,10 @@ static void reset(void)
     s_strips = 0;
     s_strips_in_last_scene = 0;
     s_headers = 0;
+    s_scene_begin_result = 1;
+    s_scene_shown_result = 0;
+    s_free_all_calls = 0;
+    s_strip_has_vertex = 0;
 }
 
 static void put_draw_area(int x, int y, int w, int h)
@@ -320,6 +369,104 @@ static void test_bright_textured_sprite_adds_its_excess(void)
     VSync(0);
 }
 
+static void test_clear_after_prims_redraws_full_area(void)
+{
+    RECT rect = { 0, 0, 320, 240 };
+
+    put_draw_area(0, 0, 320, 240);
+    reset();
+    draw_tile_ot(10, 10);
+    ClearImage(&rect, 0x08, 0x10, 0x18);
+    VSync(0);
+    CHECK(s_strips_in_last_scene == 2);
+    CHECK(s_last_strip_min_x == 0.0f && s_last_strip_min_y == 0.0f);
+    CHECK(s_last_strip_max_x == 640.0f && s_last_strip_max_y == 480.0f);
+}
+
+static void saturate_texture_cache(unsigned frame, int base_tpage)
+{
+    DcSurfaceTexture tex;
+    int i;
+
+    for (i = 0; i < 300; i++)
+    {
+        if (texture_cache_lookup(base_tpage + i, 0, 0, 0, DC_DEPTH_15, 0, frame, &tex) < 0)
+        {
+            return;
+        }
+    }
+}
+
+static void test_expired_flip_wait_defers_texture_flush(void)
+{
+    put_draw_area(0, 0, 320, 240);
+    reset();
+    saturate_texture_cache(9001, 4096);
+    CHECK(s_free_all_calls == 0);
+    s_scene_begin_result = 0;
+    draw_tile_ot(10, 10);
+    VSync(0);
+    CHECK(s_free_all_calls == 0);
+    s_scene_begin_result = 1;
+    draw_tile_ot(10, 10);
+    VSync(0);
+    CHECK(s_free_all_calls == 1);
+}
+
+static void test_frame_rect_promotes_only_after_flip_is_confirmed(void)
+{
+    int16_t x, y, w, h, ox, oy;
+
+    s_scene_begin_result = 1;
+    put_draw_area(0, 0, 320, 240);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    put_draw_area(0, 0, 64, 48);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(w == 320 && h == 240);
+
+    s_scene_begin_result = 0;
+    put_draw_area(0, 0, 96, 72);
+    draw_tile_ot(10, 10);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(w == 320 && h == 240);
+    VSync(0);
+
+    s_scene_begin_result = 1;
+    put_draw_area(0, 0, 128, 96);
+    draw_tile_ot(10, 10);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(w == 96 && h == 72);
+    VSync(0);
+    s_scene_begin_result = 1;
+}
+
+static void test_frame_rect_promotes_lazily_once_the_flip_is_shown(void)
+{
+    int16_t x, y, w, h, ox, oy;
+
+    s_scene_begin_result = 1;
+    s_scene_shown_result = 1;
+    put_draw_area(0, 0, 160, 120);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    put_draw_area(0, 0, 200, 150);
+    draw_tile_ot(10, 10);
+    s_scene_shown_result = 0;
+    VSync(0);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(w == 160 && h == 120);
+
+    s_scene_shown_result = 1;
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(w == 200 && h == 150);
+
+    s_scene_begin_result = 1;
+    s_scene_shown_result = 0;
+}
+
 int main(void)
 {
     texture_cache_init(&s_texture_ops);
@@ -332,6 +479,10 @@ int main(void)
     test_partial_clear_only_frame_draws_its_rect();
     test_subtractive_tile_inverts_adds_and_inverts();
     test_bright_textured_sprite_adds_its_excess();
+    test_clear_after_prims_redraws_full_area();
+    test_expired_flip_wait_defers_texture_flush();
+    test_frame_rect_promotes_only_after_flip_is_confirmed();
+    test_frame_rect_promotes_lazily_once_the_flip_is_shown();
 
     if (failures != 0)
     {

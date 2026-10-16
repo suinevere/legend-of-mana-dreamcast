@@ -2,7 +2,7 @@
 # | test_pvr_submit_host.py
 # | Description: Builds and runs the host C test for the PowerVR submitter's scene policy through libgpu with a fake backend.
 # | Author: suinevere
-# | Dependencies: tests/host/test_pvr_submit.c, src/video/*.c (pure units), ../port/psyq/lom_prefix.h
+# | Dependencies: tests/host/test_pvr_submit.c, src/video/*.c (pure units, including frame_readback.c), ../port/psyq/lom_prefix.h
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -19,7 +19,7 @@ REPO = os.path.dirname(DC)
 PORT_PSYQ = os.path.join(REPO, "port", "psyq")
 PORT_SYSTEM = os.path.join(REPO, "port", "system")
 UNITS = ["pvr_submit.c", "libgpu_dc.c", "gpu_decode.c", "gpu_census.c", "clip.c", "blend.c", "palette_bank.c",
-         "texture_cache.c", "vram_mirror.c"]
+         "texture_cache.c", "vram_mirror.c", "frame_readback.c"]
 
 
 def test_pvr_submit_host():

@@ -466,3 +466,54 @@ void vram_mirror_clear(const RECT *rect, int r, int g, int b)
         }
     }
 }
+
+/*----------------------
+ | vram_mirror_fill
+ | Description: Fills a w by h rect at (x, y) with an already-packed 15-bit colour, matching GP0 0x02 fill rectangle, and bumps the overwritten blocks' generations.
+ | Author: suinevere
+ | Dependencies: mirror_at, blocks_bump
+ | Globals: s_mirror, s_block_gen, s_gen_counter
+ | Params: x, y, w, h -- rect in mirror pixels, colour -- packed 15-bit PS1 colour
+ | Returns: N/A
+ ----------------------*/
+void vram_mirror_fill(int x, int y, int w, int h, uint16_t colour)
+{
+    int row;
+    int col;
+
+    blocks_bump(x, y, w, h);
+    for (row = 0; row < h; row++)
+    {
+        for (col = 0; col < w; col++)
+        {
+            *mirror_at(x + col, y + row) = colour;
+        }
+    }
+}
+
+/*----------------------
+ | vram_mirror_invalidate
+ | Description: Overwrites a w by h rect at (x, y) with pixels and bumps the overwritten blocks' generations, skipping wraparound since a PS1 draw-area rect is always in VRAM bounds.
+ | Author: suinevere
+ | Dependencies: blocks_bump
+ | Globals: s_mirror, s_block_gen, s_gen_counter
+ | Params: x, y, w, h -- rect already inside [0, VRAM_MIRROR_WIDTH) and [0, VRAM_MIRROR_HEIGHT), pixels -- w*h source pixels, row-major
+ | Returns: N/A
+ ----------------------*/
+void vram_mirror_invalidate(int x, int y, int w, int h, const unsigned short *pixels)
+{
+    int row;
+    int col;
+
+    blocks_bump(x, y, w, h);
+    for (row = 0; row < h; row++)
+    {
+        unsigned short *dst = &s_mirror[(y + row) * VRAM_MIRROR_WIDTH + x];
+        const unsigned short *src = &pixels[row * w];
+
+        for (col = 0; col < w; col++)
+        {
+            dst[col] = src[col];
+        }
+    }
+}

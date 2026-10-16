@@ -49,3 +49,7 @@ dreamcast/*.cdi
 
 # Downloaded Flycast emulator used by the Dreamcast boot-check runner
 tools/flycast/
+
+# MemPalace per-project files (issue #185)
+mempalace.yaml
+entities.json

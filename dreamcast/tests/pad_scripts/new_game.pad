@@ -25,3 +25,25 @@ capture wsel-cursor
 press CROSS 6
 wait 120
 capture wsel-cursor-confirmed
+mash CROSS 40 state 1
+wait 10
+capture wmap-loading
+wait 215
+capture wmap-mailbox
+wait 45
+capture wmap-mailbox-carried
+wait 180
+capture wmap-place-mailbox-prompt
+press CROSS 6
+wait 30
+press CROSS 6
+wait 300
+capture wmap-land-flash
+wait 150
+capture wmap-home-rising
+wait 120
+capture wmap-home-dark
+wait 140
+capture wmap-board-home
+mash CROSS 40 marker field scene 857
+capture field-battle-end

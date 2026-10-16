@@ -1,9 +1,9 @@
 /*----------------------
  | libgpu_dc.c
- | Description: Dreamcast backend for the Psy-Q libgpu calls the ported game code makes: mirrors VRAM, decodes ordering tables into the PowerVR submitter and paces frames on the shared VSync pacer.
+ | Description: Dreamcast backend for the Psy-Q libgpu calls the ported game code makes: mirrors VRAM, decodes ordering tables into the PowerVR submitter, and paces frames on the shared VSync pacer. Also reads back the finished PowerVR frame for StoreImage and MoveImage.
  | Author: suinevere
- | Dependencies: lom_prefix.h, gpu_tag.h, vram_mirror.h, gpu_decode.h, pvr_submit.h, vsync_pacer.h, libgpu_dc.h
- | Globals: s_draw_env, s_disp_env, s_disp_seen, s_disp_mask, s_frame_primitives, s_vsync_hook, s_gpu_state
+ | Dependencies: lom_prefix.h, gpu_tag.h, vram_mirror.h, gpu_decode.h, pvr_submit.h, pvr_backend.h, frame_readback.h, vsync_pacer.h, libgpu_dc.h
+ | Globals: s_draw_env, s_disp_env, s_disp_seen, s_disp_mask, s_frame_primitives, s_vsync_hook, s_gpu_state, s_readback_line, s_draw_matches_disp
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -11,6 +11,8 @@
 #include "vram_mirror.h"
 #include "gpu_decode.h"
 #include "pvr_submit.h"
+#include "pvr_backend.h"
+#include "frame_readback.h"
 #include "vsync_pacer.h"
 #include "libgpu_dc.h"
 
@@ -102,7 +104,20 @@ static DcGpuState s_gpu_state;
  ----------------------*/
 static int16_t s_origin_area[2];
 
+/*----------------------
+ | s_draw_matches_disp
+ | Description: Whether the last PutDrawEnv's area is pixel-identical to the last PutDispEnv's area, so primitives land in the buffer the CRTC is currently scanning.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_draw_matches_disp;
+
 static void update_origin(void);
+static void update_draw_matches_disp(void);
+static void sync_flip(void);
 
 /*----------------------
  | submit_sink
@@ -191,6 +206,40 @@ static void update_origin(void)
 }
 
 /*----------------------
+ | update_draw_matches_disp
+ | Description: Recomputes s_draw_matches_disp by comparing the current draw area against the current display area.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_draw_env, s_disp_env, s_draw_matches_disp
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void update_draw_matches_disp(void)
+{
+    const RECT *draw = &s_draw_env.clip;
+    const RECT *disp = &s_disp_env.disp;
+
+    s_draw_matches_disp = draw->x == disp->x && draw->y == disp->y && draw->w == disp->w && draw->h == disp->h;
+}
+
+/*----------------------
+ | sync_flip
+ | Description: Presents the open scene now, outside the normal VSync flip, when it drew into the buffer currently on screen -- real PS1 hardware shows such a draw the instant it lands.
+ | Author: suinevere
+ | Dependencies: pvr_submit_scene_has_prims, pvr_submit_flip
+ | Globals: s_draw_matches_disp
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void sync_flip(void)
+{
+    if (s_draw_matches_disp && pvr_submit_scene_has_prims())
+    {
+        pvr_submit_flip();
+    }
+}
+
+/*----------------------
  | DrawOTag
  | Description: Decodes the chain in OT order and submits every primitive to the PowerVR.
  | Author: suinevere
@@ -221,6 +270,20 @@ void DrawPrim(void *prim)
 }
 
 /*----------------------
+ | SetPolyFT4
+ | Description: Marks a packet as a flat textured quad, nine words long with GPU code 0x2C, leaving its link address and other fields untouched.
+ | Author: suinevere
+ | Dependencies: setPolyFT4, lom_prefix.h setlen
+ | Globals: N/A
+ | Params: prim -- packet to initialise
+ | Returns: N/A
+ ----------------------*/
+void SetPolyFT4(POLY_FT4 *prim)
+{
+    setPolyFT4(prim);
+}
+
+/*----------------------
  | dc_frame_primitives
  | Description: Returns the primitives DrawOTag and DrawPrim decoded since the last call and resets the count to zero.
  | Author: suinevere
@@ -239,9 +302,9 @@ unsigned dc_frame_primitives(void)
 
 /*----------------------
  | DrawSync
- | Description: There is no queued GPU work to wait for; always idle.
+ | Description: No queued GPU work to wait for, but presents a scene drawn into the currently displayed area now instead of waiting for the next VSync flip.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: sync_flip
  | Globals: N/A
  | Params: mode -- ignored
  | Returns: 0
@@ -249,13 +312,14 @@ unsigned dc_frame_primitives(void)
 int DrawSync(int mode)
 {
     (void)mode;
+    sync_flip();
     return 0;
 }
 
 /*----------------------
  | VSync
- | Description: Flips an open PowerVR scene on the waiting modes (0 and above 1) and paces the game on the shared vblank counter, then runs the hook unless this was a counter read.
- | VSync(1) returns at once on the PS1 and games call it mid-frame, so it never flips.
+ | Description: Flips an open PowerVR scene on the waiting modes (0 and above 1) and paces the game on the shared vblank counter.
+ | Then runs the hook unless this was a counter read; VSync(1) returns at once on the PS1 and games call it mid-frame, so it never flips.
  | Author: suinevere
  | Dependencies: pvr_submit_flip, vsync_wait, vsync_count
  | Globals: s_vsync_hook
@@ -342,7 +406,7 @@ DISPENV *SetDefDispEnv(DISPENV *env, int x, int y, int w, int h)
  | PutDrawEnv
  | Description: Records the draw environment, resets the decoder's area, offset and tpage from it, places it on screen, and sets the PowerVR background when isbg asks for a clear.
  | Author: suinevere
- | Dependencies: gpu_decode_reset, update_origin, pvr_submit_background, pack_colour
+ | Dependencies: gpu_decode_reset, update_origin, update_draw_matches_disp, pvr_submit_background, pack_colour
  | Globals: s_draw_env, s_gpu_state
  | Params: env -- draw environment
  | Returns: env
@@ -359,6 +423,7 @@ DRAWENV *PutDrawEnv(DRAWENV *env)
     s_gpu_state.ofs_y = env->ofs[1];
     s_gpu_state.tpage = (uint16_t)((env->tpage & 0x1FF) | (env->dtd ? 0x200 : 0) | (env->dfe ? 0x400 : 0));
     update_origin();
+    update_draw_matches_disp();
     if (env->isbg)
     {
         pvr_submit_background(pack_colour(env->r0, env->g0, env->b0));
@@ -368,9 +433,9 @@ DRAWENV *PutDrawEnv(DRAWENV *env)
 
 /*----------------------
  | PutDispEnv
- | Description: Records the display environment and remembers its area alongside the previous distinct one, so draw areas can be placed on screen.
+ | Description: Presents a scene drawn into the outgoing display area, then records the new display environment and remembers its area alongside the previous distinct one, so draw areas can be placed on screen.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: sync_flip, update_draw_matches_disp
  | Globals: s_disp_env, s_disp_seen
  | Params: env -- display environment
  | Returns: env
@@ -379,12 +444,14 @@ DISPENV *PutDispEnv(DISPENV *env)
 {
     const RECT *r = &env->disp;
 
+    sync_flip();
     s_disp_env = *env;
     if (r->x != s_disp_seen[0].x || r->y != s_disp_seen[0].y || r->w != s_disp_seen[0].w || r->h != s_disp_seen[0].h)
     {
         s_disp_seen[1] = s_disp_seen[0];
         s_disp_seen[0] = *r;
     }
+    update_draw_matches_disp();
     return env;
 }
 
@@ -420,8 +487,9 @@ int LoadImage(RECT *rect, u_long *data)
 /*----------------------
  | ClearImage
  | Description: Fills a VRAM mirror rectangle, then clears the PowerVR scene: the background when the rect covers the draw area, else an opaque rect for the part inside it.
+ | A full-area clear also draws a full-area opaque rect when the scene already holds prims, since the PS1 erases them but the background alone would not.
  | Author: suinevere
- | Dependencies: vram_mirror_clear, pvr_submit_background, pvr_submit_rect, pack_colour
+ | Dependencies: vram_mirror_clear, pvr_submit_background, pvr_submit_rect, pvr_submit_scene_has_prims, pack_colour
  | Globals: s_gpu_state
  | Params: rect -- area, r, g, b -- fill colour
  | Returns: 0
@@ -438,6 +506,10 @@ int ClearImage(RECT *rect, u_char r, u_char g, u_char b)
     if (x1 <= s_gpu_state.area_x1 && y1 <= s_gpu_state.area_y1 && x2 >= s_gpu_state.area_x2 && y2 >= s_gpu_state.area_y2)
     {
         pvr_submit_background(colour);
+        if (pvr_submit_scene_has_prims())
+        {
+            pvr_submit_rect(0, 0, s_gpu_state.area_x2 - s_gpu_state.area_x1 + 1, s_gpu_state.area_y2 - s_gpu_state.area_y1 + 1, colour);
+        }
         return 0;
     }
     x1 = x1 > s_gpu_state.area_x1 ? x1 : s_gpu_state.area_x1;
@@ -452,32 +524,143 @@ int ClearImage(RECT *rect, u_char r, u_char g, u_char b)
 }
 
 /*----------------------
- | StoreImage
- | Description: Reads VRAM mirror pixels out of a rectangle.
+ | FRAME_READBACK_LINE_MAX
+ | Description: Widest row consult_frame reads back in one frame_readback_copy call, the full mirror width.
  | Author: suinevere
- | Dependencies: vram_mirror_store
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FRAME_READBACK_LINE_MAX 1024
+
+/*----------------------
+ | s_readback_line
+ | Description: One mirror row of scratch for consult_frame's readback, reused row by row to keep the call stackless.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static uint16_t s_readback_line[FRAME_READBACK_LINE_MAX];
+
+/*----------------------
+ | FRAME_READBACK_SCREEN_W, FRAME_READBACK_SCREEN_H
+ | Description: The draw buffer's PS1-pixel size: a frame's pixels only cover VRAM [fx, fx + FRAME_READBACK_SCREEN_W) by [fy, fy + FRAME_READBACK_SCREEN_H).
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FRAME_READBACK_SCREEN_W 320
+#define FRAME_READBACK_SCREEN_H 240
+
+/*----------------------
+ | consult_frame
+ | Description: Where rect overlaps both the last confirmed PowerVR frame and the screen it was placed on, reads those pixels back into the mirror row by row.
+ | So StoreImage, MoveImage and MoveImage2 see the screen, mapping each VRAM pixel through the frame's screen origin before sampling it.
+ | Author: suinevere
+ | Dependencies: pvr_frame_rect, DrawSync, pvr_backend_frame_pixels, frame_readback_copy, vram_mirror_invalidate
+ | Globals: s_readback_line
+ | Params: rect -- VRAM rectangle about to be read or moved
+ | Returns: N/A
+ ----------------------*/
+static void consult_frame(const RECT *rect)
+{
+    RECT frame;
+    int16_t origin_x, origin_y;
+    int fx, fy;
+    int x1, y1, x2, y2;
+    unsigned pitch;
+    const uint16_t *pixels;
+    int row;
+    int w;
+
+    if (!pvr_frame_rect(&frame.x, &frame.y, &frame.w, &frame.h, &origin_x, &origin_y))
+    {
+        return;
+    }
+    fx = frame.x - origin_x;
+    fy = frame.y - origin_y;
+    x1 = rect->x > frame.x ? rect->x : frame.x;
+    x1 = fx > x1 ? fx : x1;
+    y1 = rect->y > frame.y ? rect->y : frame.y;
+    y1 = fy > y1 ? fy : y1;
+    x2 = rect->x + rect->w - 1;
+    x2 = (frame.x + frame.w - 1) < x2 ? (frame.x + frame.w - 1) : x2;
+    x2 = (fx + FRAME_READBACK_SCREEN_W - 1) < x2 ? (fx + FRAME_READBACK_SCREEN_W - 1) : x2;
+    y2 = rect->y + rect->h - 1;
+    y2 = (frame.y + frame.h - 1) < y2 ? (frame.y + frame.h - 1) : y2;
+    y2 = (fy + FRAME_READBACK_SCREEN_H - 1) < y2 ? (fy + FRAME_READBACK_SCREEN_H - 1) : y2;
+    if (x1 > x2 || y1 > y2)
+    {
+        return;
+    }
+    DrawSync(0);
+    pixels = pvr_backend_frame_pixels(&pitch);
+    if (pixels == 0)
+    {
+        return;
+    }
+    w = x2 - x1 + 1;
+    if (w > FRAME_READBACK_LINE_MAX)
+    {
+        w = FRAME_READBACK_LINE_MAX;
+    }
+    for (row = y1; row <= y2; row++)
+    {
+        frame_readback_copy(pixels, pitch, fx, fy, s_readback_line, x1, row, w, 1);
+        vram_mirror_invalidate(x1, row, w, 1, s_readback_line);
+    }
+}
+
+/*----------------------
+ | StoreImage
+ | Description: Reads VRAM mirror pixels out of a rectangle, first reading back any overlap with the last finished PowerVR frame.
+ | Author: suinevere
+ | Dependencies: consult_frame, vram_mirror_store
  | Globals: N/A
  | Params: rect -- VRAM rectangle, data -- destination buffer
  | Returns: 0
  ----------------------*/
 int StoreImage(RECT *rect, u_long *data)
 {
+    consult_frame(rect);
     vram_mirror_store(rect, data);
     return 0;
 }
 
 /*----------------------
  | MoveImage
- | Description: Copies a VRAM mirror rectangle to a new position.
+ | Description: Copies a VRAM mirror rectangle to a new position, first reading back any overlap of the source with the last finished PowerVR frame.
  | Author: suinevere
- | Dependencies: vram_mirror_move
+ | Dependencies: consult_frame, vram_mirror_move
  | Globals: N/A
  | Params: rect -- source rectangle, x, y -- destination origin
  | Returns: 0
  ----------------------*/
 int MoveImage(RECT *rect, int x, int y)
 {
+    consult_frame(rect);
     vram_mirror_move(rect, x, y);
+    return 0;
+}
+
+/*----------------------
+ | MoveImage2
+ | Description: MoveImage followed by DrawSync(0), for callers that need the move visible before continuing.
+ | Author: suinevere
+ | Dependencies: MoveImage, DrawSync
+ | Globals: N/A
+ | Params: rect -- source rectangle, x, y -- destination origin
+ | Returns: 0
+ ----------------------*/
+int MoveImage2(RECT *rect, int x, int y)
+{
+    MoveImage(rect, x, y);
+    DrawSync(0);
     return 0;
 }
 

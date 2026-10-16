@@ -1,6 +1,7 @@
 /*----------------------
  | blend.c
- | Description: Maps a PS1 primitive's semi-transparency mode and ABR code to PowerVR blend passes, keyed off the CLUT's STP classification, with exact subtraction by inversion and an excess pass for texture tints above 0x80.
+ | Description: Maps a PS1 primitive's semi-transparency mode and ABR code to PowerVR blend passes, keyed off the CLUT's STP classification.
+ | Exact subtraction is by inversion, with an excess pass for texture tints above 0x80.
  | Author: suinevere
  | Dependencies: blend.h, palette_bank.h
  | Globals: N/A

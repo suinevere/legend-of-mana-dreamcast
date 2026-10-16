@@ -2,7 +2,7 @@
 # | test_render_screens.py
 # | Description: Runs the scripted test image once in Flycast and diffs each captured screen against its DuckStation reference.
 # | Author: suinevere
-# | Dependencies: tools/flycast_run.py, tools/frame_diff.py, lom_test.cdi, reference/ps1
+# | Dependencies: tools/flycast_run.py, tools/frame_diff.py, stale_image.py, lom_test.cdi, reference/ps1
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -15,9 +15,11 @@ import pytest
 
 DC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.join(DC, "tools"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import flycast_run
 import frame_diff
+import stale_image
 
 SCREENS = {"title": "01-title",
            "gname-select-character": "02-gname-select-character",
@@ -26,19 +28,25 @@ SCREENS = {"title": "01-title",
            "wsel-room": "05-wsel-room",
            "wsel-prompt": "06-wsel-prompt",
            "wsel-cursor": "07-wsel-cursor",
-           "wsel-cursor-confirmed": "08-wsel-cursor-confirmed"}
+           "wsel-cursor-confirmed": "08-wsel-cursor-confirmed",
+           "wmap-loading": "09-wmap-loading",
+           "wmap-mailbox": "10-wmap-mailbox",
+           "wmap-mailbox-carried": "11-wmap-mailbox-carried",
+           "wmap-place-mailbox-prompt": "12-wmap-place-mailbox-prompt",
+           "wmap-land-flash": "13-wmap-land-flash",
+           "wmap-home-rising": "14-wmap-home-rising",
+           "wmap-home-dark": "15-wmap-home-dark",
+           "wmap-board-home": "16-wmap-board-home"}
 
 
 @pytest.fixture(scope="module")
 def captures():
     if flycast_run.find_flycast() is None:
         pytest.skip("no flycast")
-    image = os.path.join(DC, "lom_test.cdi")
-    if not os.path.exists(image):
-        pytest.skip("lom_test.cdi not built")
+    image = stale_image.require_fresh_test_image(DC)
     out = tempfile.mkdtemp(prefix="lom-render-")
     last = list(SCREENS)[-1]
-    code, lines = flycast_run.run_flycast(image, seconds=240, until="LOM: capture " + last, captures=out)
+    code, lines = flycast_run.run_flycast(image, seconds=480, until="LOM: capture " + last, captures=out)
     assert code == 0, "\n".join(lines[-60:])
     return out, lines
 

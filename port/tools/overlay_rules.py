@@ -38,15 +38,15 @@ SECONDARY_BASE = 0x70000
 
 #----------------------
 # | OverlaySpec
-# | Description: One overlay: name, PS1 load address, packed data ranges, a symbol file name or tuple of names, TIM symbols, a convert(buf, off) rule, a slot base offset and a tail start address dropped from the disc blob, and symbols placed at fixed Saturn addresses outside the packed ranges.
+# | Description: One overlay: name, PS1 load address, packed data ranges, a symbol file name or tuple of names, TIM symbols, a convert(buf, off) rule, a slot base offset and a tail start address dropped from the disc blob, symbols placed at fixed Saturn addresses outside the packed ranges, and the ranges before those cuts.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OverlaySpec = collections.namedtuple("OverlaySpec", "name vram ranges symbols_file tims convert base tail_from placed")
-OverlaySpec.__new__.__defaults__ = (0, None, ())
+OverlaySpec = collections.namedtuple("OverlaySpec", "name vram ranges symbols_file tims convert base tail_from placed unsplit_ranges")
+OverlaySpec.__new__.__defaults__ = (0, None, (), None)
 
 #----------------------
 # | FUNCTION_TABLES
@@ -770,20 +770,50 @@ OVERLAYS = {
                    split_ranges([(0x8004FC74, 0x80054A2C), (0x800C4588, 0x801B32D8)],
                                 [(b.ps1_addr, b.ps1_addr + b.ps1_gap) for b in wmap_memory.BUFFERS]),
                    ("wmap_symbol_addrs.txt", "shared_symbol_addrs.txt"), [], convert_wmap, 0, 0x801AFBA0,
-                   tuple(wmap_memory.place(wmap_memory.BUFFERS).items())),
+                   tuple(wmap_memory.place(wmap_memory.BUFFERS).items()),
+                   [(0x8004FC74, 0x80054A2C), (0x800C4588, 0x801B32D8)]),
 }
+
+
+#----------------------
+# | target_spec
+# | Description: The spec as a target packs it: a target without convert rules keeps any cut buffers inside its data at their PS1 offsets and places nothing.
+# | Author: suinevere
+# | Dependencies: OverlaySpec
+# | Globals: N/A
+# | Params: spec -- OverlaySpec, target -- targets.Target
+# | Returns: OverlaySpec
+#----------------------
+def target_spec(spec, target):
+    if target.convert_rules or spec.unsplit_ranges is None:
+        return spec
+    return spec._replace(ranges=spec.unsplit_ranges, placed=())
+
+
+#----------------------
+# | relocate_wmap_pointers
+# | Description: WMAP pointer rule for a little-endian target: relocates the three input-script pointers, the only packed-range pointers its Home path reads.
+# | Author: suinevere
+# | Dependencies: relocate_words, target_spec, OVERLAYS
+# | Globals: N/A
+# | Params: buf -- packed bytearray, off -- symbol name to packed offset, target -- targets.Target
+# | Returns: N/A
+#----------------------
+def relocate_wmap_pointers(buf, off, target):
+    scripts = off("g_wmap_input_scripts")
+    relocate_words(buf, [scripts + i * 4 for i in range(3)], target_spec(OVERLAYS[3], target), target)
 
 
 #----------------------
 # | POINTER_RULES
 # | Description: Per overlay name, the pointer relocation a target without convert rules runs instead; an overlay with no packed-range pointers has no entry.
 # | Author: suinevere
-# | Dependencies: relocate_title_pointers
+# | Dependencies: relocate_title_pointers, relocate_wmap_pointers
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-POINTER_RULES = {"title": relocate_title_pointers}
+POINTER_RULES = {"title": relocate_title_pointers, "wmap": relocate_wmap_pointers}
 
 
 #----------------------
@@ -895,12 +925,13 @@ def function_table_source(spec, overlay, symbols):
 # | Description: Packs an overlay's ranges, drops its all-zero tail, applies its TIM and data rules (or only its pointer rule for a target without convert rules),
 # |              and builds its linker symbol script at the target's data address without the FUNCTION_TABLES or C_DEFINED names, giving placed symbols their fixed addresses.
 # | Author: suinevere
-# | Dependencies: packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, POINTER_RULES, data_base, targets.SATURN
+# | Dependencies: target_spec, packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, POINTER_RULES, data_base, targets.SATURN
 # | Globals: N/A
 # | Params: spec -- OverlaySpec, overlay -- decompressed overlay bytes, symbols -- name to PS1 address, target -- targets.Target, Saturn by default
 # | Returns: (packed bytearray, linker script text); raises ValueError when the blob overflows the target's data region
 #----------------------
 def build_overlay(spec, overlay, symbols, target=targets.SATURN):
+    spec = target_spec(spec, target)
     buf = bytearray()
     for start, end in spec.ranges:
         buf += overlay[start - spec.vram:end - spec.vram]

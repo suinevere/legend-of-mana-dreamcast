@@ -12,13 +12,16 @@
 /*----------------------
  | RESOURCE_INDEX_MAX
  | Description: Most resources the index can hold; mirrors cdrom_saturn.c's CDROM_INDEX_BLOB_RESOURCE_MAX and convert_disc.py's RESOURCE_INDEX_MAX, which rejects a larger RESINDEX.BIN.
+ |              The Dreamcast makefile overrides it with -D, since its disc carries every live PS1 resource; Saturn keeps this default.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#ifndef RESOURCE_INDEX_MAX
 #define RESOURCE_INDEX_MAX 256
+#endif
 
 static ResourceEntry s_entries[RESOURCE_INDEX_MAX];
 static int s_count;

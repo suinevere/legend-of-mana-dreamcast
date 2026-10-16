@@ -2,7 +2,7 @@
  | cdrom_dc.c
  | Description: Dreamcast implementation of the decomp's cdrom.h API: stdio reads of converted resources under LOM_CD_ROOT, keyed by PS1 resource index, with PS1 callback ordering for queued reads.
  | Author: suinevere
- | Dependencies: main/cdrom.h, cdrom_dc.h, resource_index.h, layout_pack.h, overlay_loader_dc.h, dc_system.h
+ | Dependencies: main/cdrom.h, main/cdrom_decompress.h, cdrom_dc.h, map_relocate.h, resource_index.h, overlay_loader_dc.h, dc_system.h
  | Globals: s_index_blob, g_cd_data_ready_pending, s_halt_message, s_pending_callback_read
  | Params: N/A
  | Returns: N/A
@@ -14,23 +14,37 @@
 /* Pre-empts common.h's splat labels.inc/macro.inc inline asm (unneeded: nothing here calls INCLUDE_ASM/INCLUDE_RODATA) so make -C dreamcast's cwd does not have to resolve it. */
 #define INCLUDE_ASM_H
 #include "main/cdrom.h"
+#include "main/cdrom_decompress.h"
 
 #include "cdrom_dc.h"
+#include "map_relocate.h"
 #include "resource_index.h"
-#include "layout_pack.h"
 #include "overlay_loader_dc.h"
 #include "dc_system.h"
 
 /*----------------------
- | CDROM_INDEX_BLOB_RESOURCE_MAX
- | Description: Resource count the index blob reserves room for; mirrors resource_index.c's RESOURCE_INDEX_MAX and convert_disc.py's RESOURCE_INDEX_MAX.
+ | RESOURCE_INDEX_MAX
+ | Description: Resource count the index blob reserves room for; mirrors resource_index.c's RESOURCE_INDEX_MAX and convert_disc.py's DREAMCAST_RESOURCE_INDEX_MAX. dreamcast/makefile overrides it with -D (6144, every live PS1 resource); the host test build leaves it at this default.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define CDROM_INDEX_BLOB_RESOURCE_MAX 256
+#ifndef RESOURCE_INDEX_MAX
+#define RESOURCE_INDEX_MAX 256
+#endif
+
+/*----------------------
+ | CDROM_INDEX_BLOB_RESOURCE_MAX
+ | Description: Alias of RESOURCE_INDEX_MAX kept for the s_index_blob sizing below.
+ | Author: suinevere
+ | Dependencies: RESOURCE_INDEX_MAX
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define CDROM_INDEX_BLOB_RESOURCE_MAX RESOURCE_INDEX_MAX
 
 /*----------------------
  | CDROM_HALT_MESSAGE_MAX
@@ -42,17 +56,6 @@
  | Returns: N/A
  ----------------------*/
 #define CDROM_HALT_MESSAGE_MAX 96
-
-/*----------------------
- | CD_SECTOR_BYTES
- | Description: User-data bytes per disc sector, the stride unit for ResourcePack offsets.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-#define CD_SECTOR_BYTES 2048
 
 /*----------------------
  | s_index_blob
@@ -165,25 +168,51 @@ char *cdrom_format_resource_halt(char *out, int out_size, const char *prefix, s3
 }
 
 /*----------------------
- | cd_open
- | Description: Opens a disc file for reading under LOM_CD_ROOT, in its OVL/RES subfolder or directly at the root.
+ | dreamcast_res_subfolder_hex
+ | Description: Writes the two-uppercase-hex-digit RES subfolder name for a PS1 resource index (index >> 8) into out; matches convert_disc.py's dreamcast_res_subfolder exactly.
  | Author: suinevere
- | Dependencies: LOM_CD_ROOT
+ | Dependencies: N/A
  | Globals: N/A
- | Params: folder -- CD_FOLDER_*, name -- file name
+ | Params: out -- 3-byte buffer, ps1_index -- PS1 resource index
+ | Returns: out
+ ----------------------*/
+static char *dreamcast_res_subfolder_hex(char out[3], int ps1_index)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    unsigned v = (unsigned)(ps1_index >> 8) & 0xFF;
+
+    out[0] = digits[(v >> 4) & 0xF];
+    out[1] = digits[v & 0xF];
+    out[2] = 0;
+    return out;
+}
+
+/*----------------------
+ | cd_open
+ | Description: Opens a disc file for reading under LOM_CD_ROOT: at the root, in OVL, or in RES/<XX> (dreamcast_res_subfolder_hex of ps1_index), which the converter's resource_path fans every RES file into.
+ | Author: suinevere
+ | Dependencies: LOM_CD_ROOT, dreamcast_res_subfolder_hex
+ | Globals: N/A
+ | Params: folder -- CD_FOLDER_*, ps1_index -- PS1 resource index (ignored outside CD_FOLDER_RES), name -- file name
  | Returns: the open file, or 0
  ----------------------*/
-static FILE *cd_open(int folder, const char *name)
+static FILE *cd_open(int folder, int ps1_index, const char *name)
 {
-    char path[80];
+    char path[128];
+    char sub[3];
 
     if (folder == CD_FOLDER_ROOT)
     {
         snprintf(path, sizeof(path), "%s/%s", LOM_CD_ROOT, name);
     }
+    else if (folder == CD_FOLDER_OVL)
+    {
+        snprintf(path, sizeof(path), "%s/OVL/%s", LOM_CD_ROOT, name);
+    }
     else
     {
-        snprintf(path, sizeof(path), "%s/%s/%s", LOM_CD_ROOT, folder == CD_FOLDER_OVL ? "OVL" : "RES", name);
+        dreamcast_res_subfolder_hex(sub, ps1_index);
+        snprintf(path, sizeof(path), "%s/RES/%s/%s", LOM_CD_ROOT, sub, name);
     }
     return fopen(path, "rb");
 }
@@ -194,12 +223,12 @@ static FILE *cd_open(int folder, const char *name)
  | Author: suinevere
  | Dependencies: cd_open
  | Globals: N/A
- | Params: folder -- CD_FOLDER_*, name -- file name, dst -- destination, max_bytes -- destination capacity
+ | Params: folder -- CD_FOLDER_*, ps1_index -- PS1 resource index, name -- file name, dst -- destination, max_bytes -- destination capacity
  | Returns: bytes read, or -1 when the file cannot be opened
  ----------------------*/
-static s32 dc_file_read(int folder, const char *name, void *dst, s32 max_bytes)
+static s32 dc_file_read(int folder, int ps1_index, const char *name, void *dst, s32 max_bytes)
 {
-    FILE *f = cd_open(folder, name);
+    FILE *f = cd_open(folder, ps1_index, name);
     size_t n;
 
     if (f == 0)
@@ -226,7 +255,7 @@ static s32 read_resource(const ResourceEntry *entry, void *dst)
     s32 n;
 
     resource_file_name(entry->index, entry->kind, name);
-    n = dc_file_read(resource_folder(entry->kind), name, dst, (s32)entry->size);
+    n = dc_file_read(resource_folder(entry->kind), entry->index, name, dst, (s32)entry->size);
     if (n < 0)
     {
         n = 0;
@@ -241,46 +270,25 @@ static s32 read_resource(const ResourceEntry *entry, void *dst)
 }
 
 /*----------------------
- | read_pack_cell
- | Description: Reads one cell of a resource pack into the destination when the pack is read through this call; a wrong call, a missing pack or a failed read halts naming the id.
+ | stream_raw_resource
+ | Description: Reads a raw PS1 resource whole and decompresses it into the destination, as the PS1's cdrom_stream decompresses everything it streams.
  | Author: suinevere
- | Dependencies: resource_index_find, resource_folder, resource_file_name, cd_open, cdrom_format_resource_halt, dc_halt
- | Globals: s_halt_message
- | Params: pack -- ResourcePack, cell -- pack cell, read_path -- RESOURCE_PACK_* of the caller, dst -- destination of pack->item_bytes bytes
- | Returns: pack->item_bytes
+ | Dependencies: read_resource, cdrom_decompress_buffer, dc_halt
+ | Globals: N/A
+ | Params: entry -- index entry of a KIND_RAW resource, destination -- decompressed output
+ | Returns: N/A
  ----------------------*/
-static s32 read_pack_cell(const ResourcePack *pack, int cell, int read_path, void *dst)
+static void stream_raw_resource(const ResourceEntry *entry, u8 *destination)
 {
-    const ResourceEntry *entry = resource_index_find(pack->first);
-    char name[16];
-    FILE *f;
-    size_t n;
+    u8 *raw = malloc(entry->size != 0 ? entry->size : 1);
 
-    if (pack->read_path != read_path)
+    if (raw == 0)
     {
-        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
-                                            "cd: resource ", pack->first + cell, " read through the wrong call"));
+        dc_halt("cd: stream out of memory");
     }
-    if (entry == 0)
-    {
-        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
-                                            "cd: pack ", pack->first, " not exported"));
-    }
-    resource_file_name(entry->index, entry->kind, name);
-    f = cd_open(resource_folder(entry->kind), name);
-    if (f == 0 || fseek(f, (long)cell * pack->stride_sectors * CD_SECTOR_BYTES, SEEK_SET) != 0)
-    {
-        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
-                                            "cd: resource ", pack->first + cell, " read failed"));
-    }
-    n = fread(dst, 1, (size_t)pack->item_bytes, f);
-    fclose(f);
-    if (n != (size_t)pack->item_bytes)
-    {
-        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
-                                            "cd: resource ", pack->first + cell, " read failed"));
-    }
-    return pack->item_bytes;
+    read_resource(entry, raw);
+    cdrom_decompress_buffer(raw, destination);
+    free(raw);
 }
 
 /*----------------------
@@ -328,12 +336,28 @@ static void flush_pending_callback_read(void)
  ----------------------*/
 void cdrom_init(void)
 {
-    s32 len = dc_file_read(CD_FOLDER_ROOT, "RESINDEX.BIN", s_index_blob, (s32)sizeof(s_index_blob));
+    s32 len = dc_file_read(CD_FOLDER_ROOT, 0, "RESINDEX.BIN", s_index_blob, (s32)sizeof(s_index_blob));
 
     if (len < 0 || resource_index_load(s_index_blob, len) < 0)
     {
         dc_halt("RESINDEX.BIN missing; run tools/convert_disc.py");
     }
+}
+
+/*----------------------
+ | halt_resource_not_on_disc
+ | Description: Halts naming a resource index this disc does not carry: either not listed in the index at all, or (outside cdrom_stream's SKIP tolerance) deliberately marked SKIP.
+ | Author: suinevere
+ | Dependencies: cdrom_format_resource_halt, dc_halt
+ | Globals: s_halt_message
+ | Params: resource_index -- PS1 resource
+ | Returns: N/A (never returns)
+ ----------------------*/
+static void halt_resource_not_on_disc(s32 resource_index) __attribute__((noreturn));
+static void halt_resource_not_on_disc(s32 resource_index)
+{
+    dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
+                                        "resource ", resource_index, " not on disc"));
 }
 
 /*----------------------
@@ -353,29 +377,21 @@ void cdrom_load_resource_table(s32 lba, s32 data_size_bytes)
 
 /*----------------------
  | cdrom_stream
- | Description: Reads a stream pack's cell, loads an overlay into its arena region, or reads a resource into the destination; a missing resource halts naming it, but a skipped one (not on this disc) silently returns, matching the Saturn exactly since game code (e.g. the intro movie) calls this for resources some targets omit.
+ | Description: Loads an overlay into its arena region, or decompresses a raw resource or copies a converted stream into the destination, rebasing a map's PS1 pointers.
+ |              A missing index halts naming it; a skipped one silently returns instead, matching the Saturn since game code (e.g. the intro movie) expects some targets to omit it.
  | Author: suinevere
- | Dependencies: resource_pack_find, read_pack_cell, resource_index_find, load_overlay, read_resource, cdrom_format_resource_halt, dc_halt
- | Globals: s_halt_message
+ | Dependencies: resource_index_find, load_overlay, stream_raw_resource, read_resource, map_relocate, halt_resource_not_on_disc
+ | Globals: N/A
  | Params: resource_index -- PS1 resource, destination -- load address for non-overlay resources
  | Returns: 0
  ----------------------*/
 s32 cdrom_stream(s32 resource_index, u8 *destination)
 {
-    int cell;
-    const ResourcePack *pack = resource_pack_find(resource_index, &cell);
-    const ResourceEntry *entry;
+    const ResourceEntry *entry = resource_index_find(resource_index);
 
-    if (pack != 0)
-    {
-        read_pack_cell(pack, cell, RESOURCE_PACK_STREAM, destination);
-        return 0;
-    }
-    entry = resource_index_find(resource_index);
     if (entry == 0)
     {
-        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
-                                            "cdrom_stream: resource ", resource_index, " not exported"));
+        halt_resource_not_on_disc(resource_index);
     }
     if (entry->kind == RESOURCE_KIND_SKIP)
     {
@@ -385,47 +401,48 @@ s32 cdrom_stream(s32 resource_index, u8 *destination)
     {
         load_overlay(resource_index);
     }
+    else if (entry->kind == RESOURCE_KIND_RAW)
+    {
+        stream_raw_resource(entry, destination);
+        map_relocate(destination, MAP_RELOCATE_MAX_BYTES);
+    }
     else
     {
         read_resource(entry, destination);
+        map_relocate(destination, MAP_RELOCATE_MAX_BYTES);
     }
     return 0;
 }
 
 /*----------------------
  | cdrom_queue_read
- | Description: Reads a queue-read pack's cell (a WMAP layout), otherwise reads an exported resource immediately. A missing or skipped resource halts naming it, matching cdrom_stream.
+ | Description: Reads an exported resource, WMAP layout cells included, immediately, rebasing a map's PS1 pointers. A missing or skipped resource halts naming it, matching cdrom_stream.
  | Author: suinevere
- | Dependencies: resource_pack_find, read_pack_cell, resource_index_find, read_resource, cdrom_format_resource_halt, dc_halt
- | Globals: s_halt_message
+ | Dependencies: resource_index_find, read_resource, map_relocate, halt_resource_not_on_disc
+ | Globals: N/A
  | Params: resource_index -- PS1 resource, dst_buffer -- destination
- | Returns: the resource's byte size, the pack's item size for a pack cell
+ | Returns: the resource's byte size
  ----------------------*/
 s32 cdrom_queue_read(s32 resource_index, void *dst_buffer)
 {
-    int cell;
-    const ResourcePack *pack = resource_pack_find(resource_index, &cell);
-    const ResourceEntry *entry;
+    const ResourceEntry *entry = resource_index_find(resource_index);
+    s32 size;
 
-    if (pack != 0)
-    {
-        return read_pack_cell(pack, cell, RESOURCE_PACK_QUEUE_READ, dst_buffer);
-    }
-    entry = resource_index_find(resource_index);
     if (entry == 0 || entry->kind == RESOURCE_KIND_SKIP)
     {
-        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
-                                            "cd: resource ", resource_index, " not exported"));
+        halt_resource_not_on_disc(resource_index);
     }
-    return read_resource(entry, dst_buffer);
+    size = read_resource(entry, dst_buffer);
+    map_relocate((u8 *)dst_buffer, (u32)size);
+    return size;
 }
 
 /*----------------------
  | cdrom_queue_read_with_callback
  | Description: Copies the whole resource into a scratch buffer now, then defers both the buffer-request and completion callback calls to the next cdrom_process_state poll, so the game sees the PS1's order of events.
  | Author: suinevere
- | Dependencies: resource_index_find, read_resource, flush_pending_callback_read, cdrom_format_resource_halt, dc_halt
- | Globals: s_halt_message, s_pending_callback_read
+ | Dependencies: resource_index_find, read_resource, flush_pending_callback_read, halt_resource_not_on_disc
+ | Globals: s_pending_callback_read
  | Params: resource_index -- PS1 resource, callback -- PS1 buffer callback
  | Returns: 0
  ----------------------*/
@@ -436,8 +453,7 @@ s32 cdrom_queue_read_with_callback(s32 resource_index, CdCommandCallback callbac
 
     if (entry == 0 || entry->kind == RESOURCE_KIND_SKIP)
     {
-        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message),
-                                            "cd: resource ", resource_index, " not exported"));
+        halt_resource_not_on_disc(resource_index);
     }
     flush_pending_callback_read();
     data = malloc(entry->size != 0 ? entry->size : 1);

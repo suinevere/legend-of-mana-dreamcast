@@ -1,8 +1,8 @@
 /*----------------------
  | test_dc_video.c
- | Description: Host tests for the Dreamcast VRAM mirror, ordering-table walker and libgpu wiring: wraparound, MoveImage overlap, ClearImage backgrounds and rects, DrawOTag/DrawPrim submission and VSync flips.
+ | Description: Host tests for the Dreamcast VRAM mirror, ordering-table walker and libgpu wiring: wraparound, MoveImage overlap, ClearImage backgrounds and rects, DrawOTag/DrawPrim submission, SetPolyFT4, VSync flips, GP0 fill and frame readback into StoreImage/MoveImage2.
  | Author: suinevere
- | Dependencies: vram_mirror.h, ot_walk.h, gpu_tag.h, gpu_decode.h, pvr_submit.h, libgpu_dc.c, gpu_decode.c, gpu_census.c, lom_prefix.h (forced include)
+ | Dependencies: vram_mirror.h, ot_walk.h, gpu_tag.h, gpu_decode.h, pvr_submit.h, pvr_backend.h, frame_readback.c, libgpu_dc.c, gpu_decode.c, gpu_census.c, lom_prefix.h (forced include)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -67,6 +67,8 @@ void dc_log(const char *format, ...)
     (void)format;
 }
 
+static int s_scene_has_prims_stub;
+
 void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
 {
     s_prim_calls++;
@@ -74,11 +76,13 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
     s_last_state = *state;
     s_origin_at_prim[0] = s_origin[0];
     s_origin_at_prim[1] = s_origin[1];
+    s_scene_has_prims_stub = 1;
 }
 
 void pvr_submit_flip(void)
 {
     s_flips++;
+    s_scene_has_prims_stub = 0;
 }
 
 void pvr_submit_origin(int x, int y)
@@ -104,12 +108,71 @@ void pvr_submit_rect(int x, int y, int w, int h, uint16_t ps1_colour)
     s_rect_colour = ps1_colour;
 }
 
+int pvr_submit_scene_has_prims(void)
+{
+    return s_scene_has_prims_stub;
+}
+
+static int s_frame_rect_valid;
+static RECT s_frame_rect;
+static int16_t s_frame_origin_x;
+static int16_t s_frame_origin_y;
+static uint16_t s_frame_pixels[640 * 480];
+static unsigned s_frame_pitch = 640;
+
+int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y)
+{
+    if (!s_frame_rect_valid)
+    {
+        return 0;
+    }
+    *x = s_frame_rect.x;
+    *y = s_frame_rect.y;
+    *w = s_frame_rect.w;
+    *h = s_frame_rect.h;
+    *origin_x = s_frame_origin_x;
+    *origin_y = s_frame_origin_y;
+    return 1;
+}
+
+const uint16_t *pvr_backend_frame_pixels(unsigned *pitch_px)
+{
+    *pitch_px = s_frame_pitch;
+    return s_frame_pixels;
+}
+
+static void fill_frame_pixels(void)
+{
+    int x;
+    int y;
+
+    for (y = 0; y < 480; y++)
+    {
+        for (x = 0; x < 640; x++)
+        {
+            s_frame_pixels[y * 640 + x] = (uint16_t)((((x / 2) & 0x1F) << 11) | (((y / 2) & 0x3F) << 5));
+        }
+    }
+}
+
+static void set_frame_rect(int x, int y, int w, int h, int origin_x, int origin_y)
+{
+    s_frame_rect.x = (short)x;
+    s_frame_rect.y = (short)y;
+    s_frame_rect.w = (short)w;
+    s_frame_rect.h = (short)h;
+    s_frame_origin_x = (int16_t)origin_x;
+    s_frame_origin_y = (int16_t)origin_y;
+    s_frame_rect_valid = 1;
+}
+
 static void reset_calls(void)
 {
     s_bg_calls = 0;
     s_rect_calls = 0;
     s_prim_calls = 0;
     s_flips = 0;
+    s_scene_has_prims_stub = 0;
 }
 
 static void put_draw_area(int x, int y, int w, int h)
@@ -550,6 +613,165 @@ static void test_draw_area_packet_moves_the_origin_for_later_prims(void)
     gpu_decode_set_base(0);
 }
 
+static void test_gp0_fill_rect_writes_mirror_and_bumps_generation(void)
+{
+    DcGpuState state;
+    uint32_t words[3];
+    uint32_t before;
+
+    gpu_decode_reset(&state);
+    before = vram_mirror_generation(64, 0, 64, 256);
+    words[0] = 0x02000000u | 0xF8u | (0x00u << 8) | (0x08u << 16);
+    words[1] = (uint32_t)(64u & 0xFFFFu) | ((uint32_t)(0u & 0xFFFFu) << 16);
+    words[2] = (uint32_t)(16u & 0xFFFFu) | ((uint32_t)(16u & 0xFFFFu) << 16);
+    gpu_decode_packet(&state, words, 3, 0, 0);
+    CHECK(*vram_mirror_at(64, 0) == 0x041F);
+    CHECK(*vram_mirror_at(79, 15) == 0x041F);
+    CHECK(vram_mirror_generation(64, 0, 64, 256) != before);
+}
+
+static void test_store_image_reads_back_the_finished_frame(void)
+{
+    RECT rect = { 10, 250, 2, 2 };
+    u_long sentinel[4];
+    u_long dst[4];
+    int i;
+
+    for (i = 0; i < 4; i++)
+    {
+        ((unsigned short *)sentinel)[i] = 0x7777;
+    }
+    LoadImage(&rect, sentinel);
+    set_frame_rect(0, 240, 320, 224, 0, 0);
+    CHECK(StoreImage(&rect, dst) == 0);
+    s_frame_rect_valid = 0;
+    CHECK(((unsigned short *)dst)[0] != 0x7777);
+    CHECK((((unsigned short *)dst)[0] & 0x1Fu) == 10u);
+}
+
+static void test_move_image2_reads_back_source_and_moves_it(void)
+{
+    RECT rect = { 10, 250, 2, 2 };
+    RECT dest_rect = { 512, 0, 2, 2 };
+    u_long sentinel[4];
+    u_long dst[4];
+    uint32_t before;
+    int i;
+
+    for (i = 0; i < 4; i++)
+    {
+        ((unsigned short *)sentinel)[i] = 0x7777;
+    }
+    LoadImage(&rect, sentinel);
+    before = vram_mirror_generation(512, 0, 2, 2);
+    set_frame_rect(0, 240, 320, 224, 0, 0);
+    CHECK(MoveImage2(&rect, 512, 0) == 0);
+    s_frame_rect_valid = 0;
+    StoreImage(&dest_rect, dst);
+    CHECK(((unsigned short *)dst)[0] != 0x7777);
+    CHECK((((unsigned short *)dst)[0] & 0x1Fu) == 10u);
+    CHECK(vram_mirror_generation(512, 0, 2, 2) != before);
+}
+
+static void test_store_image_uses_the_display_origin(void)
+{
+    RECT rect = { 10, 250, 1, 1 };
+    u_long sentinel[1];
+    u_long dst[1];
+
+    ((unsigned short *)sentinel)[0] = 0x7777;
+    LoadImage(&rect, sentinel);
+    set_frame_rect(0, 240, 320, 224, 0, 8);
+    CHECK(StoreImage(&rect, dst) == 0);
+    s_frame_rect_valid = 0;
+    CHECK((((unsigned short *)dst)[0] & 0x1Fu) == 10u);
+    CHECK(((((unsigned short *)dst)[0] >> 5) & 0x1Fu) == 9u);
+}
+
+static void test_store_image_only_touches_the_frame_overlap(void)
+{
+    RECT rect = { 5, 460, 1, 8 };
+    u_long sentinel[8];
+    u_long dst[8];
+    int i;
+
+    for (i = 0; i < 8; i++)
+    {
+        ((unsigned short *)sentinel)[i] = (unsigned short)(0x7777 + i);
+    }
+    LoadImage(&rect, sentinel);
+    set_frame_rect(0, 240, 320, 224, 0, 8);
+    CHECK(StoreImage(&rect, dst) == 0);
+    s_frame_rect_valid = 0;
+    for (i = 0; i < 4; i++)
+    {
+        CHECK(((unsigned short *)dst)[i] != (unsigned short)(0x7777 + i));
+    }
+    for (i = 4; i < 8; i++)
+    {
+        CHECK(((unsigned short *)dst)[i] == (unsigned short)(0x7777 + i));
+    }
+}
+
+static void test_store_image_clips_to_the_320x240_screen(void)
+{
+    RECT rect = { 310, 230, 20, 20 };
+    u_long sentinel[20 * 20];
+    u_long dst[20 * 20];
+    int row;
+    int col;
+
+    for (row = 0; row < 20; row++)
+    {
+        for (col = 0; col < 20; col++)
+        {
+            ((unsigned short *)sentinel)[row * 20 + col] = (unsigned short)(0x7777 + row * 20 + col);
+        }
+    }
+    LoadImage(&rect, sentinel);
+    set_frame_rect(0, 0, 400, 300, 0, 0);
+    CHECK(StoreImage(&rect, dst) == 0);
+    s_frame_rect_valid = 0;
+    for (row = 0; row < 20; row++)
+    {
+        for (col = 0; col < 20; col++)
+        {
+            unsigned short value = ((unsigned short *)dst)[row * 20 + col];
+            unsigned short before = (unsigned short)(0x7777 + row * 20 + col);
+
+            if (row < 10 && col < 10)
+            {
+                CHECK(value != before);
+            }
+            else
+            {
+                CHECK(value == before);
+            }
+        }
+    }
+}
+
+static void test_move_image_reads_the_shown_frame_like_screen_transition(void)
+{
+    RECT src_rect = { 0, 240, 320, 224 };
+    RECT dst_rect = { 0, 8, 320, 224 };
+    static u_long sentinel[320 * 224];
+    static u_long dst[320 * 224];
+    int i;
+
+    for (i = 0; i < 320 * 224; i++)
+    {
+        ((unsigned short *)sentinel)[i] = 0x7777;
+    }
+    LoadImage(&src_rect, sentinel);
+    set_frame_rect(0, 240, 320, 224, 0, 8);
+    CHECK(MoveImage(&src_rect, dst_rect.x, dst_rect.y) == 0);
+    s_frame_rect_valid = 0;
+    StoreImage(&dst_rect, dst);
+    CHECK(((unsigned short *)dst)[0] != 0x7777);
+    CHECK((((unsigned short *)dst)[10] & 0x1Fu) == 10u);
+}
+
 static void test_vsync_flips_only_on_waiting_modes(void)
 {
     reset_calls();
@@ -561,8 +783,75 @@ static void test_vsync_flips_only_on_waiting_modes(void)
     CHECK(s_flips == 1);
 }
 
+static void test_draw_sync_flips_a_scene_drawn_into_the_displayed_area(void)
+{
+    TILE tile;
+
+    make_tile(&tile, 4, 6);
+    setaddr(&tile, GPU_TAG_END);
+    put_disp_area(0, 0, 320, 240);
+    put_draw_area(0, 0, 320, 240);
+    reset_calls();
+    DrawPrim(&tile);
+    CHECK(s_flips == 0);
+    DrawSync(0);
+    CHECK(s_flips == 1);
+}
+
+static void test_draw_sync_leaves_a_scene_drawn_into_the_back_buffer_open(void)
+{
+    TILE tile;
+
+    make_tile(&tile, 4, 6);
+    setaddr(&tile, GPU_TAG_END);
+    put_disp_area(0, 0, 320, 240);
+    put_draw_area(0, 240, 320, 240);
+    reset_calls();
+    DrawPrim(&tile);
+    DrawSync(0);
+    CHECK(s_flips == 0);
+}
+
+static void test_draw_sync_does_not_flip_an_empty_displayed_scene(void)
+{
+    put_disp_area(0, 0, 320, 240);
+    put_draw_area(0, 0, 320, 240);
+    reset_calls();
+    DrawSync(0);
+    CHECK(s_flips == 0);
+}
+
+static void test_put_disp_env_flips_a_scene_drawn_into_the_displayed_area(void)
+{
+    TILE tile;
+
+    make_tile(&tile, 4, 6);
+    setaddr(&tile, GPU_TAG_END);
+    put_disp_area(0, 0, 320, 240);
+    put_draw_area(0, 0, 320, 240);
+    reset_calls();
+    DrawPrim(&tile);
+    CHECK(s_flips == 0);
+    put_disp_area(0, 0, 320, 240);
+    CHECK(s_flips == 1);
+}
+
+static void test_set_poly_ft4_marks_a_nine_word_textured_quad_and_keeps_its_link(void)
+{
+    POLY_FT4 prim;
+
+    memset(&prim, 0xAB, sizeof(prim));
+    ((u_long *)&prim)[0] = 0x00123456u;
+    SetPolyFT4(&prim);
+    CHECK(gpu_tag_len(((u_long *)&prim)[0]) == 9);
+    CHECK((((u_long *)&prim)[0] & 0x00FFFFFFu) == 0x00123456u);
+    CHECK(prim.code == 0x2C);
+    CHECK(prim.r0 == 0xAB && prim.u0 == 0xAB);
+}
+
 int main(void)
 {
+    fill_frame_pixels();
     test_load_store_round_trip();
     test_load_store_wraps_x();
     test_reloading_identical_pixels_keeps_the_generation();
@@ -581,9 +870,21 @@ int main(void)
     test_put_draw_env_isbg_sets_background();
     test_draw_otag_submits_with_env_state();
     test_draw_prim_submits_one_packet();
+    test_gp0_fill_rect_writes_mirror_and_bumps_generation();
+    test_store_image_reads_back_the_finished_frame();
+    test_move_image2_reads_back_source_and_moves_it();
+    test_store_image_uses_the_display_origin();
+    test_store_image_only_touches_the_frame_overlap();
+    test_store_image_clips_to_the_320x240_screen();
+    test_move_image_reads_the_shown_frame_like_screen_transition();
     test_vsync_flips_only_on_waiting_modes();
+    test_draw_sync_flips_a_scene_drawn_into_the_displayed_area();
+    test_draw_sync_leaves_a_scene_drawn_into_the_back_buffer_open();
+    test_draw_sync_does_not_flip_an_empty_displayed_scene();
+    test_put_disp_env_flips_a_scene_drawn_into_the_displayed_area();
     test_origin_follows_the_display_showing_the_draw_area();
     test_draw_area_packet_moves_the_origin_for_later_prims();
+    test_set_poly_ft4_marks_a_nine_word_textured_quad_and_keeps_its_link();
 
     if (failures != 0)
     {

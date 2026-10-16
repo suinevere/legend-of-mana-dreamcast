@@ -259,7 +259,7 @@ CLEAN_IMAGE_HINT = "is this a clean SLUS-01013 image?"
 
 #----------------------
 # | RESOURCE_INDEX_MAX
-# | Description: Most entries the Saturn resource index holds; must match resource_index.c's RESOURCE_INDEX_MAX and cdrom_saturn.c's CDROM_INDEX_BLOB_RESOURCE_MAX.
+# | Description: Most entries the Saturn resource index holds; must match resource_index.c's RESOURCE_INDEX_MAX (its #ifndef default) and cdrom_saturn.c's CDROM_INDEX_BLOB_RESOURCE_MAX.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -270,8 +270,20 @@ RESOURCE_INDEX_MAX = 256
 
 
 #----------------------
+# | DREAMCAST_RESOURCE_INDEX_MAX
+# | Description: Most entries the Dreamcast resource index holds, carrying every live PS1 resource; must match dreamcast/makefile's -DRESOURCE_INDEX_MAX override.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DREAMCAST_RESOURCE_INDEX_MAX = 6144
+
+
+#----------------------
 # | FOLDER_CAPACITY
-# | Description: Directory-table entries cd_dir.cxx reserves for each disc folder; must match its s_folders, and each table also holds the folder's . and .. records.
+# | Description: Directory-table entries cd_dir.cxx reserves for each disc folder; must match its s_folders, and each table also holds the folder's . and .. records. Saturn only: Dreamcast fans RES out into subfolders instead (DREAMCAST_RES_FOLDER_CAPACITY).
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -279,6 +291,31 @@ RESOURCE_INDEX_MAX = 256
 # | Returns: N/A
 #----------------------
 FOLDER_CAPACITY = {"OVL": 64, "RES": 512}
+
+
+#----------------------
+# | DREAMCAST_RES_FOLDER_CAPACITY
+# | Description: Files per Dreamcast cd/data/RES/<XX> subfolder; resource_path fans every non-overlay resource there by index >> 8, so no single directory needs Saturn's cd_dir.cxx-sized table.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DREAMCAST_RES_FOLDER_CAPACITY = 256
+
+
+#----------------------
+# | dreamcast_res_subfolder
+# | Description: Two-uppercase-hex-digit Dreamcast RES subfolder name for a resource index (index >> 8), e.g. "01" for 0x123; cdrom_dc.c's cd_open builds the identical path.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: index -- PS1 resource index
+# | Returns: subfolder name string
+#----------------------
+def dreamcast_res_subfolder(index):
+    return "%02X" % (index >> 8)
 
 
 #----------------------
@@ -311,29 +348,43 @@ def encode_index(entries):
 
 #----------------------
 # | check_index_capacity
-# | Description: Rejects an index with more entries than the Saturn resource index can hold.
+# | Description: Rejects an index with more entries than its target's resource index can hold: RESOURCE_INDEX_MAX for Saturn, DREAMCAST_RESOURCE_INDEX_MAX for the Dreamcast.
 # | Author: suinevere
 # | Dependencies: N/A
-# | Globals: RESOURCE_INDEX_MAX
-# | Params: entries -- list of (index, kind, size)
+# | Globals: RESOURCE_INDEX_MAX, DREAMCAST_RESOURCE_INDEX_MAX
+# | Params: entries -- list of (index, kind, size), target -- converter Target, default targets.SATURN
 # | Returns: N/A
 #----------------------
-def check_index_capacity(entries):
-    if len(entries) > RESOURCE_INDEX_MAX:
-        raise ValueError("RESINDEX.BIN has %d entries, the Saturn index holds %d" % (len(entries), RESOURCE_INDEX_MAX))
+def check_index_capacity(entries, target=targets.SATURN):
+    limit = DREAMCAST_RESOURCE_INDEX_MAX if target.name == targets.DREAMCAST.name else RESOURCE_INDEX_MAX
+    if len(entries) > limit:
+        raise ValueError("RESINDEX.BIN has %d entries, the %s index holds %d" % (len(entries), target.name, limit))
 
 
 #----------------------
 # | check_folder_capacity
-# | Description: Rejects an export whose OVL or RES folder holds more files than cd_dir.cxx's directory table for it, counting the . and .. records.
-# |              Each overlay takes two OVL entries, its data file here and the OVLnnC.BIN code file the makefile writes.
+# | Description: Rejects an export whose disc folders hold more files than their target allows.
+# |              Saturn checks flat OVL/RES against cd_dir.cxx's tables (the . and .. records count too); the Dreamcast checks OVL the same way, plus 256 files per fanned-out RES/<XX> subfolder.
 # | Author: suinevere
-# | Dependencies: resource_folder
-# | Globals: FOLDER_CAPACITY
-# | Params: entries -- list of (index, kind, size)
+# | Dependencies: resource_folder, dreamcast_res_subfolder
+# | Globals: FOLDER_CAPACITY, DREAMCAST_RES_FOLDER_CAPACITY
+# | Params: entries -- list of (index, kind, size), target -- converter Target, default targets.SATURN
 # | Returns: N/A
 #----------------------
-def check_folder_capacity(entries):
+def check_folder_capacity(entries, target=targets.SATURN):
+    if target.name == targets.DREAMCAST.name:
+        ovl_count = sum(2 for _, kind, _ in entries if kind == KIND_OVERLAY)
+        if ovl_count + 2 > FOLDER_CAPACITY["OVL"]:
+            raise ValueError("folder OVL has %d files, its directory table holds %d" % (ovl_count, FOLDER_CAPACITY["OVL"] - 2))
+        buckets = {}
+        for index, kind, _ in entries:
+            if kind != KIND_SKIP and kind != KIND_OVERLAY:
+                sub = dreamcast_res_subfolder(index)
+                buckets[sub] = buckets.get(sub, 0) + 1
+        for sub, count in sorted(buckets.items()):
+            if count > DREAMCAST_RES_FOLDER_CAPACITY:
+                raise ValueError("folder RES/%s has %d files, limit %d" % (sub, count, DREAMCAST_RES_FOLDER_CAPACITY))
+        return
     counts = dict.fromkeys(FOLDER_CAPACITY, 0)
     for _, kind, _ in entries:
         if kind != KIND_SKIP:
@@ -442,16 +493,19 @@ def resource_folder(kind):
 
 #----------------------
 # | resource_path
-# | Description: Path of a resource's Saturn file: overlays under cd/data/OVL, every other resource under cd/data/RES, keeping the disc root within SGL's 32-entry directory cache.
+# | Description: Path of a resource's disc file: overlays under cd/data/OVL, everything else under cd/data/RES.
+# |              Saturn keeps RES flat; the Dreamcast fans it into RES/<XX> subfolders instead, since flat would overflow the (otherwise irrelevant) cd_dir.cxx table.
 # | Author: suinevere
-# | Dependencies: KIND_OVERLAY, resource_folder
+# | Dependencies: KIND_OVERLAY, resource_folder, dreamcast_res_subfolder
 # | Globals: N/A
-# | Params: out -- Saturn project directory, index -- PS1 resource index, kind -- KIND_*
+# | Params: out -- project directory, index -- PS1 resource index, kind -- KIND_*, target -- converter Target, default targets.SATURN
 # | Returns: file path
 #----------------------
-def resource_path(out, index, kind):
+def resource_path(out, index, kind, target=targets.SATURN):
     if kind == KIND_OVERLAY:
         return os.path.join(out, "cd", "data", resource_folder(kind), "OVL%02d.BIN" % index)
+    if target.name == targets.DREAMCAST.name:
+        return os.path.join(out, "cd", "data", "RES", dreamcast_res_subfolder(index), "RES%04d.BIN" % index)
     return os.path.join(out, "cd", "data", resource_folder(kind), "RES%04d.BIN" % index)
 
 
@@ -489,25 +543,26 @@ def remove_stale_root_files(out):
 
 #----------------------
 # | remove_stale_folder_files
-# | Description: Deletes converter-owned files in cd/data/OVL and cd/data/RES that the current export no longer writes, leaving every other file alone.
+# | Description: Deletes converter-owned files under cd/data/OVL and cd/data/RES (searched recursively, so the Dreamcast's fanned-out RES/<XX> subfolders are covered too) that the current export
+# |              no longer writes, leaving every other file alone.
 # | Author: suinevere
 # | Dependencies: resource_path, KIND_SKIP
 # | Globals: FOLDER_FILE_PATTERNS
-# | Params: out -- Saturn project directory, entries -- list of (index, kind, size) the export wrote
+# | Params: out -- project directory, entries -- list of (index, kind, size) the export wrote, target -- converter Target, default targets.SATURN
 # | Returns: N/A
 #----------------------
-def remove_stale_folder_files(out, entries):
-    written = {os.path.normcase(os.path.normpath(resource_path(out, index, kind)))
+def remove_stale_folder_files(out, entries, target=targets.SATURN):
+    written = {os.path.normcase(os.path.normpath(resource_path(out, index, kind, target)))
                for index, kind, _ in entries if kind != KIND_SKIP}
     for folder, pattern in sorted(FOLDER_FILE_PATTERNS.items()):
         directory = os.path.join(out, "cd", "data", folder)
         if not os.path.isdir(directory):
             continue
-        for name in os.listdir(directory):
-            path = os.path.join(directory, name)
-            if (os.path.isfile(path) and re.fullmatch(pattern, name)
-                    and os.path.normcase(os.path.normpath(path)) not in written):
-                os.remove(path)
+        for root, _dirs, names in os.walk(directory):
+            for name in names:
+                path = os.path.join(root, name)
+                if re.fullmatch(pattern, name) and os.path.normcase(os.path.normpath(path)) not in written:
+                    os.remove(path)
 
 
 #----------------------
@@ -555,15 +610,31 @@ def check_overlay_length(spec, overlay):
 
 
 #----------------------
+# | dreamcast_raw_resources
+# | Description: Live, positive-size resource indices no earlier export step claimed and that are not an overlay.
+# |              The Dreamcast disc carries each one raw under its own PS1 index, so FIELD and WMAP find every scene, map, actor and script resource.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: table -- resource table, entries -- (index, kind, size) tuples already exported, overlays -- overlay_rules.OVERLAYS indices to exclude
+# | Returns: sorted list of resource indices
+#----------------------
+def dreamcast_raw_resources(table, entries, overlays):
+    claimed = {index for index, _, _ in entries}
+    return sorted(i for i, res in enumerate(table)
+                  if res.live and res.size > 0 and i not in overlays and i not in claimed)
+
+
+#----------------------
 # | export_wmap_layout_pack
-# | Description: Packs every WMAP land layout (0x12EA..0x1452) into one blob under wmap_layout.LAYOUT_FIRST, writes it as a single KIND_RAW Saturn file, and appends its index entry.
+# | Description: Packs every WMAP land layout (0x12EA..0x1452) into one blob under wmap_layout.LAYOUT_FIRST, writes it as a single KIND_RAW file, and appends its index entry.
 # | Author: suinevere
 # | Dependencies: wmap_layout.pack_layouts, disc_image.read_resource, write_file, resource_path, CLEAN_IMAGE_HINT, KIND_RAW
 # | Globals: N/A
-# | Params: image -- DiscImage, table -- resource table, out -- output directory, entries -- entries list to extend
+# | Params: image -- DiscImage, table -- resource table, out -- output directory, entries -- entries list to extend, target -- converter Target, default targets.SATURN
 # | Returns: N/A
 #----------------------
-def export_wmap_layout_pack(image, table, out, entries):
+def export_wmap_layout_pack(image, table, out, entries, target=targets.SATURN):
     def read_layout(cell):
         res = table[wmap_layout.LAYOUT_FIRST + cell]
         if not res.live or res.size < 0:
@@ -574,7 +645,7 @@ def export_wmap_layout_pack(image, table, out, entries):
         packed = wmap_layout.pack_layouts(read_layout)
     except wmap_layout.LayoutFormatError as exc:
         raise ValueError("WMAP layouts: %s; %s" % (exc, CLEAN_IMAGE_HINT))
-    write_file(resource_path(out, wmap_layout.LAYOUT_FIRST, KIND_RAW), packed)
+    write_file(resource_path(out, wmap_layout.LAYOUT_FIRST, KIND_RAW, target), packed)
     entries.append((wmap_layout.LAYOUT_FIRST, KIND_RAW, len(packed)))
 
 
@@ -584,10 +655,10 @@ def export_wmap_layout_pack(image, table, out, entries):
 # | Author: suinevere
 # | Dependencies: wmap_resources.pack_layout_images, disc_image.read_resource, decompress, write_file, resource_path, CLEAN_IMAGE_HINT, KIND_RAW
 # | Globals: N/A
-# | Params: image -- DiscImage, table -- resource table, out -- output directory, entries -- entries list to extend
+# | Params: image -- DiscImage, table -- resource table, out -- output directory, entries -- entries list to extend, target -- converter Target, default targets.SATURN
 # | Returns: N/A
 #----------------------
-def export_wmap_layout_image_pack(image, table, out, entries):
+def export_wmap_layout_image_pack(image, table, out, entries, target=targets.SATURN):
     def read_image(cell):
         res = table[wmap_resources.LAYOUT_IMAGE_FIRST + cell]
         if not res.live or res.size < 1:
@@ -598,7 +669,7 @@ def export_wmap_layout_image_pack(image, table, out, entries):
         packed = wmap_resources.pack_layout_images(read_image)
     except wmap_resources.ResourceFormatError as exc:
         raise ValueError("WMAP layout images: %s; %s" % (exc, CLEAN_IMAGE_HINT))
-    write_file(resource_path(out, wmap_resources.LAYOUT_IMAGE_FIRST, KIND_RAW), packed)
+    write_file(resource_path(out, wmap_resources.LAYOUT_IMAGE_FIRST, KIND_RAW, target), packed)
     entries.append((wmap_resources.LAYOUT_IMAGE_FIRST, KIND_RAW, len(packed)))
 
 
@@ -608,10 +679,10 @@ def export_wmap_layout_image_pack(image, table, out, entries):
 # | Author: suinevere
 # | Dependencies: wmap_resources.RULES, disc_image.read_resource, decompress, check_resource_live, write_file, resource_path, CLEAN_IMAGE_HINT, KIND_STREAM, KIND_RAW
 # | Globals: N/A
-# | Params: image -- DiscImage, table -- resource table, out -- output directory, entries -- entries list to extend, convert_rules -- False writes the PS1 bytes unconverted
+# | Params: image -- DiscImage, table -- resource table, out -- output directory, entries -- entries list to extend, convert_rules -- False writes the PS1 bytes unconverted, target -- converter Target, default targets.SATURN
 # | Returns: dict of resource id to exported byte size
 #----------------------
-def export_wmap_resources(image, table, out, entries, convert_rules=True):
+def export_wmap_resources(image, table, out, entries, convert_rules=True, target=targets.SATURN):
     sizes = {}
     for index, (kind, convert) in sorted(wmap_resources.RULES.items()):
         check_resource_live(index, table[index])
@@ -629,7 +700,7 @@ def export_wmap_resources(image, table, out, entries, convert_rules=True):
             raise ValueError("resource 0x%X: %s; %s" % (index, exc, CLEAN_IMAGE_HINT))
         if len(data) != size:
             raise ValueError("resource 0x%X changed size in conversion" % index)
-        write_file(resource_path(out, index, code), bytes(data))
+        write_file(resource_path(out, index, code, target), bytes(data))
         entries.append((index, code, size))
         sizes[index] = size
     return sizes
@@ -652,15 +723,32 @@ def check_buffer_users(sizes):
 
 
 #----------------------
+# | dreamcast_overlay_exported
+# | Description: Whether an overlay is exported as KIND_OVERLAY for this target: always true with no region table, else region membership minus DREAMCAST_UNLINKED_OVERLAYS for a target without convert rules.
+# | Author: suinevere
+# | Dependencies: targets.DREAMCAST_UNLINKED_OVERLAYS
+# | Globals: N/A
+# | Params: target -- converter Target; name -- overlay name
+# | Returns: True if the overlay should be converted and linked, False if it should be KIND_SKIP
+#----------------------
+def dreamcast_overlay_exported(target, name):
+    if target.regions is None:
+        return True
+    if name not in target.regions:
+        return False
+    return target.convert_rules or name not in targets.DREAMCAST_UNLINKED_OVERLAYS
+
+
+#----------------------
 # | run
 # | Description: Converts every overlay, stream and raw resource the target build loads, writes each overlay's generated function tables, and writes the index.
-# |              A target without convert rules gets raw PS1 bytes outside its relocated overlays, and KIND_SKIP for overlays and WMAP packs it has no region for.
+# |              A target without convert rules gets raw PS1 bytes outside its relocated overlays, plus every other live resource raw (WMAP's layout cells unpacked), and KIND_SKIP for overlays and resources it deliberately omits.
 # | Author: suinevere
 # | Dependencies: disc_image, overlay_rules, targets.by_name, decompress, encode_index, check_disc_identity, check_resource_live,
 # |               check_overlay_length, check_stream_size, load_spec_symbols, STREAM_RULES, RAW_RESOURCES, export_wmap_layout_pack,
 # |               export_wmap_layout_image_pack, export_wmap_resources, check_buffer_users, wmap_resources, resource_path, index_path,
-# |               remove_stale_root_files, check_index_capacity, check_folder_capacity, remove_stale_folder_files, PACKED_RESOURCES,
-# |               DREAMCAST_RAW_SOUND_RESOURCES, skipped_resources
+# |               remove_stale_root_files, check_index_capacity, check_folder_capacity, remove_stale_folder_files,
+# |               DREAMCAST_RAW_SOUND_RESOURCES, dreamcast_raw_resources, skipped_resources, dreamcast_overlay_exported
 # | Globals: REPO
 # | Params: args -- parsed command-line arguments
 # | Returns: process exit code
@@ -674,7 +762,7 @@ def run(args):
     remove_stale_root_files(args.out)
 
     for index, spec in sorted(overlay_rules.OVERLAYS.items()):
-        if target.regions is not None and spec.name not in target.regions:
+        if not dreamcast_overlay_exported(target, spec.name):
             entries.append((index, KIND_SKIP, 0))
             continue
         check_resource_live(index, table[index])
@@ -697,7 +785,7 @@ def run(args):
         rule = STREAM_RULES.get(index)
         if rule is not None and target.convert_rules:
             rule(data)
-        write_file(resource_path(args.out, index, KIND_STREAM), bytes(data))
+        write_file(resource_path(args.out, index, KIND_STREAM, target), bytes(data))
         entries.append((index, KIND_STREAM, len(data)))
 
     for index, rule in sorted(RAW_RESOURCES.items()):
@@ -708,32 +796,39 @@ def run(args):
                 data = rule(data)
             except (field_map.MapFormatError, field_scene.SceneFormatError, field_party_data.PartyDataFormatError) as exc:
                 raise ValueError("resource %d: %s; %s" % (index, exc, CLEAN_IMAGE_HINT))
-        write_file(resource_path(args.out, index, KIND_RAW), data)
+        write_file(resource_path(args.out, index, KIND_RAW, target), data)
         entries.append((index, KIND_RAW, len(data)))
 
     if target.convert_rules:
-        export_wmap_layout_pack(image, table, args.out, entries)
-        export_wmap_layout_image_pack(image, table, args.out, entries)
-        sizes = export_wmap_resources(image, table, args.out, entries)
+        export_wmap_layout_pack(image, table, args.out, entries, target)
+        export_wmap_layout_image_pack(image, table, args.out, entries, target)
+        sizes = export_wmap_resources(image, table, args.out, entries, target=target)
         sizes[wmap_resources.LAYOUT_IMAGE_FIRST] = wmap_resources.LAYOUT_IMAGE_BYTES
         check_buffer_users(sizes)
     else:
-        entries.extend((index, KIND_SKIP, 0) for index in sorted(PACKED_RESOURCES))
-        export_wmap_resources(image, table, args.out, entries, convert_rules=False)
+        export_wmap_resources(image, table, args.out, entries, convert_rules=False, target=target)
 
     if not target.convert_rules:
         for index in DREAMCAST_RAW_SOUND_RESOURCES:
             check_resource_live(index, table[index])
             data = disc_image.read_resource(image, table[index])
-            write_file(resource_path(args.out, index, KIND_RAW), data)
+            write_file(resource_path(args.out, index, KIND_RAW, target), data)
             entries.append((index, KIND_RAW, len(data)))
 
-    for index in skipped_resources(target):
-        entries.append((index, KIND_SKIP, 0))
+        overlays = set(overlay_rules.OVERLAYS)
+        for index in dreamcast_raw_resources(table, entries, overlays):
+            data = disc_image.read_resource(image, table[index])
+            write_file(resource_path(args.out, index, KIND_RAW, target), data)
+            entries.append((index, KIND_RAW, len(data)))
 
-    check_index_capacity(entries)
-    check_folder_capacity(entries)
-    remove_stale_folder_files(args.out, entries)
+    claimed = {index for index, _, _ in entries}
+    for index in skipped_resources(target):
+        if index not in claimed:
+            entries.append((index, KIND_SKIP, 0))
+
+    check_index_capacity(entries, target)
+    check_folder_capacity(entries, target)
+    remove_stale_folder_files(args.out, entries, target)
     write_file(index_path(args.out), encode_index(entries))
     for index, kind, size in entries:
         print("resource %4d kind %d size 0x%X" % (index, kind, size))

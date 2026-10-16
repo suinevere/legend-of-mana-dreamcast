@@ -3,7 +3,7 @@
 # | Description: Converter targets: the Saturn profile with its byte-swap and colour rules, and the little-endian Dreamcast profile with fixed per-overlay arena regions.
 # | Author: suinevere
 # | Dependencies: N/A
-# | Globals: SATURN, DREAMCAST, ARENA_BASE, ARENA_END, TARGETS
+# | Globals: SATURN, DREAMCAST, DREAMCAST_UNLINKED_OVERLAYS, ARENA_BASE, ARENA_END, TARGETS
 # | Params: N/A
 # | Returns: N/A
 #----------------------
@@ -34,13 +34,14 @@ Target = collections.namedtuple("Target", "name big_endian regions convert_rules
 #----------------------
 # | ARENA_BASE / ARENA_END
 # | Description: Dreamcast overlay arena bounds in main RAM; must match the Dreamcast linker script's NOLOAD arena section.
+# |              ARENA_BASE was lowered to 0x8C400000 to give WMAP and FIELD room below the original four regions.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-ARENA_BASE = 0x8C800000
+ARENA_BASE = 0x8C400000
 ARENA_END = 0x8CE00000
 
 #----------------------
@@ -60,6 +61,12 @@ SATURN = Target("saturn", True, None, True)
 # |              TITLE's data region is 0xC0000 because its packed blob is 0xB03E4 bytes.
 # |              GNAME's data region holds its 0xCB18-byte blob and bss with room to spare; its render contexts live in main.
 # |              WSEL's data region holds its 0x782DC-byte blob; its render buffers live in main.
+# |              FIELD's region sits below the other four, sized from its measured SH-4 text (0x532B7 bytes, grown once the
+# |              8 FIELD files missing from DECOMP_FIELD were added) and its whole data span, bss included (0x5815B bytes),
+# |              each plus 25% rounded up to 64 KB (Task 6, once FIELD got its own overlay link). WMAP's code and data bases
+# |              shift up by FIELD's growth (0x20000) to stay clear of it; WMAP's own sizing follows the same rule from its
+# |              measured SH-4 text (0x493AC bytes) and its whole PS1 data span, buffers included (0xF03D0 bytes plus a
+# |              0x3738-byte tail).
 # | Author: suinevere
 # | Dependencies: Region, ARENA_BASE
 # | Globals: N/A
@@ -67,11 +74,24 @@ SATURN = Target("saturn", True, None, True)
 # | Returns: N/A
 #----------------------
 DREAMCAST = Target("dreamcast", False, {
+    "field": Region(0x8C400000, 0x70000, 0x8C470000, 0x70000),
+    "wmap": Region(0x8C4E0000, 0x60000, 0x8C540000, 0x140000),
     "checkps": Region(0x8C800000, 0x40000, 0x8C840000, 0x40000),
     "title": Region(0x8C880000, 0x40000, 0x8C8C0000, 0xC0000),
     "gname": Region(0x8C980000, 0x40000, 0x8C9C0000, 0x40000),
     "wsel": Region(0x8CA00000, 0x40000, 0x8CA40000, 0xC0000),
 }, False)
+
+#----------------------
+# | DREAMCAST_UNLINKED_OVERLAYS
+# | Description: Overlays that have a Dreamcast region but no overlay link yet, so main keeps their resident code; empty since Task 6 gave FIELD its own overlay.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DREAMCAST_UNLINKED_OVERLAYS = ()
 
 #----------------------
 # | TARGETS

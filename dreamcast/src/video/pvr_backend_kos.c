@@ -1,8 +1,8 @@
 /*----------------------
  | pvr_backend_kos.c
- | Description: KallistiOS PowerVR backend for pvr_submit: one autosort-off translucent list written through the store queues, plus the texture and palette memory hooks.
+ | Description: KallistiOS PowerVR backend for pvr_submit: one autosort-off translucent list written through the store queues, the texture and palette memory hooks, and the displayed framebuffer for readback.
  | Author: suinevere
- | Dependencies: kos.h, pvr_submit.h, pvr_backend.h, texture_cache.h, palette_bank.h, blend.h
+ | Dependencies: kos.h, pvr_submit.h, pvr_backend.h, texture_cache.h, palette_bank.h, blend.h, dc_system.h
  | Globals: s_flip_base, s_dr, s_dr_active, s_blend_factor, s_texture_ops, s_palette_ops, s_kos_backend
  | Params: N/A
  | Returns: N/A
@@ -14,6 +14,7 @@
 #include "texture_cache.h"
 #include "palette_bank.h"
 #include "blend.h"
+#include "dc_system.h"
 
 /*----------------------
  | PVR_VERTEX_BUFFER_BYTES
@@ -229,9 +230,9 @@ static const PaletteOps s_palette_ops = { palette_set_entry };
  | Dependencies: pvr_get_stats, thd_pass
  | Globals: s_flip_base
  | Params: scenes_closed -- scenes handed to the PowerVR so far
- | Returns: N/A
+ | Returns: 1 if the previous scene reached the screen before the vblank guard ran out, 0 if the wait expired
  ----------------------*/
-static void wait_previous_flip(unsigned scenes_closed)
+static int wait_previous_flip(unsigned scenes_closed)
 {
     pvr_stats_t stats;
     size_t start;
@@ -243,27 +244,53 @@ static void wait_previous_flip(unsigned scenes_closed)
         thd_pass();
         pvr_get_stats(&stats);
     }
+    return stats.frame_count - s_flip_base >= scenes_closed;
+}
+
+/*----------------------
+ | kos_scene_shown
+ | Description: Reports wait_previous_flip's condition without waiting for it, so a caller outside the scene loop can learn a scene reached the screen.
+ | Author: suinevere
+ | Dependencies: pvr_get_stats
+ | Globals: s_flip_base
+ | Params: scenes_closed -- scenes handed to the PowerVR so far
+ | Returns: 1 if that many scenes have reached the screen, else 0
+ ----------------------*/
+static int kos_scene_shown(unsigned scenes_closed)
+{
+    pvr_stats_t stats;
+
+    pvr_get_stats(&stats);
+    return stats.frame_count - s_flip_base >= scenes_closed;
 }
 
 /*----------------------
  | kos_scene_begin
  | Description: Starts a scene and its translucent list once the previous scene is on screen; the first scene skips pvr_wait_ready, whose semaphore starts at zero.
+ | Logs once and reports failure when the flip wait expires, so the caller can leave a pending texture flush for a scene that actually catches up.
  | Author: suinevere
- | Dependencies: pvr_wait_ready, wait_previous_flip, pvr_scene_begin, pvr_list_begin
+ | Dependencies: pvr_wait_ready, wait_previous_flip, pvr_scene_begin, pvr_list_begin, dc_log
  | Globals: s_dr_active
  | Params: scenes_closed -- scenes handed to the PowerVR so far
- | Returns: N/A
+ | Returns: 1 if the wait succeeded or none was needed, 0 if the flip wait expired
  ----------------------*/
-static void kos_scene_begin(unsigned scenes_closed)
+static int kos_scene_begin(unsigned scenes_closed)
 {
+    int flip_ok = 1;
+
     if (scenes_closed != 0)
     {
         pvr_wait_ready();
-        wait_previous_flip(scenes_closed);
+        flip_ok = wait_previous_flip(scenes_closed);
+        if (!flip_ok)
+        {
+            dc_log("PVR: flip wait expired");
+        }
     }
     pvr_scene_begin();
     pvr_list_begin(PVR_LIST_TR_POLY);
     s_dr_active = 0;
+    return flip_ok;
 }
 
 /*----------------------
@@ -390,12 +417,27 @@ static void kos_vertex(float x, float y, float u, float v, uint32_t argb, int la
  | s_kos_backend
  | Description: The KallistiOS hooks pvr_submit_init binds.
  | Author: suinevere
- | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex
+ | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex, kos_scene_shown
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex };
+static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex, kos_scene_shown };
+
+/*----------------------
+ | pvr_backend_frame_pixels
+ | Description: Returns the displayed 640x480 RGB565 buffer through the 32-bit VRAM view; vid_set_start moves it only at vblank, so it always points at an already-rendered frame.
+ | Author: suinevere
+ | Dependencies: vram_l, vid_mode
+ | Globals: N/A
+ | Params: pitch_px -- output, pixels per row
+ | Returns: pointer to the displayed buffer
+ ----------------------*/
+const uint16_t *pvr_backend_frame_pixels(unsigned *pitch_px)
+{
+    *pitch_px = (unsigned)vid_mode->width;
+    return (const uint16_t *)vram_l;
+}
 
 /*----------------------
  | pvr_submit_init

@@ -18,6 +18,7 @@
 /*----------------------
  | PvrBackend
  | Description: Starts and finishes a scene, sets the background, and writes a polygon header or one strip vertex in screen pixels with page-normalised texel coordinates.
+ | scene_begin returns 0 if it gave up waiting for the previous flip, leaving a pending texture flush for later; scene_shown reports that wait's result without waiting.
  | Author: suinevere
  | Dependencies: DcSurfaceTexture, BlendPass
  | Globals: N/A
@@ -26,11 +27,23 @@
  ----------------------*/
 typedef struct
 {
-    void (*scene_begin)(unsigned scenes_closed);
+    int (*scene_begin)(unsigned scenes_closed);
     void (*scene_finish)(void);
     void (*background)(uint8_t r, uint8_t g, uint8_t b);
     void (*header)(const DcSurfaceTexture *tex, const BlendPass *pass);
     void (*vertex)(float x, float y, float u, float v, uint32_t argb, int last);
+    int (*scene_shown)(unsigned scenes_closed);
 } PvrBackend;
+
+/*----------------------
+ | pvr_backend_frame_pixels
+ | Description: Returns the displayed 640x480 RGB565 buffer and its pitch, for reading rendered PS1 pixels back into the VRAM mirror; a host test fakes it with a test buffer.
+ | Author: suinevere
+ | Dependencies: pvr_backend_kos.c (real), host test (fake)
+ | Globals: N/A
+ | Params: pitch_px -- output, pixels per row
+ | Returns: pointer to the displayed buffer, or null if none is available
+ ----------------------*/
+const uint16_t *pvr_backend_frame_pixels(unsigned *pitch_px);
 
 #endif

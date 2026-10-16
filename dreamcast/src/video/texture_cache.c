@@ -591,6 +591,24 @@ void texture_cache_begin_frame(void)
 }
 
 /*----------------------
+ | texture_cache_flush_now
+ | Description: Unconditionally frees every cached texture; call only between frames, such as an overlay switch, where no entry is still in flight.
+ | Author: suinevere
+ | Dependencies: flush_all
+ | Globals: s_texture_ops, s_entries, s_flush_pending
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void texture_cache_flush_now(void)
+{
+    if (s_texture_ops != 0)
+    {
+        flush_all();
+    }
+    s_flush_pending = 0;
+}
+
+/*----------------------
  | lookup_entry
  | Description: Finds or creates an entry, brings it up to date and marks it used by frame.
  | Author: suinevere
@@ -625,7 +643,8 @@ static TextureEntry *lookup_entry(int kind, int tpage_x, int tpage_y, int depth,
 
 /*----------------------
  | texture_cache_lookup
- | Description: Returns the texture for a page drawn through a CLUT and variant: a shared paletted page with a palette slot, a 15bpp page, or an ARGB1555 expansion when no slot is free.
+ | Description: Returns the texture for a page drawn through a CLUT and variant.
+ | A shared paletted page with a palette slot, a 15bpp page, or an ARGB1555 expansion when no slot is free.
  | Author: suinevere
  | Dependencies: lookup_entry, page_words_wide, palette_bank_acquire, vram_mirror_generation
  | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_scratch

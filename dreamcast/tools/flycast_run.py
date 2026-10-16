@@ -1,6 +1,7 @@
 #----------------------
 # | flycast_run.py
-# | Description: Boots a Dreamcast image in headless Linux Flycast (the lom-flycast Docker image) and captures the SCIF serial log from its stdout, grabbing a PNG screenshot at each "LOM: capture <name>" marker.
+# | Description: Boots a Dreamcast image in headless Linux Flycast (the lom-flycast Docker image) and captures the SCIF serial log from its stdout.
+# |              Grabs a PNG screenshot at each "LOM: capture <name>" marker.
 # | Author: suinevere
 # | Dependencies: docker, dockerfiles/flycast.Dockerfile (x11-apps, imagemagick)
 # | Globals: N/A
@@ -53,7 +54,8 @@ EMU_CFG = "[config]\nDebug.SerialConsoleEnabled = yes\n"
 
 #----------------------
 # | EMU_CFG_CAPTURE
-# | Description: Flycast settings used while capturing: SerialConsoleEnabled, plus a fullscreen 640x480 SDL window (Flycast v2.7 core/sdl/sdl.cpp reads [window] width/height/fullscreen via config::loadInt/loadBool) that fills the fixed-size Xvfb screen exactly.
+# | Description: Flycast settings used while capturing: SerialConsoleEnabled, plus a fullscreen 640x480 SDL window that fills the fixed-size Xvfb screen exactly.
+# |              Flycast v2.7 core/sdl/sdl.cpp reads [window] width/height/fullscreen via config::loadInt/loadBool.
 # | Author: suinevere
 # | Dependencies: Flycast v2.7 core/sdl/sdl.cpp (window.width, window.height, window.fullscreen, window.maximized)
 # | Globals: N/A
@@ -100,7 +102,8 @@ CAPTURE_DISPLAY = ":99"
 
 #----------------------
 # | CAPTURE_XAUTHORITY
-# | Description: Fixed, job-mount-visible path xvfb-run -f writes its Xauthority cookie to, so a later docker exec can authenticate against CAPTURE_DISPLAY instead of xvfb-run's normal random per-run file.
+# | Description: Fixed, job-mount-visible path xvfb-run -f writes its Xauthority cookie to, instead of xvfb-run's normal random per-run file.
+# |              Lets a later docker exec authenticate against CAPTURE_DISPLAY.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -161,7 +164,8 @@ def _grab_capture(container, cap_name, cap_dir, captures):
 
 #----------------------
 # | run_flycast
-# | Description: Boots image in lom-flycast with a job-local config, collecting stdout lines until until appears, a halt line appears or seconds pass; grabs a PNG at each capture marker before checking until when captures is given; always kills the container.
+# | Description: Boots image in lom-flycast with a job-local config, collecting stdout lines until until appears, a halt line appears or seconds pass.
+# |              Grabs a PNG at each capture marker before checking until when captures is given; always kills the container.
 # | Author: suinevere
 # | Dependencies: find_flycast, _pump, _grab_capture, docker
 # | Globals: DOCKER_IMAGE, EMU_CFG, EMU_CFG_CAPTURE, HALT_MARKER, CAPTURE_PREFIX, CAPTURE_DISPLAY

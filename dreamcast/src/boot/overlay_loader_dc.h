@@ -12,7 +12,7 @@
 
 /*----------------------
  | lom_overlay_arena
- | Description: The 6 MB NOLOAD overlay arena dreamcast.ld places at 0x8C800000.
+ | Description: The 10 MB NOLOAD overlay arena dreamcast.ld places at 0x8C400000.
  | Author: suinevere
  | Dependencies: dreamcast.ld
  | Globals: N/A

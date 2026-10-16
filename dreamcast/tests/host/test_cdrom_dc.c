@@ -1,8 +1,8 @@
 /*----------------------
  | test_cdrom_dc.c
- | Description: Host tests for cdrom_dc.c's stdio resource reads, queued-read callback ordering and resource-naming halts, run against a real temp-directory disc fixture written by test_cdrom_dc_host.py.
+ | Description: Host tests for cdrom_dc.c's stdio resource reads, queued-read callback ordering, the fanned-out RES/<XX> subfolder path, raw WMAP layout cells, stream decompression of raw PS1 resources, and resource-naming halts, run against a real temp-directory disc fixture written by test_cdrom_dc_host.py.
  | Author: suinevere
- | Dependencies: cdrom_dc.c, resource_index.c, layout_pack.c
+ | Dependencies: cdrom_dc.c, resource_index.c
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -37,6 +37,14 @@ void load_overlay(int resource_index)
     (void)resource_index;
 }
 
+static int s_decompress_calls;
+
+void cdrom_decompress_buffer(u8 *source, u8 *destination)
+{
+    s_decompress_calls++;
+    memcpy(destination, source + 1, 4);
+}
+
 static unsigned char s_cb_dst[8];
 static int s_ask_calls;
 static int s_complete_calls;
@@ -64,17 +72,19 @@ static void test_cdrom_init_reads_the_fixture_index(void)
     CHECK(!s_halted);
 }
 
-static void test_stream_copies_resource_bytes_exactly(void)
+static void test_stream_copies_a_converted_stream_exactly(void)
 {
     unsigned char dst[8];
 
     memset(dst, 0xAA, sizeof(dst));
+    s_decompress_calls = 0;
     s_halted = 0;
     if (setjmp(s_halt_jump) == 0)
     {
         CHECK(cdrom_stream(10, dst) == 0);
     }
     CHECK(!s_halted);
+    CHECK(s_decompress_calls == 0);
     CHECK(memcmp(dst, "ABCD", 4) == 0);
 }
 
@@ -110,7 +120,7 @@ static void test_stream_returns_zero_for_skipped_resource(void)
     CHECK(dst[0] == 0xAA);
 }
 
-static void test_queue_read_of_skipped_resource_halts_naming_not_exported(void)
+static void test_queue_read_of_skipped_resource_halts_naming_not_on_disc(void)
 {
     unsigned char dst[4];
 
@@ -121,8 +131,35 @@ static void test_queue_read_of_skipped_resource_halts_naming_not_exported(void)
         cdrom_queue_read(12, dst);
         CHECK(0);
     }
-    CHECK(strstr(s_halt_message, "not exported") != 0);
-    CHECK(strstr(s_halt_message, "12") != 0);
+    CHECK(strstr(s_halt_message, "resource 12 not on disc") != 0);
+}
+
+static void test_queue_read_of_entry_9_skip_halts_naming_not_on_disc(void)
+{
+    unsigned char dst[4];
+
+    s_halt_message[0] = 0;
+    s_halted = 0;
+    if (setjmp(s_halt_jump) == 0)
+    {
+        cdrom_queue_read(9, dst);
+        CHECK(0);
+    }
+    CHECK(strstr(s_halt_message, "resource 9 not on disc") != 0);
+}
+
+static void test_queue_read_reads_a_fanned_out_res_subfolder(void)
+{
+    unsigned char dst[4];
+
+    memset(dst, 0xAA, sizeof(dst));
+    s_halted = 0;
+    if (setjmp(s_halt_jump) == 0)
+    {
+        CHECK(cdrom_queue_read(0x123, dst) == 4);
+    }
+    CHECK(!s_halted);
+    CHECK(memcmp(dst, "HIJK", 4) == 0);
 }
 
 static void test_truncated_file_halts_naming_both_sizes(void)
@@ -141,14 +178,48 @@ static void test_truncated_file_halts_naming_both_sizes(void)
     CHECK(strstr(s_halt_message, "4") != 0);
 }
 
+static void test_queue_read_reads_a_wmap_layout_cell_raw(void)
+{
+    unsigned char dst[4];
+
+    memset(dst, 0xAA, sizeof(dst));
+    s_halted = 0;
+    if (setjmp(s_halt_jump) == 0)
+    {
+        CHECK(cdrom_queue_read(0x12EB, dst) == 4);
+    }
+    CHECK(!s_halted);
+    CHECK(memcmp(dst, "LAYO", 4) == 0);
+}
+
+static void test_stream_decompresses_a_raw_ps1_resource(void)
+{
+    unsigned char dst[4];
+
+    memset(dst, 0xAA, sizeof(dst));
+    s_decompress_calls = 0;
+    s_halted = 0;
+    if (setjmp(s_halt_jump) == 0)
+    {
+        CHECK(cdrom_stream(0x14DF, dst) == 0);
+    }
+    CHECK(!s_halted);
+    CHECK(s_decompress_calls == 1);
+    CHECK(memcmp(dst, "IMAG", 4) == 0);
+}
+
 int main(void)
 {
     test_cdrom_init_reads_the_fixture_index();
-    test_stream_copies_resource_bytes_exactly();
+    test_stream_copies_a_converted_stream_exactly();
     test_queue_read_with_callback_defers_to_process_state();
     test_stream_returns_zero_for_skipped_resource();
-    test_queue_read_of_skipped_resource_halts_naming_not_exported();
+    test_queue_read_of_skipped_resource_halts_naming_not_on_disc();
+    test_queue_read_of_entry_9_skip_halts_naming_not_on_disc();
+    test_queue_read_reads_a_fanned_out_res_subfolder();
     test_truncated_file_halts_naming_both_sizes();
+    test_queue_read_reads_a_wmap_layout_cell_raw();
+    test_stream_decompresses_a_raw_ps1_resource();
     if (failures == 0)
     {
         printf("OK\n");

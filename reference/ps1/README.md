@@ -20,6 +20,7 @@ The user's DuckStation captures of the US new-game path, in play order; both por
 | 14-wmap-home-rising.png | WMAP Home rising, dark board |
 | 15-wmap-home-dark.png | WMAP Home placed, dark board |
 | 16-wmap-board-home.png | WMAP board with Home |
+| 17-field-battle.png | FIELD battle: hero and ally against two bees in a rocky canyon land, both HP bars 100% (822x570 window capture) |
 
 These are 2424x1080 screen captures with black pillarboxes, not native 320x240 frames, so a diff must crop the 4:3 picture and scale it down first. `saturn/reference/ps1-*.png` holds an older subset of the same screens.
 
