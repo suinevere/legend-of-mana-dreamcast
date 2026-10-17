@@ -405,6 +405,7 @@ DREAMCAST_BENIGN = {
     "McxCardType": "zero",
     "cdrom_set_audio_volume": "void",
     "akao_set_master_volume": "zero",
+    "akao_set_all_sfx_volume": "zero",
     "akao_is_sfx_playing": "zero",
     "akao_get_xfer_state": "zero",
     "akao_load_bank_slot": "zero",

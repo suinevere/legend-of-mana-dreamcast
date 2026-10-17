@@ -90,6 +90,28 @@
 #define PAD_OP_BATTLE 6
 
 /*----------------------
+ | PAD_OP_OPEN
+ | Description: Test-only step op: asks FIELD to open secondary overlay arg (an OPEN_TARGETS index) through g_dc_field_open, then advances.
+ | Author: suinevere
+ | Dependencies: g_dc_field_open
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_OPEN 7
+
+/*----------------------
+ | PAD_OP_GAMEOVER
+ | Description: Test-only step op: starts a game over through g_dc_field_gameover, then advances.
+ | Author: suinevere
+ | Dependencies: g_dc_field_gameover
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_GAMEOVER 8
+
+/*----------------------
  | PAD_SCRIPT_BTN_L2
  | Description: PS1 active-high L2 bit, numerically equal to common/pad.h's PAD_BTN_L2.
  | Author: suinevere

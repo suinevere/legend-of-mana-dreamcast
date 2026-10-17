@@ -107,4 +107,26 @@ extern void (*g_dc_field_scene_jump)(int scene, int spawn);
  ----------------------*/
 extern void (*g_dc_field_battle)(void);
 
+/*----------------------
+ | g_dc_field_open
+ | Description: Main's pad-script hook to open a secondary overlay through FIELD's own opener, set by field_watch_install; NULL until installed.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_dc_field_open
+ | Params: target -- index into gen_pad_script.OPEN_TARGETS
+ | Returns: N/A
+ ----------------------*/
+extern void (*g_dc_field_open)(int target);
+
+/*----------------------
+ | g_dc_field_gameover
+ | Description: Main's pad-script hook that starts the game-over transition a party wipe's script would, set by field_watch_install; NULL until installed.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_dc_field_gameover
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+extern void (*g_dc_field_gameover)(void);
+
 #endif

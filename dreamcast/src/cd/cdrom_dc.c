@@ -241,6 +241,38 @@ static s32 dc_file_read(int folder, int ps1_index, const char *name, void *dst, 
 }
 
 /*----------------------
+ | CDROM_RESIDENT_MAX / CDROM_RESIDENT_RESOURCES
+ | Description: How many resources may stay in RAM, and the small ones FIELD streams on every text setup (177 window textures, 178 font), kept resident because each GD-ROM open costs several vblanks.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define CDROM_RESIDENT_MAX 4
+static const s32 CDROM_RESIDENT_RESOURCES[] = { 177, 178 };
+
+/*----------------------
+ | ResidentResource / s_resident / s_resident_count
+ | Description: Resources read once into RAM by cdrom_make_resident; read_resource copies them from here instead of opening their file.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct
+{
+    s32 index;
+    u8 *data;
+} ResidentResource;
+
+static ResidentResource s_resident[CDROM_RESIDENT_MAX];
+static int s_resident_count;
+
+s32 cdrom_make_resident(s32 resource_index);
+
+/*----------------------
  | read_resource
  | Description: Reads an exported resource's Dreamcast file into a destination; halts naming the index and both sizes when the file is missing or shorter than the index declares.
  | Author: suinevere
@@ -253,7 +285,16 @@ static s32 read_resource(const ResourceEntry *entry, void *dst)
 {
     char name[16];
     s32 n;
+    int i;
 
+    for (i = 0; i < s_resident_count; i++)
+    {
+        if (s_resident[i].index == entry->index)
+        {
+            memcpy(dst, s_resident[i].data, entry->size);
+            return (s32)entry->size;
+        }
+    }
     resource_file_name(entry->index, entry->kind, name);
     n = dc_file_read(resource_folder(entry->kind), entry->index, name, dst, (s32)entry->size);
     if (n < 0)
@@ -327,9 +368,9 @@ static void flush_pending_callback_read(void)
 
 /*----------------------
  | cdrom_init
- | Description: Loads RESINDEX.BIN from the disc root; the Dreamcast disc needs no further drive setup.
+ | Description: Loads RESINDEX.BIN from the disc root and makes CDROM_RESIDENT_RESOURCES resident; the Dreamcast disc needs no further drive setup.
  | Author: suinevere
- | Dependencies: dc_file_read, resource_index_load, dc_halt
+ | Dependencies: dc_file_read, resource_index_load, cdrom_make_resident, dc_halt
  | Globals: s_index_blob
  | Params: N/A
  | Returns: N/A
@@ -337,11 +378,46 @@ static void flush_pending_callback_read(void)
 void cdrom_init(void)
 {
     s32 len = dc_file_read(CD_FOLDER_ROOT, 0, "RESINDEX.BIN", s_index_blob, (s32)sizeof(s_index_blob));
+    int i;
 
     if (len < 0 || resource_index_load(s_index_blob, len) < 0)
     {
         dc_halt("RESINDEX.BIN missing; run tools/convert_disc.py");
     }
+    for (i = 0; i < (int)(sizeof(CDROM_RESIDENT_RESOURCES) / sizeof(CDROM_RESIDENT_RESOURCES[0])); i++)
+    {
+        cdrom_make_resident(CDROM_RESIDENT_RESOURCES[i]);
+    }
+}
+
+/*----------------------
+ | cdrom_make_resident
+ | Description: Reads a converted stream or raw resource into RAM once so later reads copy it instead of opening its file; resources not on the disc are left alone.
+ | Author: suinevere
+ | Dependencies: resource_index_find, read_resource, dc_halt
+ | Globals: s_resident, s_resident_count
+ | Params: resource_index -- PS1 resource
+ | Returns: the resource's byte size, or -1 when it is not on the disc, not a file, or the table is full
+ ----------------------*/
+s32 cdrom_make_resident(s32 resource_index)
+{
+    const ResourceEntry *entry = resource_index_find(resource_index);
+    u8 *data;
+
+    if (entry == 0 || (entry->kind != RESOURCE_KIND_STREAM && entry->kind != RESOURCE_KIND_RAW) || s_resident_count >= CDROM_RESIDENT_MAX)
+    {
+        return -1;
+    }
+    data = malloc(entry->size != 0 ? entry->size : 1);
+    if (data == 0)
+    {
+        dc_halt("cd: resident resource out of memory");
+    }
+    read_resource(entry, data);
+    s_resident[s_resident_count].index = resource_index;
+    s_resident[s_resident_count].data = data;
+    s_resident_count++;
+    return (s32)entry->size;
 }
 
 /*----------------------

@@ -182,10 +182,52 @@ def parse_battle(tokens, lineno):
 
 
 #----------------------
+# | parse_gameover
+# | Description: Parses "gameover" into a test-only step that starts the game-over transition.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "gameover", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_GAMEOVER"
+#----------------------
+def parse_gameover(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: gameover takes no arguments" % lineno)
+    return {"op": "PAD_OP_GAMEOVER", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
+# | OPEN_TARGETS
+# | Description: Secondary overlays "open <name>" reaches, in the index order field_watch_unit.c's opener table uses.
+# | Author: suinevere
+# | Dependencies: dreamcast/src/overlays/field_watch_unit.c
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+OPEN_TARGETS = ["shop", "golem", "zukan", "gosub", "carda", "niki", "addhero"]
+
+
+#----------------------
+# | parse_open
+# | Description: Parses "open <name>" into a test-only step that opens a secondary overlay through FIELD's own opener.
+# | Author: suinevere
+# | Dependencies: OPEN_TARGETS, ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "open", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_OPEN" and arg the OPEN_TARGETS index
+#----------------------
+def parse_open(tokens, lineno):
+    if len(tokens) != 1 or tokens[0] not in OPEN_TARGETS:
+        raise ScriptError("line %d: open needs one of %s, not %r" % (lineno, ", ".join(OPEN_TARGETS), " ".join(tokens)))
+    return {"op": "PAD_OP_OPEN", "arg": OPEN_TARGETS.index(tokens[0]), "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | parse_script
 # | Description: Parses every non-comment, non-blank line of a .pad script into step dicts.
 # | Author: suinevere
-# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, ScriptError
+# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, ScriptError
 # | Globals: N/A
 # | Params: text -- script file contents
 # | Returns: list of step dicts
@@ -210,6 +252,10 @@ def parse_script(text):
             steps.append(parse_scene(rest, lineno))
         elif verb == "battle":
             steps.append(parse_battle(rest, lineno))
+        elif verb == "open":
+            steps.append(parse_open(rest, lineno))
+        elif verb == "gameover":
+            steps.append(parse_gameover(rest, lineno))
         else:
             raise ScriptError("line %d: unknown verb %r" % (lineno, verb))
     return steps

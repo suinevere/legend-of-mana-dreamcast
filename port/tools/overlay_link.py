@@ -159,6 +159,15 @@ OVERLAYS = [
     Overlay("wsel", 14, "primary", ["wsel_main"], True, True, []),
     Overlay("wmap", 3, "primary", ["run_world_map"], False, True, []),
     Overlay("menu", 6, "secondary", ["func_801405B0"], False, True, ["field"]),
+    Overlay("shop", 7, "secondary", ["shop_init", "shop_update"], False, True, ["field"]),
+    Overlay("golem", 9, "secondary", ["golem_run"], False, True, ["field"]),
+    Overlay("zukan", 8, "secondary", ["zukan_run"], False, True, ["field"]),
+    Overlay("gover", 10, "secondary", ["gover_show_screen"], False, True, ["field"]),
+    Overlay("addhero", 18, "secondary", ["addhero_init", "addhero_state_step"], False, True, ["field"]),
+    Overlay("niki", 17, "secondary", ["niki_init", "niki_update_frame"], False, True, ["field"]),
+    Overlay("cload", 16, "secondary", ["cload_main"], False, True, ["field"]),
+    Overlay("carda", 12, "secondary", ["carda_init", "carda_update_frame"], False, True, ["field"]),
+    Overlay("gosub", 13, "secondary", ["gosub_open_screen_sequence", "gosub_update_frame"], False, True, ["field"]),
 ]
 
 #----------------------
@@ -578,6 +587,18 @@ DC_EXTRA_ENTRIES = {"field": ["field_watch_entry"]}
 
 
 #----------------------
+# | DC_ENTRY_ALIASES
+# | Description: Per secondary overlay, extra names FIELD or main call an entry by, since PS1 secondaries share 0x80140000 and FIELD names some entries by address (func_80140004).
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DC_ENTRY_ALIASES = {"gname": {"gname_run": ["func_80140004"]}, "shop": {"shop_init": ["func_80140004"]}, "niki": {"niki_init": ["niki_addhero_init"]}, "addhero": {"addhero_init": ["niki_addhero_init"]}, "gover": {"gover_show_screen": ["func_80140004"]}}
+
+
+#----------------------
 # | dc_all_entries
 # | Description: An overlay's real entries plus its Dreamcast-only extras, in vector-slot order.
 # | Author: suinevere
@@ -591,11 +612,30 @@ def dc_all_entries(ovl):
 
 
 #----------------------
+# | dc_exported_entries
+# | Description: Every name main's link gets for an overlay's vector slots: each entry and its DC_ENTRY_ALIASES, at code base plus 16 per slot.
+# | Author: suinevere
+# | Dependencies: dc_all_entries, DC_ENTRY_ALIASES, targets.DREAMCAST
+# | Globals: N/A
+# | Params: ovl -- Overlay
+# | Returns: list of (exported name, address)
+#----------------------
+def dc_exported_entries(ovl):
+    base = targets.DREAMCAST.regions[ovl.name].code_base
+    aliases = DC_ENTRY_ALIASES.get(ovl.name, {})
+    out = []
+    for i, fn in enumerate(dc_all_entries(ovl)):
+        for name in [fn] + aliases.get(fn, []):
+            out.append((name, base + 16 * i))
+    return out
+
+
+#----------------------
 # | dc_entries_ld
 # | Description: Generates the Dreamcast main link's overlay entry vector addresses, one per entry (plus any DC_EXTRA_ENTRIES) of every linked overlay with an arena region.
 # |              Unlinked overlays are left out, since a script assignment would override main's resident copies of their entries.
 # | Author: suinevere
-# | Dependencies: file_block, dc_overlays, dc_all_entries, targets.DREAMCAST, targets.DREAMCAST_UNLINKED_OVERLAYS
+# | Dependencies: file_block, dc_overlays, dc_exported_entries, targets.DREAMCAST_UNLINKED_OVERLAYS
 # | Globals: N/A
 # | Params: N/A
 # | Returns: linker script text
@@ -607,8 +647,10 @@ def dc_entries_ld():
     for ovl in dc_overlays():
         if ovl.name in targets.DREAMCAST_UNLINKED_OVERLAYS:
             continue
-        base = targets.DREAMCAST.regions[ovl.name].code_base
-        out += ["_%s = 0x%08X;" % (fn, base + 16 * i) for i, fn in enumerate(dc_all_entries(ovl))]
+        for name, address in dc_exported_entries(ovl):
+            line = "_%s = 0x%08X;" % (name, address)
+            if line not in out:
+                out.append(line)
     return "\n".join(out) + "\n"
 
 

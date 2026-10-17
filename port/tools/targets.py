@@ -3,7 +3,7 @@
 # | Description: Converter targets: the Saturn profile with its byte-swap and colour rules, and the little-endian Dreamcast profile with fixed per-overlay arena regions.
 # | Author: suinevere
 # | Dependencies: N/A
-# | Globals: SATURN, DREAMCAST, DREAMCAST_UNLINKED_OVERLAYS, SATURN_UNLINKED_OVERLAYS, ARENA_BASE, ARENA_END, TARGETS
+# | Globals: SATURN, DREAMCAST, SECONDARY_REGION, SECONDARY_OVERLAYS, DREAMCAST_UNLINKED_OVERLAYS, SATURN_UNLINKED_OVERLAYS, ARENA_BASE, ARENA_END, TARGETS
 # | Params: N/A
 # | Returns: N/A
 #----------------------
@@ -56,10 +56,31 @@ ARENA_END = 0x8CE00000
 SATURN = Target("saturn", True, None, True)
 
 #----------------------
+# | SECONDARY_REGION
+# | Description: The one arena region every secondary overlay links at: code holds MENU's 0xF644 bytes of MIPS text with room to spare, data the largest PS1 data plus bss (GOSUB, 0x2DA04 bytes).
+# | Author: suinevere
+# | Dependencies: Region
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+SECONDARY_REGION = Region(0x8CB00000, 0x40000, 0x8CB40000, 0x40000)
+
+#----------------------
+# | SECONDARY_OVERLAYS
+# | Description: The overlays sharing SECONDARY_REGION; FIELD reaches their entries through overlay_link.DC_ENTRY_ALIASES.
+# | Author: suinevere
+# | Dependencies: SECONDARY_REGION
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+SECONDARY_OVERLAYS = ("gname", "menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover")
+
+#----------------------
 # | DREAMCAST
 # | Description: Dreamcast profile: little-endian PS1 bytes kept as they are, each ported overlay given its own code and data region in the arena.
 # |              TITLE's data region is 0xC0000 because its packed blob is 0xB03E4 bytes.
-# |              GNAME's data region holds its 0xCB18-byte blob and bss with room to spare; its render contexts live in main.
 # |              WSEL's data region holds its 0x782DC-byte blob; its render buffers live in main.
 # |              FIELD's region sits below the other four, sized from its measured SH-4 text (0x532B7 bytes, grown once the
 # |              8 FIELD files missing from DECOMP_FIELD were added) and its whole data span, bss included (0x5815B bytes),
@@ -67,9 +88,9 @@ SATURN = Target("saturn", True, None, True)
 # |              shift up by FIELD's growth (0x20000) to stay clear of it; WMAP's own sizing follows the same rule from its
 # |              measured SH-4 text (0x493AC bytes) and its whole PS1 data span, buffers included (0xF03D0 bytes plus a
 # |              0x3738-byte tail).
-# |              MENU's code region holds its PS1 0xFBF4 bytes of MIPS text with room to spare, and its data region its 0x1BDE8-byte blob plus bss.
+# |              Every secondary overlay (GNAME, MENU and D4's nine) shares SECONDARY_REGION, since the PS1 loads them all at 0x80140000 and only one is resident.
 # | Author: suinevere
-# | Dependencies: Region, ARENA_BASE
+# | Dependencies: Region, ARENA_BASE, SECONDARY_REGION
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -79,9 +100,18 @@ DREAMCAST = Target("dreamcast", False, {
     "wmap": Region(0x8C4E0000, 0x60000, 0x8C540000, 0x140000),
     "checkps": Region(0x8C800000, 0x40000, 0x8C840000, 0x40000),
     "title": Region(0x8C880000, 0x40000, 0x8C8C0000, 0xC0000),
-    "gname": Region(0x8C980000, 0x40000, 0x8C9C0000, 0x40000),
+    "gname": SECONDARY_REGION,
     "wsel": Region(0x8CA00000, 0x40000, 0x8CA40000, 0xC0000),
-    "menu": Region(0x8CB00000, 0x40000, 0x8CB40000, 0x40000),
+    "menu": SECONDARY_REGION,
+    "shop": SECONDARY_REGION,
+    "golem": SECONDARY_REGION,
+    "zukan": SECONDARY_REGION,
+    "gover": SECONDARY_REGION,
+    "addhero": SECONDARY_REGION,
+    "niki": SECONDARY_REGION,
+    "cload": SECONDARY_REGION,
+    "carda": SECONDARY_REGION,
+    "gosub": SECONDARY_REGION,
 }, False)
 
 #----------------------
@@ -104,7 +134,7 @@ DREAMCAST_UNLINKED_OVERLAYS = ()
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-SATURN_UNLINKED_OVERLAYS = ("menu",)
+SATURN_UNLINKED_OVERLAYS = ("menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover")
 
 #----------------------
 # | TARGETS

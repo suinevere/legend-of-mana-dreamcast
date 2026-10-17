@@ -98,7 +98,7 @@ def test_lom_elf_places_the_arena_and_starts_the_heap_above_it(linked):
     assert main["_end"] == 0x8CE00000
     assert main["_run_checkps"] == 0x8C800000
     assert main["_run_title"] == 0x8C880000
-    assert main["_gname_run"] == 0x8C980000
+    assert main["_gname_run"] == main["_func_80140004"] == targets.SECONDARY_REGION.code_base
 
 
 def region_sits_in_the_arena_clear_of(name, others):

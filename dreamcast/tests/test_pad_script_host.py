@@ -103,3 +103,42 @@ def test_gen_pad_script_scene_and_battle_compile_to_their_ops():
         header = f.read()
     assert '{ PAD_OP_SCENE, 71, 0, "", 2 },' in header
     assert '{ PAD_OP_BATTLE, 0, 0, "", 0 },' in header
+
+
+def test_gen_pad_script_open_compiles_to_its_op_and_target_index():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "open.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("open zukan" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_OPEN, 2, 0, "", 0 },' in header
+
+
+def test_gen_pad_script_rejects_unknown_open_target():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "open.pad")
+    with open(script_path, "w") as f:
+        f.write("open movie" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path,
+                             os.path.join(out_dir, "out.h")], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "movie" in result.stderr
+
+
+def test_gen_pad_script_gameover_compiles_to_its_op():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "gameover.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("gameover" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_GAMEOVER, 0, 0, "", 0 },' in header

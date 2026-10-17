@@ -202,6 +202,24 @@ static int s_battles;
 
 void (*g_dc_field_scene_jump)(int scene, int spawn);
 void (*g_dc_field_battle)(void);
+void (*g_dc_field_open)(int target);
+void (*g_dc_field_gameover)(void);
+
+static int s_gameovers;
+
+static void record_gameover(void)
+{
+    s_gameovers++;
+}
+
+static int s_opens;
+static int s_open_target;
+
+static void record_open(int target)
+{
+    s_opens++;
+    s_open_target = target;
+}
 
 static void record_jump(int scene, int spawn)
 {
@@ -251,6 +269,36 @@ static void test_scene_and_battle_advance_without_hooks(void)
     CHECK(pad_script_done());
 }
 
+static void test_open_calls_its_hook_once_and_advances(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_OPEN, 2, 0, "", 0 },
+    };
+
+    g_dc_field_open = record_open;
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 0);
+    CHECK(s_opens == 1 && s_open_target == 2);
+    CHECK(pad_script_done());
+    pad_script_poll(1, 0);
+    CHECK(s_opens == 1);
+    g_dc_field_open = 0;
+}
+
+static void test_gameover_calls_its_hook_once_and_advances(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_GAMEOVER, 0, 0, "", 0 },
+    };
+
+    g_dc_field_gameover = record_gameover;
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 0);
+    CHECK(s_gameovers == 1);
+    CHECK(pad_script_done());
+    g_dc_field_gameover = 0;
+}
+
 int main(void)
 {
     pad_script_set_printer(record_capture);
@@ -264,6 +312,8 @@ int main(void)
     test_mash_marker_stop_uses_watch_seen();
     test_scene_and_battle_call_their_hooks_once();
     test_scene_and_battle_advance_without_hooks();
+    test_open_calls_its_hook_once_and_advances();
+    test_gameover_calls_its_hook_once_and_advances();
     if (s_failures == 0)
     {
         printf("OK\n");

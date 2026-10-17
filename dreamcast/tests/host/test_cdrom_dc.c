@@ -16,6 +16,8 @@
 #include "main/cdrom.h"
 #include "resource_index.h"
 
+s32 cdrom_make_resident(s32 resource_index);
+
 static int failures;
 
 #define CHECK(cond) do { if (!(cond)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
@@ -224,6 +226,23 @@ static void test_stream_decompresses_a_raw_ps1_resource(void)
     CHECK(memcmp(dst, "IMAG", 4) == 0);
 }
 
+static void test_resident_stream_copies_from_memory_after_its_file_is_gone(void)
+{
+    unsigned char dst[8];
+
+    s_halted = 0;
+    if (setjmp(s_halt_jump) == 0)
+    {
+        CHECK(cdrom_make_resident(10) == 4);
+        CHECK(cdrom_make_resident(0x777) < 0);
+        CHECK(remove(LOM_CD_ROOT "/RES/00/RES0010.BIN") == 0);
+        memset(dst, 0xAA, sizeof(dst));
+        CHECK(cdrom_stream(10, dst) == 0);
+    }
+    CHECK(!s_halted);
+    CHECK(memcmp(dst, "ABCD", 4) == 0);
+}
+
 int main(void)
 {
     test_cdrom_init_reads_the_fixture_index();
@@ -237,6 +256,7 @@ int main(void)
     test_truncated_file_halts_naming_both_sizes();
     test_queue_read_reads_a_wmap_layout_cell_raw();
     test_stream_decompresses_a_raw_ps1_resource();
+    test_resident_stream_copies_from_memory_after_its_file_is_gone();
     if (failures == 0)
     {
         printf("OK\n");

@@ -761,8 +761,21 @@ def convert_menu(buf, off):
 
 
 #----------------------
+# | convert_dreamcast_only
+# | Description: Convert rule for a secondary overlay only the Dreamcast links; Saturn skips it through targets.SATURN_UNLINKED_OVERLAYS, so reaching this is a bug.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: buf -- packed bytearray, off -- symbol name to packed offset
+# | Returns: N/A; always raises ValueError
+#----------------------
+def convert_dreamcast_only(buf, off):
+    raise ValueError("this overlay has no Saturn data rules")
+
+
+#----------------------
 # | OVERLAYS
-# | Description: Overlays the converter packs, keyed by CD resource index; WMAP's large buffers are cut out of its ranges and placed by wmap_memory. MENU is Dreamcast-only for now.
+# | Description: Overlays the converter packs, keyed by CD resource index; WMAP's large buffers are cut out of its ranges and placed by wmap_memory. Secondaries from MENU on are Dreamcast-only; MENU, ZUKAN, GOSUB and CARDA also pack the tables and strings that sit in rodata bins before their code.
 # | Author: suinevere
 # | Dependencies: convert_title, convert_checkps, convert_field, convert_gname, convert_wsel, convert_wmap, convert_menu, WSEL_TIMS, split_ranges, wmap_memory.place, wmap_memory.BUFFERS
 # | Globals: SECONDARY_BASE
@@ -779,8 +792,26 @@ OVERLAYS = {
                     ["g_checkps_image_asset"], convert_checkps),
     5: OverlaySpec("gname", 0x80140000, [(0x80142C98, 0x8014F7B0)], "gname_symbol_addrs.txt",
                    ["g_name_entry_tim"], convert_gname, SECONDARY_BASE, None),
-    6: OverlaySpec("menu", 0x80140000, [(0x8014FBF4, 0x8016B9DC)], "menu_symbol_addrs.txt",
+    6: OverlaySpec("menu", 0x80140000, [(0x8014057C, 0x801405B0), (0x8014FBF4, 0x8016B9DC)], "menu_symbol_addrs.txt",
                    [], convert_menu, SECONDARY_BASE, None),
+    7: OverlaySpec("shop", 0x80140000, [(0x80142D04, 0x80145CE4)], "shop_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    8: OverlaySpec("zukan", 0x80140000, [(0x8014001C, 0x80140E00), (0x8014471C, 0x80157D7C)], "zukan_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    13: OverlaySpec("gosub", 0x80140000, [(0x80140068, 0x80140080), (0x80147058, 0x8016B8C8)], "gosub_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    12: OverlaySpec("carda", 0x80140000, [(0x8014008C, 0x80140094), (0x801400C4, 0x801400CC), (0x801401B8, 0x801401C8), (0x80140244, 0x8014024C), (0x8014B038, 0x8016F000)], "carda_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    16: OverlaySpec("cload", 0x80140000, [(0x80145E9C, 0x8016B258)], "cload_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    17: OverlaySpec("niki", 0x80140000, [(0x801470F8, 0x8016DA80)], "niki_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    18: OverlaySpec("addhero", 0x80140000, [(0x80140088, 0x80140098), (0x80140114, 0x8014011C), (0x80146FA4, 0x8016D940)], "addhero_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    10: OverlaySpec("gover", 0x80140000, [(0x80140704, 0x80140704)], "gover_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
+    9: OverlaySpec("golem", 0x80140000, [(0x8014287C, 0x8014C28C)], "golem_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
     14: OverlaySpec("wsel", 0x8004FC70, [(0x80052608, 0x800CA8E4)], "wsel_symbol_addrs.txt",
                     WSEL_TIMS, convert_wsel),
     3: OverlaySpec("wmap", 0x8004FC70,
@@ -861,6 +892,18 @@ def relocate_menu_pointers(buf, off, target):
 # | Returns: N/A
 #----------------------
 POINTER_RULES = {"title": relocate_title_pointers, "wmap": relocate_wmap_pointers, "menu": relocate_menu_pointers}
+
+
+#----------------------
+# | IGNORED_POINTER_WORDS
+# | Description: Per overlay name, packed offsets the pointer census flags whose values only look like addresses (counts, colours, ids), so no rule relocates them.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+IGNORED_POINTER_WORDS = {}
 
 
 #----------------------

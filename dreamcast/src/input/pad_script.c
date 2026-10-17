@@ -228,8 +228,8 @@ void pad_script_start(const PadScriptStep *steps, unsigned count)
  | pad_script_poll
  | Description: Advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, or calls the scene-jump or battle hook once.
  | Author: suinevere
- | Dependencies: advance, log_capture, mash_stopped, g_dc_field_scene_jump, g_dc_field_battle
- | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons, g_dc_field_scene_jump, g_dc_field_battle
+ | Dependencies: advance, log_capture, mash_stopped, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
+ | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
  | Params: vblank -- current vblank count (unused), game_state -- current g_game_state
  | Returns: N/A
  ----------------------*/
@@ -320,6 +320,22 @@ void pad_script_poll(unsigned vblank, int game_state)
             g_dc_field_battle();
         }
         advance();
+        break;
+    case PAD_OP_GAMEOVER:
+        s_buttons = 0;
+        if (g_dc_field_gameover != 0)
+        {
+            g_dc_field_gameover();
+        }
+        advance();
+        break;
+    case PAD_OP_OPEN:
+        s_buttons = 0;
+        advance();
+        if (g_dc_field_open != 0)
+        {
+            g_dc_field_open((int)step->arg);
+        }
         break;
     case PAD_OP_CAPTURE:
     default:

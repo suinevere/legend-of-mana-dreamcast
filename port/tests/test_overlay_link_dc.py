@@ -89,7 +89,7 @@ def test_dreamcast_entries_leave_unlinked_overlays_to_main():
         if ovl.name in targets.DREAMCAST_UNLINKED_OVERLAYS:
             for fn in ovl.entries:
                 assert "_%s =" % fn not in entries, fn
-    assert "_gname_run = 0x8C980000;" in entries
+    assert "_gname_run = 0x8CB00000;" in entries
 
 
 def test_dreamcast_region_header_matches_targets():
@@ -173,3 +173,22 @@ def test_saturn_leaves_menu_out_of_its_generated_files():
     names = [name for name, _ in overlay_link.generated_files(targets.SATURN)]
     assert "menu.ld" not in names
     assert "_func_801405B0" not in overlay_link.entries_ld()
+
+def test_secondary_aliases_agree_across_overlays():
+    seen = {}
+    for ovl in overlay_link.dc_overlays():
+        for name, address in overlay_link.dc_exported_entries(ovl):
+            assert seen.setdefault(name, address) == address, name
+
+
+def test_gname_entry_is_also_func_80140004():
+    gname = overlay_link.overlay_named("gname", targets.DREAMCAST)
+    exported = dict(overlay_link.dc_exported_entries(gname))
+    assert exported["gname_run"] == exported["func_80140004"] == targets.SECONDARY_REGION.code_base
+
+
+def test_entries_ld_defines_each_exported_name_once():
+    lines = [l for l in overlay_link.dc_entries_ld().splitlines() if l.startswith("_")]
+    names = [l.split(" = ")[0] for l in lines]
+    assert len(names) == len(set(names))
+    assert "_func_80140004 = 0x8CB00000;" in lines

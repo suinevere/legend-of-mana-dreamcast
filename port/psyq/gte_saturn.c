@@ -577,24 +577,19 @@ static int64_t gte_matrix_vector(const int16_t matrix[3][3], const int16_t vecto
     int64_t sums[3];
     int i;
     int j;
+    int checked;
 
-    if (add == NULL || (add[0] < 0x40000000 && add[0] > -0x40000000 && add[1] < 0x40000000 && add[1] > -0x40000000
-                        && add[2] < 0x40000000 && add[2] > -0x40000000))
+    checked = add != NULL && (add[0] >= 0x40000000 || add[0] <= -0x40000000 || add[1] >= 0x40000000
+                              || add[1] <= -0x40000000 || add[2] >= 0x40000000 || add[2] <= -0x40000000);
+    for (i = 0; i < 3; i++)
     {
-        for (i = 0; i < 3; i++)
+        sums[i] = add != NULL ? (int64_t)add[i] * 0x1000 : 0;
+        for (j = 0; j < 3; j++)
         {
-            sums[i] = (add != NULL ? (int64_t)add[i] * 0x1000 : 0) + (int32_t)matrix[i][0] * vector[0]
-                      + (int32_t)matrix[i][1] * vector[1] + (int32_t)matrix[i][2] * vector[2];
-        }
-    }
-    else
-    {
-        for (i = 0; i < 3; i++)
-        {
-            sums[i] = (int64_t)add[i] * 0x1000;
-            for (j = 0; j < 3; j++)
+            sums[i] += (int32_t)matrix[i][j] * vector[j];
+            if (checked)
             {
-                sums[i] = gte_mac44(i + 1, sums[i] + (int64_t)matrix[i][j] * vector[j]);
+                sums[i] = gte_mac44(i + 1, sums[i]);
             }
         }
     }

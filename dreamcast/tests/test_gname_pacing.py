@@ -21,6 +21,9 @@ import flycast_run
 import stale_image
 
 
+GNAME_WARMUP_WINDOWS = 2
+
+
 def test_gname_runs_at_two_vblanks():
     if flycast_run.find_flycast() is None:
         pytest.skip("no flycast")
@@ -35,5 +38,5 @@ def test_gname_runs_at_two_vblanks():
         match = re.search(r"LOM: probe vbl (\d+\.\d+)", line)
         if in_gname and match:
             rates.append(float(match.group(1)))
-    assert len(rates) >= 3, lines[-40:]
-    assert max(rates[1:]) <= 2.05, rates
+    assert len(rates) >= GNAME_WARMUP_WINDOWS + 4, lines[-40:]
+    assert max(rates[GNAME_WARMUP_WINDOWS:]) <= 2.05, rates

@@ -25,7 +25,7 @@ def spec_named(name):
 
 def test_regions_fit_arena_and_do_not_overlap():
     spans = []
-    for region in targets.DREAMCAST.regions.values():
+    for region in set(targets.DREAMCAST.regions.values()):
         spans.append((region.code_base, region.code_base + region.code_size))
         spans.append((region.data_base, region.data_base + region.data_size))
     spans.sort()
@@ -37,7 +37,7 @@ def test_regions_fit_arena_and_do_not_overlap():
 
 def test_dreamcast_regions_fit_the_arena_without_overlap():
     spans = []
-    for name, r in targets.DREAMCAST.regions.items():
+    for r, name in {r: name for name, r in targets.DREAMCAST.regions.items()}.items():
         spans.append((r.code_base, r.code_base + r.code_size, name))
         spans.append((r.data_base, r.data_base + r.data_size, name))
     spans.sort()
@@ -47,6 +47,12 @@ def test_dreamcast_regions_fit_the_arena_without_overlap():
         assert ahi <= blo, (a, b)
     assert {"wmap", "field"} <= set(targets.DREAMCAST.regions)
     assert targets.ARENA_BASE == 0x8C400000
+
+
+def test_secondary_overlays_share_one_region():
+    for name in targets.SECONDARY_OVERLAYS:
+        assert targets.DREAMCAST.regions[name] is targets.SECONDARY_REGION, name
+    assert {"gname", "menu"} <= set(targets.SECONDARY_OVERLAYS)
 
 
 def test_pointer_inside_ranges_relocates_to_data_region():
@@ -182,6 +188,6 @@ def test_menu_pointer_rule_relocates_both_tables_and_keeps_the_script_count():
     buf, _ = overlay_rules.build_overlay(spec, overlay, symbols, targets.DREAMCAST)
     off = functools.partial(overlay_rules.symbol_offset, symbols, spec)
     base = targets.DREAMCAST.regions["menu"].data_base
-    first = spec.ranges[0][0]
-    assert struct.unpack_from("<3I", buf, off("g_menu_content_table")) == (base + 0x8014FF7C - first, 0, base + 0x80151A54 - first)
-    assert struct.unpack_from("<3I", buf, off("g_script_table")) == (1, base + 0x80150594 - first, base + 0x80151104 - first)
+    at = lambda addr: base + overlay_rules.packed_offset(addr, spec)
+    assert struct.unpack_from("<3I", buf, off("g_menu_content_table")) == (at(0x8014FF7C), 0, at(0x80151A54))
+    assert struct.unpack_from("<3I", buf, off("g_script_table")) == (1, at(0x80150594), at(0x80151104))

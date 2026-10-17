@@ -1,7 +1,7 @@
 #----------------------
 # | makefile
 # | Description: KallistiOS build of the Legend of Mana Dreamcast port: converts the PS1 disc, compiles src/, the shared port/ sources and the decomp's main executable.
-# |              Links lom.elf with dreamcast.ld, links the CHECKPS, TITLE, GNAME, WSEL, WMAP and MENU overlays against it and packs everything into lom.cdi.
+# |              Links lom.elf with dreamcast.ld, links the CHECKPS, TITLE, GNAME, WSEL, WMAP, MENU, SHOP, GOLEM and ZUKAN overlays against it and packs everything into lom.cdi.
 # | Author: suinevere
 # | Dependencies: $(KOS_BASE)/Makefile.rules, pre.makefile, dreamcast.ld, src, ../port, ../src, ../include, ../port/tools/overlay_link.py, ../port/tools/gen_pending.py, cd
 # | Globals: N/A
@@ -93,14 +93,14 @@ PORT_SOURCES = ../port/boot/overlay_header.c ../port/boot/resource_index.c ../po
 
 #----------------------
 # | DECOMP_MAIN
-# | Description: The decomp main-executable files the Saturn main link compiles (saturn/src/mainexe/*_unit.c), plus the PS1 stream decompressor cdrom_dc.c runs on raw resources.
+# | Description: The decomp main-executable files the Saturn main link compiles (saturn/src/mainexe/*_unit.c), plus the PS1 stream decompressor cdrom_dc.c runs on raw resources and card_callbacks.c for CARDA's pet transfer.
 # | Author: suinevere
 # | Dependencies: saturn/src/mainexe
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-DECOMP_MAIN = ../src/main/main.c ../src/main/field_runtime.c ../src/main/screen_transition.c ../src/main/cdrom_decompress.c
+DECOMP_MAIN = ../src/main/main.c ../src/main/field_runtime.c ../src/main/screen_transition.c ../src/main/cdrom_decompress.c ../src/main/card_callbacks.c
 
 #----------------------
 # | DECOMP_FIELD
@@ -221,6 +221,25 @@ DECOMP_GNAME = ../src/overlays/gname/gname.c
 DECOMP_MENU = ../src/overlays/menu/menu.c ../src/overlays/menu/menu_screens.c ../src/overlays/menu/menu_lists.c ../src/overlays/menu/menu_actions.c ../src/overlays/menu/menu_card.c
 
 #----------------------
+# | DECOMP_SHOP / DECOMP_GOLEM / DECOMP_ZUKAN / DECOMP_GOVER / DECOMP_ADDHERO / DECOMP_NIKI / DECOMP_CLOAD / DECOMP_CARDA / DECOMP_GOSUB
+# | Description: The decomp files each secondary overlay compiles; their PS1 overlay headers are replaced by the generated vectors.
+# | Author: suinevere
+# | Dependencies: src/overlays/shop, src/overlays/golem, src/overlays/zukan
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DECOMP_SHOP = ../src/overlays/shop/shop.c ../src/overlays/shop/shop_render.c ../src/overlays/shop/shop_text.c ../src/overlays/shop/shop_trade.c
+DECOMP_GOLEM = ../src/overlays/golem/golem.c
+DECOMP_ZUKAN = ../src/overlays/zukan/zukan.c ../src/overlays/zukan/zukan_category.c
+DECOMP_GOVER = ../src/overlays/gover/gover.c
+DECOMP_ADDHERO = ../src/overlays/addhero/addhero.c ../src/overlays/addhero/addhero_card.c ../src/overlays/addhero/addhero_glyph.c ../src/overlays/addhero/addhero_widgets.c
+DECOMP_NIKI = ../src/overlays/niki/niki.c ../src/overlays/niki/niki_io.c
+DECOMP_CLOAD = ../src/overlays/cload/cload.c ../src/overlays/cload/cload_card.c ../src/overlays/cload/cload_glyph.c ../src/overlays/cload/cload_widgets.c
+DECOMP_CARDA = ../src/overlays/carda/carda.c ../src/overlays/carda/carda_card.c ../src/overlays/carda/carda_glyph.c ../src/overlays/carda/carda_save.c ../src/overlays/carda/carda_widgets.c
+DECOMP_GOSUB = ../src/overlays/gosub/gosub.c ../src/overlays/gosub/gosub_dialogs.c ../src/overlays/gosub/gosub_elements.c ../src/overlays/gosub/gosub_helpers.c ../src/overlays/gosub/gosub_lists.c ../src/overlays/gosub/gosub_render.c ../src/overlays/gosub/gosub_runtime.c ../src/overlays/gosub/gosub_selection.c
+
+#----------------------
 # | DECOMP_WMAP
 # | Description: The decomp WMAP files saturn/src/wmap/*_unit.c compile, compiled here by path.
 # | Author: suinevere
@@ -272,6 +291,15 @@ CHECKPS_OBJS = build/ovl/checkps_vectors.o $(call DECOMP_OBJ,$(DECOMP_CHECKPS)) 
 TITLE_OBJS = build/ovl/title_vectors.o $(call DECOMP_OBJ,$(DECOMP_TITLE))
 GNAME_OBJS = build/ovl/gname_vectors.o $(call DECOMP_OBJ,$(DECOMP_GNAME))
 MENU_OBJS = build/ovl/menu_vectors.o $(call DECOMP_OBJ,$(DECOMP_MENU))
+SHOP_OBJS = build/ovl/shop_vectors.o $(call DECOMP_OBJ,$(DECOMP_SHOP))
+GOLEM_OBJS = build/ovl/golem_vectors.o $(call DECOMP_OBJ,$(DECOMP_GOLEM))
+ZUKAN_OBJS = build/ovl/zukan_vectors.o $(call DECOMP_OBJ,$(DECOMP_ZUKAN)) build/overlays/zukan_run_dc.o
+GOVER_OBJS = build/ovl/gover_vectors.o $(call DECOMP_OBJ,$(DECOMP_GOVER))
+ADDHERO_OBJS = build/ovl/addhero_vectors.o $(call DECOMP_OBJ,$(DECOMP_ADDHERO))
+NIKI_OBJS = build/ovl/niki_vectors.o $(call DECOMP_OBJ,$(DECOMP_NIKI))
+CLOAD_OBJS = build/ovl/cload_vectors.o $(call DECOMP_OBJ,$(DECOMP_CLOAD))
+CARDA_OBJS = build/ovl/carda_vectors.o $(call DECOMP_OBJ,$(DECOMP_CARDA))
+GOSUB_OBJS = build/ovl/gosub_vectors.o $(call DECOMP_OBJ,$(DECOMP_GOSUB))
 WSEL_OBJS = build/ovl/wsel_vectors.o build/overlays/wsel_unit.o
 
 #----------------------
@@ -288,18 +316,18 @@ ifneq (,$(findstring LOM_PAD_SCRIPT,$(EXTRA_CFLAGS)))
 FIELD_OBJS += $(FIELD_TEST_OBJS)
 endif
 WMAP_OBJS = build/ovl/wmap_vectors.o $(call DECOMP_OBJ,$(DECOMP_WMAP)) build/ovl/wmap_function_tables.o build/overlays/wmap_controller_ports.o
-OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_OBJS) $(WMAP_OBJS) $(MENU_OBJS)
+OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_OBJS) $(WMAP_OBJS) $(MENU_OBJS) $(SHOP_OBJS) $(GOLEM_OBJS) $(ZUKAN_OBJS) $(GOSUB_OBJS) $(CARDA_OBJS) $(CLOAD_OBJS) $(NIKI_OBJS) $(ADDHERO_OBJS) $(GOVER_OBJS)
 
 #----------------------
 # | OVERLAY_NAMES / OVERLAY_GROUP_*
 # | Description: The linked overlays and each one's objects, for recipes that must judge every overlay against main alone, as its own link does.
 # | Author: suinevere
-# | Dependencies: CHECKPS_OBJS, TITLE_OBJS, GNAME_OBJS, WSEL_OBJS, FIELD_OBJS, WMAP_OBJS, MENU_OBJS
+# | Dependencies: CHECKPS_OBJS, TITLE_OBJS, GNAME_OBJS, WSEL_OBJS, FIELD_OBJS, WMAP_OBJS, MENU_OBJS, SHOP_OBJS, GOLEM_OBJS, ZUKAN_OBJS, GOVER_OBJS, ADDHERO_OBJS, NIKI_OBJS, CLOAD_OBJS, CARDA_OBJS, GOSUB_OBJS
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_NAMES = checkps title gname wsel field wmap menu
+OVERLAY_NAMES = checkps title gname wsel field wmap menu shop golem zukan gosub carda cload niki addhero gover
 OVERLAY_GROUP_checkps = $(CHECKPS_OBJS)
 OVERLAY_GROUP_title = $(TITLE_OBJS)
 OVERLAY_GROUP_gname = $(GNAME_OBJS)
@@ -307,6 +335,15 @@ OVERLAY_GROUP_wsel = $(WSEL_OBJS)
 OVERLAY_GROUP_field = $(FIELD_OBJS)
 OVERLAY_GROUP_wmap = $(WMAP_OBJS)
 OVERLAY_GROUP_menu = $(MENU_OBJS)
+OVERLAY_GROUP_shop = $(SHOP_OBJS)
+OVERLAY_GROUP_golem = $(GOLEM_OBJS)
+OVERLAY_GROUP_zukan = $(ZUKAN_OBJS)
+OVERLAY_GROUP_gover = $(GOVER_OBJS)
+OVERLAY_GROUP_addhero = $(ADDHERO_OBJS)
+OVERLAY_GROUP_niki = $(NIKI_OBJS)
+OVERLAY_GROUP_cload = $(CLOAD_OBJS)
+OVERLAY_GROUP_carda = $(CARDA_OBJS)
+OVERLAY_GROUP_gosub = $(GOSUB_OBJS)
 
 #----------------------
 # | OVERLAY_SYMBOLS / OVERLAY_CODE
@@ -317,8 +354,8 @@ OVERLAY_GROUP_menu = $(MENU_OBJS)
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_SYMBOLS = gen/checkps_symbols.ld gen/title_symbols.ld gen/gname_symbols.ld gen/wsel_symbols.ld gen/field_symbols.ld gen/wmap_symbols.ld gen/menu_symbols.ld
-OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/OVL05C.BIN $(OBJDIR)/ovl/OVL14C.BIN $(OBJDIR)/ovl/OVL02C.BIN $(OBJDIR)/ovl/OVL03C.BIN $(OBJDIR)/ovl/OVL06C.BIN
+OVERLAY_SYMBOLS = gen/checkps_symbols.ld gen/title_symbols.ld gen/gname_symbols.ld gen/wsel_symbols.ld gen/field_symbols.ld gen/wmap_symbols.ld gen/menu_symbols.ld gen/shop_symbols.ld gen/golem_symbols.ld gen/zukan_symbols.ld gen/gosub_symbols.ld gen/carda_symbols.ld gen/cload_symbols.ld gen/niki_symbols.ld gen/addhero_symbols.ld gen/gover_symbols.ld
+OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/OVL05C.BIN $(OBJDIR)/ovl/OVL14C.BIN $(OBJDIR)/ovl/OVL02C.BIN $(OBJDIR)/ovl/OVL03C.BIN $(OBJDIR)/ovl/OVL06C.BIN $(OBJDIR)/ovl/OVL07C.BIN $(OBJDIR)/ovl/OVL09C.BIN $(OBJDIR)/ovl/OVL08C.BIN $(OBJDIR)/ovl/OVL13C.BIN $(OBJDIR)/ovl/OVL12C.BIN $(OBJDIR)/ovl/OVL16C.BIN $(OBJDIR)/ovl/OVL17C.BIN $(OBJDIR)/ovl/OVL18C.BIN $(OBJDIR)/ovl/OVL10C.BIN
 
 #----------------------
 # | CFLAGS
@@ -484,6 +521,39 @@ build/decomp/overlays/field/ui/field_ring_selection.o: DECOMP_STD += -D_POSIX_C_
 $(call DECOMP_OBJ,$(DECOMP_MENU)): DECOMP_STD += -D_POSIX_C_SOURCE=200809L
 
 #----------------------
+# | GOVER objects
+# | Description: gover.c splits its frame pair into g_gover_frame_header and g_gover_frame_tail and relies on them being adjacent in source order; gcc otherwise emits globals reversed.
+# | Author: suinevere
+# | Dependencies: ../src/overlays/gover/gover.c
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(call DECOMP_OBJ,$(DECOMP_GOVER)): DECOMP_STD += -fno-common -fno-toplevel-reorder
+
+#----------------------
+# | GOSUB objects
+# | Description: gosub_internal.h defines helpers as GNU89 "extern inline" (inline-only, real copy elsewhere), which gnu11 reads as a second definition.
+# | Author: suinevere
+# | Dependencies: ../src/overlays/gosub/internal/gosub_internal.h
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(call DECOMP_OBJ,$(DECOMP_GOSUB)): DECOMP_STD += -fgnu89-inline
+
+#----------------------
+# | Secondary overlay objects
+# | Description: These secondary overlays pull in <strings.h> too, so they need MENU's legacy-bcopy fix.
+# | Author: suinevere
+# | Dependencies: ../src/overlays/golem/golem.c, ../port/psyq/lom_prefix.h
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(call DECOMP_OBJ,$(DECOMP_GOLEM)) $(call DECOMP_OBJ,$(DECOMP_ZUKAN)) $(call DECOMP_OBJ,$(DECOMP_GOSUB)) $(call DECOMP_OBJ,$(DECOMP_CARDA)) $(call DECOMP_OBJ,$(DECOMP_CLOAD)) $(call DECOMP_OBJ,$(DECOMP_NIKI)) $(call DECOMP_OBJ,$(DECOMP_ADDHERO)) $(call DECOMP_OBJ,$(DECOMP_GOVER)): DECOMP_STD += -D_POSIX_C_SOURCE=200809L
+
+#----------------------
 # | build/decomp/overlays/field/actors/field_actor_hud_effects.o
 # | Description: field_actor_hud_effects.c declares its own bcopy prototype, clashing with lom_prefix.h's Psy-Q one. LOM_SKIP_PREFIX_BCOPY hides lom_prefix.h's so only the file's own applies, still resolving to port/stubs/main_stubs.c at link time.
 # | Author: suinevere
@@ -609,7 +679,7 @@ $(OBJDIR)/ovl/overlay_externs.ld: $(OVERLAY_OBJS) $(OVERLAY_SYMBOLS)
 
 #----------------------
 # | $(OBJDIR)/ovl/OVL15C.BIN / $(OBJDIR)/ovl/OVL04C.BIN / $(OBJDIR)/ovl/OVL02C.BIN / $(OBJDIR)/ovl/OVL05C.BIN / $(OBJDIR)/ovl/OVL14C.BIN / $(OBJDIR)/ovl/OVL03C.BIN
-# | Description: Links CHECKPS, TITLE, FIELD, GNAME, WSEL, WMAP and MENU at their arena code regions against $(TARGET), per-OBJDIR since lom.elf and lom_test.elf differ.
+# | Description: Links CHECKPS, TITLE, FIELD, GNAME, WSEL, WMAP, MENU, SHOP, GOLEM and ZUKAN at their arena code regions against $(TARGET), per-OBJDIR since lom.elf and lom_test.elf differ.
 # |              GNAME links after FIELD and also against FIELD's own elf (--links field), as saturn/makefile's OVERLAY_LINKS_gname = field does.
 # | Author: suinevere
 # | Dependencies: ../port/tools/overlay_link.py, gen/checkps.ld, gen/title.ld, gen/field.ld, gen/gname.ld, gen/wsel.ld, gen/wmap.ld
@@ -644,6 +714,42 @@ $(OBJDIR)/ovl/OVL03C.BIN: $(TARGET) $(WMAP_OBJS) gen/wmap.ld gen/wmap_pending.ld
 $(OBJDIR)/ovl/OVL06C.BIN: $(TARGET) $(MENU_OBJS) gen/menu.ld gen/menu_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
 	@mkdir -p $(dir $@)
 	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link menu $(TARGET) $(OBJDIR)/ovl $@ $(MENU_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL07C.BIN: $(TARGET) $(SHOP_OBJS) gen/shop.ld gen/shop_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link shop $(TARGET) $(OBJDIR)/ovl $@ $(SHOP_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL09C.BIN: $(TARGET) $(GOLEM_OBJS) gen/golem.ld gen/golem_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link golem $(TARGET) $(OBJDIR)/ovl $@ $(GOLEM_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL08C.BIN: $(TARGET) $(ZUKAN_OBJS) gen/zukan.ld gen/zukan_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link zukan $(TARGET) $(OBJDIR)/ovl $@ $(ZUKAN_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL10C.BIN: $(TARGET) $(GOVER_OBJS) gen/gover.ld gen/gover_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link gover $(TARGET) $(OBJDIR)/ovl $@ $(GOVER_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL18C.BIN: $(TARGET) $(ADDHERO_OBJS) gen/addhero.ld gen/addhero_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link addhero $(TARGET) $(OBJDIR)/ovl $@ $(ADDHERO_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL17C.BIN: $(TARGET) $(NIKI_OBJS) gen/niki.ld gen/niki_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link niki $(TARGET) $(OBJDIR)/ovl $@ $(NIKI_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL16C.BIN: $(TARGET) $(CLOAD_OBJS) gen/cload.ld gen/cload_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link cload $(TARGET) $(OBJDIR)/ovl $@ $(CLOAD_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL12C.BIN: $(TARGET) $(CARDA_OBJS) gen/carda.ld gen/carda_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link carda $(TARGET) $(OBJDIR)/ovl $@ $(CARDA_OBJS) --links field
+
+$(OBJDIR)/ovl/OVL13C.BIN: $(TARGET) $(GOSUB_OBJS) gen/gosub.ld gen/gosub_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link gosub $(TARGET) $(OBJDIR)/ovl $@ $(GOSUB_OBJS) --links field
 
 #----------------------
 # | $(OBJDIR)/cd-data/.stamp
@@ -726,8 +832,8 @@ PENDING_DEFINED = $(KOS_LIBKALLISTI) $(KOS_CDROM_PATCH_OBJS) $(TOOLCHAIN_LIBS) d
 
 #----------------------
 # | pending
-# | Description: Compiles main, CHECKPS, TITLE, FIELD, GNAME, WSEL, WMAP and MENU, then regenerates gen/dc_pending.c (halting stubs), gen/dc_pending.ld (data aliases) and each overlay's gen/<overlay>_pending.ld (its unnamed own data).
-# |              Each overlay links against main alone, so main's and every overlay's references count only what that link defines, except GNAME's and MENU's groups also resolve against FIELD's own objects (--group-links gname:field menu:field), matching their real --links field; overlays share PS1 addresses.
+# | Description: Compiles main, CHECKPS, TITLE, FIELD, GNAME, WSEL, WMAP and the secondary overlays, then regenerates gen/dc_pending.c (halting stubs), gen/dc_pending.ld (data aliases) and each overlay's gen/<overlay>_pending.ld (its unnamed own data).
+# |              Each overlay links against main alone, so main's and every overlay's references count only what that link defines, except every secondary overlay's group also resolves against FIELD's own objects (--group-links <name>:field), matching their real --links field; overlays share PS1 addresses.
 # | Author: suinevere
 # | Dependencies: ../port/tools/gen_pending.py, sh-elf-nm, ../config/us/symbols/*.txt, PENDING_DEFINED, OVERLAY_SYMBOLS
 # | Globals: N/A
@@ -738,7 +844,7 @@ pending: $(PRE_BUILD_STAMP) $(MAIN_OBJS) $(OVERLAY_OBJS) $(KOS_CDROM_PATCH_OBJS)
 	$(PYTHON) ../port/tools/gen_pending.py --nm sh-elf-nm --overlay dreamcast \
 		--objects $(MAIN_OBJS) \
 		$(foreach o,$(OVERLAY_NAMES),--overlay-group $(OVERLAY_GROUP_$(o)) gen/$(o)_symbols.ld) \
-		--group-links gname:field menu:field \
+		--group-links gname:field menu:field shop:field golem:field zukan:field gosub:field carda:field cload:field niki:field addhero:field gover:field \
 		--symbols $(wildcard ../config/us/symbols/*.txt) \
 		--defined $(PENDING_DEFINED) --alias-defined gen/overlay_entries.ld \
 		--out-c gen/dc_pending.c --out-ld gen/dc_pending.ld --group-out-dir gen

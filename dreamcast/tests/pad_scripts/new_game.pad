@@ -2,6 +2,16 @@
 wait state 2
 wait 600
 capture title
+press DOWN 6
+wait 30
+press CROSS 6
+wait state 7
+wait 240
+capture overlay-cload
+mash CIRCLE 30 state 2
+wait 600
+press UP 6
+wait 30
 press CROSS 6
 wait 240
 capture gname-select-character
@@ -51,6 +61,41 @@ wait 240
 press DOWN 120
 press LEFT 120
 capture field-home
+open shop
+wait 120
+capture overlay-shop
+mash CIRCLE 20 marker field modal 0
+wait 60
+open golem
+wait 180
+capture overlay-golem
+mash START 20 marker field open 0
+wait 60
+open zukan
+wait 180
+capture overlay-zukan
+mash START 20 marker field open 0
+wait 60
+open gosub
+wait 180
+capture overlay-gosub
+mash CIRCLE 20 marker field modal 0
+wait 60
+open carda
+wait 180
+capture overlay-carda
+mash CIRCLE 20 marker field modal 0
+wait 60
+open niki
+wait 180
+capture overlay-niki
+mash CIRCLE 20 marker field modal 0
+wait 60
+open addhero
+wait 180
+capture overlay-addhero
+mash CIRCLE 20 marker field modal 0
+wait 60
 scene 71 0
 mash CROSS 40 marker field scene 71
 wait 300
@@ -61,3 +106,10 @@ capture field-battle
 mash CROSS 20 marker field battle 0
 wait 120
 capture field-battle-end
+gameover
+mash SELECT 3000 marker field gover 1
+wait 300
+capture overlay-gover
+mash CROSS 30 state 1
+wait 120
+capture gover-return
