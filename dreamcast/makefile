@@ -485,6 +485,17 @@ $(OBJDIR)/port/psyq/gte_saturn.o: DECOMP_STD += -std=c11
 $(OBJDIR)/cd/cdrom_dc.o: DECOMP_STD += -std=c11
 
 #----------------------
+# | build/card/card_vmu.o / build/card/card_store_kos.o
+# | Description: Strict C11 for the card backend's <string.h>, for the same bcopy clash as cdrom_dc.o.
+# | Author: suinevere
+# | Dependencies: src/card/card_vmu.c, src/card/card_store_kos.c, ../port/psyq/lom_prefix.h
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/card/card_vmu.o $(OBJDIR)/card/card_store_kos.o: DECOMP_STD += -std=c11
+
+#----------------------
 # | build/decomp/overlays/checkps/kanji.o
 # | Description: kanji.c includes <strings.h> directly, so -std=c11 cannot hide its legacy bcopy the way it does for <string.h> callers (newlib still shows bcopy when __POSIX_VISIBLE is unset); raising _POSIX_C_SOURCE past 200112 hides it instead, clashing with lom_prefix.h's Psy-Q bcopy.
 # | Author: suinevere
@@ -792,20 +803,37 @@ $(CDI): $(TARGET) $(OBJDIR)/cd-data/.stamp
 #----------------------
 clean:
 	rm -rf build build-test
-	rm -f lom.elf lom.cdi lom_test.elf lom_test.cdi cd/data/OVL/OVL*C.BIN
+	rm -f lom.elf lom.cdi lom_test.elf lom_test.cdi $(PADSEL_IMAGES) cd/data/OVL/OVL*C.BIN
 
 #----------------------
 # | gen/pad_script_table.h
-# | Description: Compiles tests/pad_scripts/new_game.pad into the pad_script_steps[] table test-image's pad_dc.o includes under LOM_PAD_SCRIPT.
+# | Description: Compiles every tests/pad_scripts/*.pad, new_game.pad first, into the pad_script_scripts[] table test-image's pad_dc.o includes under LOM_PAD_SCRIPT.
 # | Author: suinevere
-# | Dependencies: tools/gen_pad_script.py, tests/pad_scripts/new_game.pad
+# | Dependencies: tools/gen_pad_script.py, PAD_SCRIPTS
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-gen/pad_script_table.h: tests/pad_scripts/new_game.pad tools/gen_pad_script.py
+PAD_SCRIPTS = tests/pad_scripts/new_game.pad $(filter-out tests/pad_scripts/new_game.pad,$(sort $(wildcard tests/pad_scripts/*.pad)))
+gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 	@mkdir -p $(dir $@)
-	$(PYTHON) tools/gen_pad_script.py tests/pad_scripts/new_game.pad $@
+	$(PYTHON) tools/gen_pad_script.py $(PAD_SCRIPTS) $@
+
+#----------------------
+# | PADSEL_IMAGES / lom_<script>_test.cdi
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: lom_card_save_test.cdi and lom_card_load_test.cdi.
+# | Author: suinevere
+# | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+PADSEL_SCRIPTS = card_save card_load
+PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
+lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
+	@mkdir -p build-test/padsel/$*
+	printf '%s\n' $* > build-test/padsel/$*/PADSEL.TXT
+	mkdcdisc -e lom_test.elf -o $@ -D build-test/cd-data -f build-test/padsel/$*/PADSEL.TXT -n "Legend of Mana" -N --allow-overwrite
 
 #----------------------
 # | test-image
@@ -818,6 +846,7 @@ gen/pad_script_table.h: tests/pad_scripts/new_game.pad tools/gen_pad_script.py
 #----------------------
 test-image: gen/pad_script_table.h
 	$(MAKE) OBJDIR=build-test TARGET=lom_test.elf CDI=lom_test.cdi EXTRA_CFLAGS=-DLOM_PAD_SCRIPT all
+	$(MAKE) $(PADSEL_IMAGES)
 
 #----------------------
 # | PENDING_DEFINED

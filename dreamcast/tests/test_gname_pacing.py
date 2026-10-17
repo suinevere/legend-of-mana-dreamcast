@@ -28,7 +28,7 @@ def test_gname_runs_at_two_vblanks():
     if flycast_run.find_flycast() is None:
         pytest.skip("no flycast")
     image = stale_image.require_fresh_test_image(DC)
-    code, lines = flycast_run.run_flycast(image, seconds=240, until="LOM: capture gname-name-entry")
+    code, lines = flycast_run.run_flycast(image, seconds=240, until="LOM: capture gname-name-entry", no_vmu=True)
     assert code == 0, "\n".join(lines[-60:])
     in_gname = False
     rates = []

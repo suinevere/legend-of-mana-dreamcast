@@ -192,3 +192,19 @@ def test_entries_ld_defines_each_exported_name_once():
     names = [l.split(" = ")[0] for l in lines]
     assert len(names) == len(set(names))
     assert "_func_80140004 = 0x8CB00000;" in lines
+
+
+def test_dreamcast_scripts_route_card_file_calls_to_the_vmu_backend():
+    files = files_in(run("--target", "dreamcast", "--dry-run"))
+    for name in targets.DREAMCAST.regions:
+        script = files["%s.ld" % name]
+        for call in ("open", "read", "write", "close", "rename"):
+            assert "_%s = _lom_card_%s;" % (call, call) in script
+
+
+def test_dreamcast_link_strips_main_copies_of_the_aliased_card_calls():
+    nm = "8c010000 T _carda_init\n         U _open\n"
+    names = overlay_link.dc_strip_names(nm)
+    assert "_carda_init" in names
+    for call in ("open", "read", "write", "close", "rename"):
+        assert "_%s" % call in names

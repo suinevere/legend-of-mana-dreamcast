@@ -1,0 +1,34 @@
+# Load path for test_card_vmu.py: the title's Continue into CLOAD loading the first VMU save into Home, then CARDA's New Save row below the loaded save (a second file, or Not enough Blocks on a full VMU).
+wait state 2
+wait 600
+press DOWN 6
+wait 30
+press CROSS 6
+wait state 7
+wait 240
+capture cload-list
+press CROSS 6
+wait 60
+capture cload-prompt
+press LEFT 6
+wait 30
+capture cload-prompt-yes
+press CROSS 6
+wait 600
+capture cload-after
+mash CROSS 40 marker field scene
+wait 300
+capture cload-loaded-field
+open carda
+wait 180
+capture carda-second-list
+press DOWN 6
+wait 30
+press CROSS 6
+wait 60
+press LEFT 6
+wait 30
+capture carda-second-prompt
+press CROSS 6
+wait 900
+capture carda-second-saved

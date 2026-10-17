@@ -53,6 +53,21 @@ DOCKER_IMAGE = "lom-flycast"
 EMU_CFG = "[config]\nDebug.SerialConsoleEnabled = yes\n"
 
 #----------------------
+# | EMU_CFG_VMU / EMU_CFG_NO_VMU / VMU_FILE / MAPLE_NONE
+# | Description: Settings appended to every run: one VMU in port A slot 1 under a fixed file name (PerGameVmu off) and nothing in slot 2, or with no_vmu nothing in either slot.
+# |              Flycast v2.7 names the slot-1 card vmu_save_A1.bin under XDG_DATA_HOME/flycast; maple device type 10 is "none" (checked against KallistiOS's attached-device log).
+# | Author: suinevere
+# | Dependencies: Flycast v2.7 [config] PerGameVmu, [input] device1.1 / device1.2
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+MAPLE_NONE = 10
+VMU_FILE = "vmu_save_A1.bin"
+EMU_CFG_VMU = "PerGameVmu = no\n\n[input]\ndevice1.2 = %d\n" % MAPLE_NONE
+EMU_CFG_NO_VMU = "PerGameVmu = no\n\n[input]\ndevice1.1 = %d\ndevice1.2 = %d\n" % (MAPLE_NONE, MAPLE_NONE)
+
+#----------------------
 # | EMU_CFG_CAPTURE
 # | Description: Flycast settings used while capturing: SerialConsoleEnabled, plus a fullscreen 640x480 SDL window that fills the fixed-size Xvfb screen exactly.
 # |              Flycast v2.7 core/sdl/sdl.cpp reads [window] width/height/fullscreen via config::loadInt/loadBool.
@@ -63,8 +78,8 @@ EMU_CFG = "[config]\nDebug.SerialConsoleEnabled = yes\n"
 # | Returns: N/A
 #----------------------
 EMU_CFG_CAPTURE = (
-    "[config]\nDebug.SerialConsoleEnabled = yes\n"
     "\n[window]\nwidth = 640\nheight = 480\nfullscreen = yes\nmaximized = no\n"
+    "\n[config]\nDebug.SerialConsoleEnabled = yes\n"
 )
 
 #----------------------
@@ -169,19 +184,24 @@ def _grab_capture(container, cap_name, cap_dir, captures):
 # | Author: suinevere
 # | Dependencies: find_flycast, _pump, _grab_capture, docker
 # | Globals: DOCKER_IMAGE, EMU_CFG, EMU_CFG_CAPTURE, HALT_MARKER, CAPTURE_PREFIX, CAPTURE_DISPLAY
-# | Params: image -- path to a .cdi/.gdi, seconds -- time limit, until -- text to wait for or None, captures -- directory to save "<name>.png" grabs into, or None for a plain boot check
+# | Params: image -- path to a .cdi/.gdi, seconds -- time limit, until -- text to wait for or None, captures -- directory to save "<name>.png" grabs into, or None for a plain boot check,
+# |         vmu_in -- VMU image bytes to start with (Flycast formats a blank one otherwise), vmu_out -- path to copy the VMU image to afterwards, no_vmu -- run with no VMU attached
 # | Returns: (exit_code, lines) -- 0 found or plain timeout, 2 halt, 3 timeout waiting for until
 #----------------------
-def run_flycast(image, seconds, until, captures=None):
+def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None, no_vmu=False):
     image = os.path.abspath(image)
     job = tempfile.mkdtemp(prefix="lom-flycast-")
     os.makedirs(os.path.join(job, "config", "flycast"))
     os.makedirs(os.path.join(job, "data", "flycast"))
+    vmu_path = os.path.join(job, "data", "flycast", VMU_FILE)
+    if vmu_in is not None:
+        with open(vmu_path, "wb") as f:
+            f.write(vmu_in)
     cap_dir = None
     if captures is not None:
         cap_dir = os.path.join(job, "cap")
         os.makedirs(cap_dir)
-    cfg = EMU_CFG_CAPTURE if captures is not None else EMU_CFG
+    cfg = (EMU_CFG_CAPTURE if captures is not None else EMU_CFG) + (EMU_CFG_NO_VMU if no_vmu else EMU_CFG_VMU)
     with open(os.path.join(job, "config", "flycast", "emu.cfg"), "w", newline="\n") as f:
         f.write(cfg)
     name = "lom-flycast-" + uuid.uuid4().hex[:12]
@@ -226,6 +246,8 @@ def run_flycast(image, seconds, until, captures=None):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+        if vmu_out is not None and os.path.exists(vmu_path):
+            shutil.copy(vmu_path, vmu_out)
         shutil.rmtree(job, ignore_errors=True)
     return code, lines
 

@@ -263,29 +263,35 @@ def parse_script(text):
 
 #----------------------
 # | render_header
-# | Description: Renders parsed steps as a C header defining pad_script_steps[] and pad_script_step_count.
+# | Description: Renders parsed scripts as a C header: one pad_script_steps_<name>[] per script and pad_script_scripts[] naming them, first script first.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
-# | Params: steps -- list of step dicts from parse_script
+# | Params: scripts -- list of (name, steps) with steps from parse_script
 # | Returns: header text
 #----------------------
-def render_header(steps):
+def render_header(scripts):
     lines = [
         "#ifndef LOM_PAD_SCRIPT_TABLE_H",
         "#define LOM_PAD_SCRIPT_TABLE_H",
         "",
         '#include "pad_script.h"',
         "",
-        "static const PadScriptStep pad_script_steps[] = {",
     ]
-    for step in steps:
-        buttons = " | ".join(step["buttons_macros"]) if step["buttons_macros"] else "0"
-        stop_state = step.get("stop_state", 0)
-        lines.append("    { %s, %d, %s, \"%s\", %d }," % (step["op"], step["arg"], buttons, step["name"], stop_state))
+    for name, steps in scripts:
+        lines.append("static const PadScriptStep pad_script_steps_%s[] = {" % name)
+        for step in steps:
+            buttons = " | ".join(step["buttons_macros"]) if step["buttons_macros"] else "0"
+            stop_state = step.get("stop_state", 0)
+            lines.append("    { %s, %d, %s, \"%s\", %d }," % (step["op"], step["arg"], buttons, step["name"], stop_state))
+        lines.append("};")
+        lines.append("")
+    lines.append("static const PadScriptChoice pad_script_scripts[] = {")
+    for name, steps in scripts:
+        lines.append('    { "%s", pad_script_steps_%s, %d },' % (name, name, len(steps)))
     lines.append("};")
     lines.append("")
-    lines.append("static const unsigned pad_script_step_count = %d;" % len(steps))
+    lines.append("static const unsigned pad_script_script_count = %d;" % len(scripts))
     lines.append("")
     lines.append("#endif")
     lines.append("")
@@ -294,7 +300,7 @@ def render_header(steps):
 
 #----------------------
 # | main
-# | Description: Command-line entry: reads argv[1], writes argv[2]'s compiled header.
+# | Description: Command-line entry: compiles every <in.pad> argument, named by its file stem, into the last argument's header.
 # | Author: suinevere
 # | Dependencies: parse_script, render_header, ScriptError
 # | Globals: N/A
@@ -302,24 +308,25 @@ def render_header(steps):
 # | Returns: 0 on success, 1 on a bad verb or button (message on stderr), 2 on bad usage
 #----------------------
 def main(argv):
-    if len(argv) != 2:
-        print("usage: gen_pad_script.py <in.pad> <out.h>", file=sys.stderr)
+    if len(argv) < 2:
+        print("usage: gen_pad_script.py <in.pad>... <out.h>", file=sys.stderr)
         return 2
-    in_path, out_path = argv
-    with open(in_path, "r") as f:
-        text = f.read()
-    try:
-        steps = parse_script(text)
-    except ScriptError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+    in_paths, out_path = argv[:-1], argv[-1]
+    scripts = []
+    for in_path in in_paths:
+        with open(in_path, "r") as f:
+            text = f.read()
+        try:
+            scripts.append((os.path.splitext(os.path.basename(in_path))[0], parse_script(text)))
+        except ScriptError as exc:
+            print("%s: %s" % (in_path, exc), file=sys.stderr)
+            return 1
     out_dir = os.path.dirname(out_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     with open(out_path, "w", newline="\n") as f:
-        f.write(render_header(steps))
+        f.write(render_header(scripts))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

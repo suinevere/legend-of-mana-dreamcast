@@ -1,0 +1,76 @@
+# Save path for test_card_vmu.py: new_game's route to Home, then CARDA's New Save in slot 1.
+# CARDA's Save? prompt defaults to No on the US build, so LEFT moves to Yes before CROSS confirms.
+wait state 2
+wait 600
+capture title
+press DOWN 6
+wait 30
+press CROSS 6
+wait state 7
+wait 240
+capture overlay-cload
+mash CIRCLE 30 state 2
+wait 600
+press UP 6
+wait 30
+press CROSS 6
+wait 240
+capture gname-select-character
+press CROSS 6
+wait 180
+capture gname-select-weapon
+press CROSS 6
+wait state 3
+wait 300
+capture gname-name-entry
+press CROSS 6
+wait state 5
+wait 180
+capture wsel-room
+press CROSS 6
+wait 120
+capture wsel-prompt
+press CROSS 6
+wait 120
+capture wsel-cursor
+press CROSS 6
+wait 120
+capture wsel-cursor-confirmed
+mash CROSS 40 state 1
+wait 10
+capture wmap-loading
+wait 215
+capture wmap-mailbox
+wait 45
+capture wmap-mailbox-carried
+wait 180
+capture wmap-place-mailbox-prompt
+press CROSS 6
+wait 30
+press CROSS 6
+wait 300
+capture wmap-land-flash
+wait 150
+capture wmap-home-rising
+wait 120
+capture wmap-home-dark
+wait 140
+capture wmap-board-home
+mash CROSS 40 marker field scene 857
+mash CROSS 40 marker field map 18
+wait 240
+press DOWN 120
+press LEFT 120
+capture field-home
+open carda
+wait 180
+capture carda-list
+press CROSS 6
+wait 60
+capture carda-prompt
+press LEFT 6
+wait 30
+capture carda-prompt-yes
+press CROSS 6
+wait 900
+capture carda-saved

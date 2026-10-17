@@ -26,9 +26,51 @@ def test_dreamcast_render_halts_with_pending_and_the_name():
     assert "_g_x = _lom_trap_buffer;\n" in ld_text
 
 
+def dc_field_address(addr):
+    spec = gp.overlay_rules.target_spec(gp.overlay_rules.OVERLAYS[2], gp.targets.DREAMCAST)
+    return gp.targets.DREAMCAST.regions["field"].data_base + gp.overlay_rules.packed_offset(addr, spec)
+
+
 def test_dreamcast_never_maps_into_a_saturn_slot():
     assert gp.resolve_aliases(["g_y"], ["g_y = 0x800CBF84;"], set(), gp.OVERLAY_SLOTS["dreamcast"],
                               None, gp.OVERLAY_BUFFER_RANGES["dreamcast"]) == {}
+
+
+def test_field_slots_map_field_data_into_fields_dreamcast_region():
+    lines = ["g_text_choice_glyph_offsets = 0x800EC3FA;", "g_lom_save_filename_prefix = 0x800ECF7C;"]
+    aliases = gp.resolve_aliases(["g_text_choice_glyph_offsets", "g_lom_save_filename_prefix", "D_800ECF9C"], lines, set(),
+                                 gp.DREAMCAST_FIELD_SLOTS, None, gp.OVERLAY_BUFFER_RANGES["dreamcast"])
+    assert aliases == {"g_text_choice_glyph_offsets": "0x%08X" % dc_field_address(0x800EC3FA),
+                       "g_lom_save_filename_prefix": "0x%08X" % dc_field_address(0x800ECF7C),
+                       "D_800ECF9C": "0x%08X" % dc_field_address(0x800ECF9C)}
+    assert aliases["D_800ECF9C"] != "0x%08X" % gp.slot_address(0x800ECF9C)
+
+
+def test_field_slots_leave_names_outside_fields_data_unresolved():
+    assert gp.resolve_aliases(["g_marker"], ["g_marker = 0x80051428;"], set(), gp.DREAMCAST_FIELD_SLOTS,
+                              None, gp.OVERLAY_BUFFER_RANGES["dreamcast"]) == {}
+
+
+def test_a_secondary_linked_to_field_reads_fields_text_tables_through_field(monkeypatch, tmp_path):
+    nm = {"main.o": [], "field.o": ["8c470000 D _g_field_pixel_lookup_tables"],
+          "carda.o": ["         U _g_text_choice_glyph_offsets"], "gname.o": ["         U _g_frame"]}
+    monkeypatch.setattr(gp, "run_nm", lambda tool, objects: [line for o in objects for line in nm[os.path.basename(o)]])
+    monkeypatch.setattr(gp, "code_range", lambda path: (0x80010000, 0x80020000))
+    symbols = tmp_path / "s.txt"
+    symbols.write_text("g_text_choice_glyph_offsets = 0x800EC3FA;\ng_frame = 0x800D1000;\n")
+    for name in ("field", "carda", "gname"):
+        (tmp_path / ("%s_symbols.ld" % name)).write_text("_g_field_pixel_lookup_tables = 0x8C470000;\n" if name == "field" else "")
+    out_c, out_ld = tmp_path / "p.c", tmp_path / "p.ld"
+    groups = []
+    for name in ("field", "carda", "gname"):
+        groups += ["--overlay-group", str(tmp_path / ("%s.o" % name)), str(tmp_path / ("%s_symbols.ld" % name))]
+    assert gp.main(["--overlay", "dreamcast", "--objects", str(tmp_path / "main.o"), "--symbols", str(symbols),
+                    "--out-c", str(out_c), "--out-ld", str(out_ld), "--yamls", "x.yaml", "--group-out-dir", str(tmp_path)]
+                   + groups + ["--group-links", "carda:field"]) == 0
+    field_ld = (tmp_path / "field_pending.ld").read_text()
+    assert "_g_text_choice_glyph_offsets = 0x%08X;" % dc_field_address(0x800EC3FA) in field_ld
+    assert "g_text_choice_glyph_offsets" not in out_ld.read_text()
+    assert "_g_frame = _lom_trap_buffer;" in out_ld.read_text()
 
 
 def test_dreamcast_sound_bank_range_covers_the_ps1_bank():

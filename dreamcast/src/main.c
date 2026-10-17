@@ -15,6 +15,7 @@
 #include "overlay_loader_dc.h"
 #include "libgpu_dc.h"
 #include "state_report_dc.h"
+#include "card_store_kos.h"
 
 #ifdef LOM_PAD_SCRIPT
 #include "watch.h"
@@ -45,7 +46,7 @@ void (*g_dc_field_gameover)(void) = NULL;
  | main
  | Description: Initialises the Dreamcast platform and runs main_game_loop, which never returns on the PS1.
  | Author: suinevere
- | Dependencies: dc_system_init, pvr_submit_init, dc_exception_install, vblank_dc_install, overlay_loader_init, dc_set_vsync_hook, state_report_poll, dc_log, main_game_loop, dc_halt
+ | Dependencies: dc_system_init, pvr_submit_init, dc_exception_install, vblank_dc_install, overlay_loader_init, card_store_kos_init, dc_set_vsync_hook, state_report_poll, dc_log, main_game_loop, dc_halt
  | Globals: N/A
  | Params: N/A
  | Returns: never
@@ -57,6 +58,7 @@ int main(void)
     dc_exception_install();
     vblank_dc_install();
     overlay_loader_init();
+    card_store_kos_init();
     dc_set_vsync_hook(state_report_poll);
     dc_log("boot");
     main_game_loop();

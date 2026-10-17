@@ -67,6 +67,17 @@ SLOT_OVERLAYS = (2, 5)
 OVERLAY_SLOTS = {"field": SLOT_OVERLAYS, "wmap": (3,), "dreamcast": ()}
 
 #----------------------
+# | DREAMCAST_FIELD_SLOTS
+# | Description: Where a Dreamcast overlay linked against FIELD resolves names inside FIELD's packed data: FIELD's own Dreamcast data region, resident whenever such an overlay runs.
+# | Author: suinevere
+# | Dependencies: slot_address
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DREAMCAST_FIELD_SLOTS = (("dreamcast", 2),)
+
+#----------------------
 # | OVERLAY_LABELS
 # | Description: Per --overlay run, the output file stem and the overlay names its generated headers and halt messages use.
 # | Author: suinevere
@@ -81,15 +92,21 @@ OVERLAY_LABELS = {"field": ("field", "FIELD and GNAME", "FIELD"), "wmap": ("wmap
 
 #----------------------
 # | slot_address
-# | Description: Maps a PS1 address inside a slot overlay's packed ranges to its Saturn slot address, exactly as the converter packs it.
+# | Description: Maps a PS1 address inside a slot overlay's packed ranges to its Saturn slot address, or for a ("dreamcast", key) entry to that overlay's Dreamcast data region, exactly as the converter packs it.
 # | Author: suinevere
-# | Dependencies: overlay_rules.packed_offset, overlay_rules.OVERLAYS, overlay_rules.SLOT_BASE
+# | Dependencies: overlay_rules.packed_offset, overlay_rules.target_spec, overlay_rules.OVERLAYS, overlay_rules.SLOT_BASE, targets.DREAMCAST
 # | Globals: SLOT_OVERLAYS
-# | Params: addr -- PS1 address, overlays -- overlay_rules.OVERLAYS keys to search
-# | Returns: Saturn slot address, or None outside every packed range
+# | Params: addr -- PS1 address, overlays -- overlay_rules.OVERLAYS keys or ("dreamcast", key) pairs to search
+# | Returns: slot or region address, or None outside every packed range
 #----------------------
 def slot_address(addr, overlays=SLOT_OVERLAYS):
     for overlay in overlays:
+        if isinstance(overlay, tuple):
+            spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[overlay[1]], targets.DREAMCAST)
+            offset = overlay_rules.packed_offset(addr, spec)
+            if offset is not None:
+                return targets.DREAMCAST.regions[spec.name].data_base + offset
+            continue
         spec = overlay_rules.OVERLAYS[overlay]
         offset = overlay_rules.packed_offset(addr, spec)
         if offset is not None:
@@ -836,8 +853,8 @@ def main(argv=None):
             dep_defined = group_defined_by_overlay.get(dep)
             if not dep_defined:
                 continue
-            found = resolve_aliases(remaining, symbol_lines, dep_defined, OVERLAY_SLOTS[args.overlay], None,
-                                    OVERLAY_BUFFER_RANGES[args.overlay])
+            slots = DREAMCAST_FIELD_SLOTS if args.overlay == "dreamcast" and dep == "field" else OVERLAY_SLOTS[args.overlay]
+            found = resolve_aliases(remaining, symbol_lines, dep_defined, slots, None, OVERLAY_BUFFER_RANGES[args.overlay])
             if found:
                 dependency_aliases_by_overlay.setdefault(dep, {}).update(found)
                 consumed_by_dependent.setdefault(dependent, set()).update(found)

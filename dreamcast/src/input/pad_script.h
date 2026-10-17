@@ -284,6 +284,22 @@ typedef struct
 } PadScriptStep;
 
 /*----------------------
+ | PadScriptChoice
+ | Description: One compiled-in pad script: the name a disc's PADSEL.TXT picks it by, and its steps.
+ | Author: suinevere
+ | Dependencies: PadScriptStep
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct
+{
+    const char *name;
+    const PadScriptStep *steps;
+    unsigned count;
+} PadScriptChoice;
+
+/*----------------------
  | pad_script_start
  | Description: Resets the interpreter to run steps from the beginning.
  | Author: suinevere

@@ -142,3 +142,25 @@ def test_gen_pad_script_gameover_compiles_to_its_op():
     with open(header_path) as f:
         header = f.read()
     assert '{ PAD_OP_GAMEOVER, 0, 0, "", 0 },' in header
+
+
+def test_gen_pad_script_tables_every_script_by_name():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    first = os.path.join(out_dir, "new_game.pad")
+    second = os.path.join(out_dir, "card_save.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(first, "w") as f:
+        f.write("wait 1" + chr(10))
+    with open(second, "w") as f:
+        f.write("wait 2" + chr(10) + "open carda" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), first, second, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert "static const PadScriptStep pad_script_steps_new_game[] = {" in header
+    assert "static const PadScriptStep pad_script_steps_card_save[] = {" in header
+    assert "static const PadScriptChoice pad_script_scripts[] = {" in header
+    assert '    { "new_game", pad_script_steps_new_game, 1 },' in header
+    assert '    { "card_save", pad_script_steps_card_save, 2 },' in header
+    assert "static const unsigned pad_script_script_count = 2;" in header

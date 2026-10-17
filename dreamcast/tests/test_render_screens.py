@@ -46,7 +46,7 @@ def captures():
     image = stale_image.require_fresh_test_image(DC)
     out = tempfile.mkdtemp(prefix="lom-render-")
     last = list(SCREENS)[-1]
-    code, lines = flycast_run.run_flycast(image, seconds=480, until="LOM: capture " + last, captures=out)
+    code, lines = flycast_run.run_flycast(image, seconds=480, until="LOM: capture " + last, captures=out, no_vmu=True)
     assert code == 0, "\n".join(lines[-60:])
     return out, lines
 

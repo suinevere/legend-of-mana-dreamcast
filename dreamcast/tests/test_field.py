@@ -35,7 +35,7 @@ def field_run():
     if flycast_run.find_flycast() is None:
         pytest.skip("no flycast")
     image = stale_image.require_fresh_test_image(DC)
-    return flycast_run.run_flycast(image, seconds=1500, until="LOM: capture gover-return")
+    return flycast_run.run_flycast(image, seconds=1500, until="LOM: capture gover-return", no_vmu=True)
 
 
 def test_field_loads_scene_857_from_wmap(field_run):
