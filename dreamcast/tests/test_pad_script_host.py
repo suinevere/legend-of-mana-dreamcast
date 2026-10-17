@@ -164,3 +164,93 @@ def test_gen_pad_script_tables_every_script_by_name():
     assert '    { "new_game", pad_script_steps_new_game, 1 },' in header
     assert '    { "card_save", pad_script_steps_card_save, 2 },' in header
     assert "static const unsigned pad_script_script_count = 2;" in header
+
+
+def test_gen_pad_script_tone_compiles_to_its_op():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "tone.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("tone 1000 3" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_TONE, 1000, 0, "", 3 },' in header
+
+
+def test_gen_pad_script_tone_rejects_a_bad_rate():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "tone.pad")
+    with open(script_path, "w") as f:
+        f.write("tone 30000 3" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path,
+                             os.path.join(out_dir, "out.h")], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "tone" in result.stderr
+
+
+def test_gen_pad_script_longvoice_compiles_to_its_op():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "longvoice.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("longvoice 3" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_LONGVOICE, 3, 0, "", 0 },' in header
+
+
+def _compile(text):
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "sound.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write(text)
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    header = open(header_path).read() if result.returncode == 0 else ""
+    return result, header
+
+
+def test_gen_pad_script_music_ops_compile():
+    result, header = _compile("music 23" + chr(10) + "musicoff" + chr(10) + "sfxset 81" + chr(10))
+    assert result.returncode == 0, result.stderr
+    assert '{ PAD_OP_MUSIC, 23, 0, "", 0 },' in header
+    assert '{ PAD_OP_MUSICOFF, 0, 0, "", 0 },' in header
+    assert '{ PAD_OP_SFXSET, 81, 0, "", 0 },' in header
+
+
+def test_gen_pad_script_music_rejects_a_non_music_resource():
+    result, _ = _compile("music 81" + chr(10))
+    assert result.returncode == 1
+    assert "music" in result.stderr
+
+
+def test_gen_pad_script_sfxset_rejects_a_music_resource():
+    result, _ = _compile("sfxset 23" + chr(10))
+    assert result.returncode == 1
+    assert "sfxset" in result.stderr
+
+
+def test_gen_pad_script_sound_sets_match_convert_sound():
+    sys.path.insert(0, os.path.join(DC, "tools"))
+    sys.path.insert(0, os.path.join(DC, "..", "port", "tools"))
+    convert_sound = pytest.importorskip("convert_sound")
+    import gen_pad_script
+    kinds = dict(convert_sound.SOUND_RESOURCES)
+    assert gen_pad_script.MUSIC_RESOURCES == {r for r, k in kinds.items() if k == "music"}
+    assert gen_pad_script.SFXSET_RESOURCES == {r for r, k in kinds.items() if k in ("effect_set", "bank", "sfx_set", "weapon_sfx")}
+
+
+def test_sound_sweep_script_is_generated():
+    sys.path.insert(0, os.path.join(DC, "tools"))
+    sys.path.insert(0, os.path.join(DC, "..", "port", "tools"))
+    pytest.importorskip("convert_sound")
+    import gen_sound_sweep
+    with open(os.path.join(DC, "tests", "pad_scripts", "sound_sweep.pad")) as f:
+        assert f.read() == gen_sound_sweep.render(), "rerun dreamcast/tools/gen_sound_sweep.py"

@@ -206,6 +206,44 @@ void (*g_dc_field_open)(int target);
 void (*g_dc_field_gameover)(void);
 
 static int s_gameovers;
+static int s_tone_hz;
+static int s_tone_seconds;
+static int s_sound_polls;
+static int s_longvoice_seconds;
+static int s_music_resource;
+static int s_music_offs;
+static int s_sfxset_resource;
+
+void sound_test_music(int resource)
+{
+    s_music_resource = resource;
+}
+
+void sound_test_music_off(void)
+{
+    s_music_offs++;
+}
+
+void sound_test_sfxset(int resource)
+{
+    s_sfxset_resource = resource;
+}
+
+void sound_test_longvoice(int seconds)
+{
+    s_longvoice_seconds = seconds;
+}
+
+void sound_test_tone(int hz, int seconds)
+{
+    s_tone_hz = hz;
+    s_tone_seconds = seconds;
+}
+
+void sound_test_poll(void)
+{
+    s_sound_polls++;
+}
 
 static void record_gameover(void)
 {
@@ -299,6 +337,55 @@ static void test_gameover_calls_its_hook_once_and_advances(void)
     g_dc_field_gameover = 0;
 }
 
+static void test_tone_starts_and_advances_while_polling_sound(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_TONE, 1000, 0, "", 3 },
+        { PAD_OP_WAIT, 2, 0, "", 0 },
+    };
+
+    s_sound_polls = 0;
+    pad_script_start(steps, 2);
+    pad_script_poll(0, 0);
+    CHECK(s_tone_hz == 1000 && s_tone_seconds == 3);
+    pad_script_poll(1, 0);
+    pad_script_poll(2, 0);
+    CHECK(pad_script_done());
+    pad_script_poll(3, 0);
+    CHECK(s_sound_polls == 4);
+}
+
+static void test_longvoice_starts_and_advances(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_LONGVOICE, 3, 0, "", 0 },
+    };
+
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 0);
+    CHECK(s_longvoice_seconds == 3);
+    CHECK(pad_script_done());
+}
+
+static void test_music_ops_call_their_hooks_and_advance(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_MUSIC, 23, 0, "", 0 },
+        { PAD_OP_MUSICOFF, 0, 0, "", 0 },
+        { PAD_OP_SFXSET, 81, 0, "", 0 },
+    };
+
+    s_music_offs = 0;
+    pad_script_start(steps, 3);
+    pad_script_poll(0, 0);
+    CHECK(s_music_resource == 23 && s_music_offs == 0);
+    pad_script_poll(1, 0);
+    CHECK(s_music_offs == 1 && s_sfxset_resource == 0);
+    pad_script_poll(2, 0);
+    CHECK(s_sfxset_resource == 81);
+    CHECK(pad_script_done());
+}
+
 int main(void)
 {
     pad_script_set_printer(record_capture);
@@ -314,6 +401,9 @@ int main(void)
     test_scene_and_battle_advance_without_hooks();
     test_open_calls_its_hook_once_and_advances();
     test_gameover_calls_its_hook_once_and_advances();
+    test_tone_starts_and_advances_while_polling_sound();
+    test_longvoice_starts_and_advances();
+    test_music_ops_call_their_hooks_and_advance();
     if (s_failures == 0)
     {
         printf("OK\n");

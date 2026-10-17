@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import akao_data  # noqa: E402
 import overlay_rules  # noqa: E402
 import targets  # noqa: E402
 
@@ -134,15 +135,18 @@ BUFFER_RANGES = (
 
 #----------------------
 # | DREAMCAST_BUFFER_RANGES
-# | Description: BUFFER_RANGES for the Dreamcast build, whose lom_sound_bank covers the full PS1 bank area TITLE copies into.
+# | Description: BUFFER_RANGES for the Dreamcast build, whose lom_sound_bank covers the full PS1 bank area TITLE copies into, plus AKAO's PS1 data and BSS spans, which gen/akao_data.c lays out as on the PS1.
 # | Author: suinevere
-# | Dependencies: BUFFER_RANGES, dreamcast/src/boot/main_globals_dc.c
+# | Dependencies: BUFFER_RANGES, dreamcast/src/boot/main_globals_dc.c, akao_data.py (gen/akao_data.c)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
 DREAMCAST_BUFFER_RANGES = tuple((start, 0x4000 if symbol == "_lom_sound_bank" else size, symbol)
-                                for start, size, symbol in BUFFER_RANGES)
+                                for start, size, symbol in BUFFER_RANGES) + (
+    (akao_data.DATA_START, akao_data.DATA_END - akao_data.DATA_START, "_lom_akao_data"),
+    (akao_data.BSS_START, akao_data.BSS_END - akao_data.BSS_START, "_lom_akao_bss"),
+)
 
 #----------------------
 # | OVERLAY_BUFFER_RANGES
@@ -411,7 +415,7 @@ BENIGN = {
 
 #----------------------
 # | DREAMCAST_BENIGN
-# | Description: Pending Dreamcast functions GNAME's path reaches with no input once FIELD got its own overlay (Task 6); McxCardType is Saturn's memory-card probe, absent hardware on Dreamcast; every akao_* call FIELD reaches is sound, stubbed until D6: queries report no effect playing and every transfer finished (0) so callers waiting on them move on, and commands do nothing.
+# | Description: Pending Dreamcast functions GNAME's path reaches with no input once FIELD got its own overlay (Task 6); McxCardType is Saturn's memory-card probe, absent hardware on Dreamcast.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -421,22 +425,7 @@ BENIGN = {
 DREAMCAST_BENIGN = {
     "McxCardType": "zero",
     "cdrom_set_audio_volume": "void",
-    "akao_set_master_volume": "zero",
-    "akao_set_all_sfx_volume": "zero",
-    "akao_is_sfx_playing": "zero",
-    "akao_get_xfer_state": "zero",
-    "akao_load_bank_slot": "zero",
-    "akao_load_upper_bank_slot": "zero",
-    "akao_reset_xfer_state": "zero",
-    "akao_start_song_channels": "zero",
-    "akao_streaming_upload_tick": "zero",
-    "akao_switch_song": "zero",
-    "akao_fade_sfx_pan": "void",
-    "akao_fade_sfx_volume": "void",
-    "akao_pause_audio": "void",
-    "akao_play_sound": "void",
-    "akao_resume_audio": "void",
-    "akao_stop_sfx": "void",
+
 }
 
 #----------------------

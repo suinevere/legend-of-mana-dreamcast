@@ -1,4 +1,8 @@
 # New game path for the D2 captures; timings are vblanks at 60 Hz.
+# Sound checks for test_sound.py before the title song: a 4 s streamed long voice, then a 3 s 1 kHz stream tone; neither step waits.
+longvoice 4
+wait 250
+tone 1000 3
 wait state 2
 wait 600
 capture title

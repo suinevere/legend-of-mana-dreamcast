@@ -112,6 +112,77 @@
 #define PAD_OP_GAMEOVER 8
 
 /*----------------------
+ | PAD_OP_TONE
+ | Description: Test-only step op: starts a sine of arg Hz for stop_state seconds on the AICA stream channel through sound_test_tone, then advances at once.
+ | Author: suinevere
+ | Dependencies: sound_test_tone
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_TONE 9
+
+/*----------------------
+ | PAD_OP_LONGVOICE
+ | Description: Test-only step op: plays a sample longer than one AICA channel reaches on SPU voice 23 for arg seconds through sound_test_longvoice, then advances at once.
+ | Author: suinevere
+ | Dependencies: sound_test_longvoice
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_LONGVOICE 10
+
+/*----------------------
+ | PAD_OP_MUSIC
+ | Description: Test-only step op: loads music resource arg and plays its first song at full volume through sound_test_music, then advances at once.
+ | Author: suinevere
+ | Dependencies: sound_test_music
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_MUSIC 11
+
+/*----------------------
+ | PAD_OP_MUSICOFF
+ | Description: Test-only step op: stops the playing song through sound_test_music_off, then advances at once.
+ | Author: suinevere
+ | Dependencies: sound_test_music_off
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_MUSICOFF 12
+
+/*----------------------
+ | PAD_OP_SFXSET
+ | Description: Test-only step op: loads effect resource arg and uploads every bank it holds through sound_test_sfxset, then advances at once.
+ | Author: suinevere
+ | Dependencies: sound_test_sfxset
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_SFXSET 13
+
+/*----------------------
+ | sound_test_tone / sound_test_longvoice / sound_test_music / sound_test_music_off / sound_test_sfxset / sound_test_poll
+ | Description: The test image's sound checks: start a stream-channel tone, a streamed long voice or a music resource's song, stop the song, upload an effect resource's banks, and feed or end them once per vblank.
+ | Author: suinevere
+ | Dependencies: src/sound/sound_test_dc.c
+ | Globals: N/A
+ | Params: hz -- tone frequency, seconds -- length, resource -- CD resource
+ | Returns: N/A
+ ----------------------*/
+void sound_test_tone(int hz, int seconds);
+void sound_test_longvoice(int seconds);
+void sound_test_music(int resource);
+void sound_test_music_off(void);
+void sound_test_sfxset(int resource);
+void sound_test_poll(void);
+
+/*----------------------
  | PAD_SCRIPT_BTN_L2
  | Description: PS1 active-high L2 bit, numerically equal to common/pad.h's PAD_BTN_L2.
  | Author: suinevere

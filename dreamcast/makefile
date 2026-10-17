@@ -52,7 +52,7 @@ EXTRA_CFLAGS ?=
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PAD_SCRIPT_SOURCES = src/input/pad_script.c src/input/pad_dc_script_map.c src/system/watch.c
+PAD_SCRIPT_SOURCES = src/input/pad_script.c src/input/pad_dc_script_map.c src/system/watch.c src/sound/sound_test_dc.c
 
 #----------------------
 # | SOURCES
@@ -77,19 +77,26 @@ endif
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c
+KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c \
+	src/sound/aica.c src/sound/akao_tick_dc.c
 
 #----------------------
 # | PORT_SOURCES
 # | Description: The shared port/ sources the Dreamcast build uses.
 # | Author: suinevere
-# | Dependencies: ../port/boot, ../port/input, ../port/system, ../port/psyq, ../port/stubs
+# | Dependencies: ../port/boot, ../port/input, ../port/system, ../port/psyq, ../port/stubs, ../port/sound
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
 PORT_SOURCES = ../port/boot/overlay_header.c ../port/boot/resource_index.c ../port/input/pad_publish.c \
-	../port/system/vsync_pacer.c ../port/psyq/gte_saturn.c ../port/psyq/libgte_tables.c ../port/stubs/main_stubs.c
+	../port/system/vsync_pacer.c ../port/psyq/gte_saturn.c ../port/psyq/libgte_tables.c ../port/stubs/main_stubs.c \
+	../port/sound/spu_shadow.c \
+	../port/sound/spu_sample_map.c \
+	../port/sound/aica_convert.c \
+	../port/sound/spu_long_voice.c \
+	../port/sound/spu_voice_flush.c \
+	../port/sound/libspu_shim.c
 
 #----------------------
 # | DECOMP_MAIN
@@ -101,6 +108,19 @@ PORT_SOURCES = ../port/boot/overlay_header.c ../port/boot/resource_index.c ../po
 # | Returns: N/A
 #----------------------
 DECOMP_MAIN = ../src/main/main.c ../src/main/field_runtime.c ../src/main/screen_transition.c ../src/main/cdrom_decompress.c ../src/main/card_callbacks.c
+
+#----------------------
+# | DECOMP_AUDIO
+# | Description: The decomp's AKAO sound driver and song loader, compiled unmodified into main.
+# | Author: suinevere
+# | Dependencies: ../src/main/audio
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DECOMP_AUDIO = ../src/main/audio/akao_cmd.c ../src/main/audio/akao_control.c ../src/main/audio/akao_driver.c \
+	../src/main/audio/akao_driver_boot.c ../src/main/audio/akao_driver_init_state.c ../src/main/audio/akao_sequencer.c \
+	../src/main/audio/akao_voice.c ../src/main/audio/akao_xa_stream.c ../src/main/audio/game_audio.c
 
 #----------------------
 # | DECOMP_FIELD
@@ -285,7 +305,8 @@ DECOMP_WMAP = ../src/overlays/wmap/overlay_header.c ../src/overlays/wmap/effects
 # | Returns: N/A
 #----------------------
 DECOMP_OBJ = $(patsubst ../src/%.c,build/decomp/%.o,$(1))
-MAIN_OBJS = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst ../port/%.c,$(OBJDIR)/port/%.o,$(PORT_SOURCES)) $(call DECOMP_OBJ,$(DECOMP_MAIN))
+MAIN_OBJS = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst ../port/%.c,$(OBJDIR)/port/%.o,$(PORT_SOURCES)) $(call DECOMP_OBJ,$(DECOMP_MAIN)) $(call DECOMP_OBJ,$(DECOMP_AUDIO)) \
+	$(OBJDIR)/gen/akao_data.o
 OBJS = $(MAIN_OBJS) $(OBJDIR)/gen/dc_pending.o
 CHECKPS_OBJS = build/ovl/checkps_vectors.o $(call DECOMP_OBJ,$(DECOMP_CHECKPS)) build/overlays/checkps_init_unit.o
 TITLE_OBJS = build/ovl/title_vectors.o $(call DECOMP_OBJ,$(DECOMP_TITLE))
@@ -367,7 +388,7 @@ OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/O
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-CFLAGS += -std=gnu11 -O2 -Wall -DVERSION_US -DLOM_DREAMCAST -DRESOURCE_INDEX_MAX=6144 $(patsubst %,-I%,$(shell find src -type d)) -I../port/boot -I../port/input -I../port/system -I../include -Igen $(EXTRA_CFLAGS)
+CFLAGS += -std=gnu11 -O2 -Wall -DVERSION_US -DLOM_DREAMCAST -DRESOURCE_INDEX_MAX=6144 $(patsubst %,-I%,$(shell find src -type d)) -I../port/boot -I../port/input -I../port/system -I../port/sound -I../include -Igen $(EXTRA_CFLAGS)
 
 #----------------------
 # | DECOMP_FLAGS / DECOMP_STD
@@ -472,6 +493,29 @@ $(OBJDIR)/port/%.o: ../port/%.c
 # | Returns: N/A
 #----------------------
 $(OBJDIR)/port/psyq/gte_saturn.o: DECOMP_STD += -std=c11
+
+#----------------------
+# | build/port/sound/%.o
+# | Description: The shared sound sources include <string.h> too, so they take gte_saturn.o's strict C11 for the same bcopy clash.
+# | Author: suinevere
+# | Dependencies: ../port/sound, ../port/psyq/lom_prefix.h
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/port/sound/%.o: DECOMP_STD += -std=c11
+
+#----------------------
+# | DECOMP_AUDIO objects
+# | Description: AKAO's root-counter, event and CD-mix calls are renamed to the sound tick's own, so its timer event never reaches the card code's OpenEvent.
+# | Author: suinevere
+# | Dependencies: src/sound/akao_tick_dc.c, ../src/main/audio/akao_driver_boot.c, ../src/main/audio/akao_sequencer.c
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(call DECOMP_OBJ,$(DECOMP_AUDIO)): DECOMP_STD += -DSetRCnt=lom_SetRCnt -DStartRCnt=lom_StartRCnt -DGetRCnt=lom_GetRCnt -DOpenEvent=lom_sound_OpenEvent -DEnableEvent=lom_sound_EnableEvent \
+	-DDisableEvent=lom_sound_DisableEvent -DStopRCnt=lom_StopRCnt -DUnDeliverEvent=lom_sound_UnDeliverEvent -DCdMix=lom_sound_CdMix
 
 #----------------------
 # | build/cd/cdrom_dc.o
@@ -627,6 +671,21 @@ $(OBJDIR)/gen/dc_pending.o: gen/dc_pending.c
 	kos-cc $(CFLAGS) -MMD -MP -c $< -o $@
 
 #----------------------
+# | build/gen/akao_data.o
+# | Description: AKAO's PS1 data and BSS blocks, generated from the user's SLUS by the pre-build step; gen/dc_pending.ld aliases AKAO's data symbols into them.
+# | Author: suinevere
+# | Dependencies: gen/akao_data.c, ../port/tools/akao_data.py
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/gen/akao_data.o: gen/akao_data.c
+	@mkdir -p $(dir $@)
+	kos-cc $(CFLAGS) -MMD -MP -c $< -o $@
+
+gen/akao_data.c: | $(PRE_BUILD_STAMP)
+
+#----------------------
 # | DEPFILES
 # | Description: Pulls in every object's -MMD -MP dependency file, so editing a header these objects include (lom_prefix.h, gpu_tag.h, lom_platform_memory.h, …) rebuilds them; mirrors saturn/makefile's -include of C_OBJECTS/PORT_OBJECTS .d files.
 # | Author: suinevere
@@ -658,6 +717,7 @@ $(KOS_CDROM_PATCH_OBJS): $(KOS_CDROM_PATCH_DIR)/.stamp
 # | $(TARGET)
 # | Description: Links lom.elf, failing on any section dreamcast.ld does not place.
 # |              gen/dc_pending.ld (pending data aliases) and $(OBJDIR)/ovl/overlay_externs.ld ride along as implicit linker scripts, and the overlay entry script relinks it when the overlays move.
+# |              -u roots AKAO's data blocks for --gc-sections, since only gen/dc_pending.ld's address aliases refer to them.
 # | Author: suinevere
 # | Dependencies: OBJS, KOS_CDROM_PATCH_OBJS, dreamcast.ld, gen/dc_pending.ld, gen/overlay_entries.ld, $(OBJDIR)/ovl/overlay_externs.ld
 # | Globals: N/A
@@ -665,7 +725,8 @@ $(KOS_CDROM_PATCH_OBJS): $(KOS_CDROM_PATCH_DIR)/.stamp
 # | Returns: N/A
 #----------------------
 $(TARGET): $(OBJS) $(KOS_CDROM_PATCH_OBJS) dreamcast.ld gen/dc_pending.ld gen/overlay_entries.ld $(OBJDIR)/ovl/overlay_externs.ld
-	kos-cc -o $@ $(OBJS) $(KOS_CDROM_PATCH_OBJS) gen/dc_pending.ld $(OBJDIR)/ovl/overlay_externs.ld -Wl,--orphan-handling=error
+	kos-cc -o $@ $(OBJS) $(KOS_CDROM_PATCH_OBJS) gen/dc_pending.ld $(OBJDIR)/ovl/overlay_externs.ld -Wl,--orphan-handling=error \
+		-Wl,-u,_lom_akao_data -Wl,-u,_lom_akao_bss
 
 #----------------------
 # | $(OBJDIR)/ovl/overlay_externs.ld
@@ -821,14 +882,14 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 
 #----------------------
 # | PADSEL_IMAGES / lom_<script>_test.cdi
-# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: lom_card_save_test.cdi and lom_card_load_test.cdi.
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: lom_card_save_test.cdi, lom_card_load_test.cdi and lom_sound_sweep_test.cdi.
 # | Author: suinevere
 # | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = card_save card_load
+PADSEL_SCRIPTS = card_save card_load sound_sweep
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*

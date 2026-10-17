@@ -14,6 +14,7 @@
 #include "vsync_pacer.h"
 #include "libgpu_dc.h"
 #include "frame_probe.h"
+#include "akao_tick_dc.h"
 
 #ifdef LOM_PAD_SCRIPT
 #include "pad_script.h"
@@ -100,9 +101,9 @@ static void report_field_changes(void)
 
 /*----------------------
  | state_report_poll
- | Description: Logs "state <n>" on a g_game_state change and "frame <count> prims <n>" each period, ticks the frame probe and, under LOM_PAD_SCRIPT, advances the pad script and the watcher hook.
+ | Description: Logs "state <n>" on a g_game_state change and "frame <count> prims <n>" and "akao ticks <n>" each period, ticks the frame probe and, under LOM_PAD_SCRIPT, advances the pad script and the watcher hook.
  | Author: suinevere
- | Dependencies: dc_log, vsync_count, dc_frame_primitives, frame_probe_vblank, pad_script_poll (LOM_PAD_SCRIPT), g_dc_watch_poll (LOM_PAD_SCRIPT)
+ | Dependencies: dc_log, vsync_count, dc_frame_primitives, akao_tick_dc_count, frame_probe_vblank, pad_script_poll (LOM_PAD_SCRIPT), g_dc_watch_poll (LOM_PAD_SCRIPT)
  | Globals: g_game_state, s_reported_state, s_next_report
  | Params: N/A
  | Returns: N/A
@@ -121,6 +122,7 @@ void state_report_poll(void)
     {
         s_next_report = now + STATE_REPORT_PERIOD;
         dc_log("frame %u prims %u", now, dc_frame_primitives());
+        dc_log("akao ticks %u", akao_tick_dc_count());
     }
     frame_probe_vblank();
 #ifdef LOM_PAD_SCRIPT

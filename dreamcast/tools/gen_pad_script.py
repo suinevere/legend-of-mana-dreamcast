@@ -197,6 +197,39 @@ def parse_gameover(tokens, lineno):
 
 
 #----------------------
+# | parse_tone
+# | Description: Parses "tone <hz> <seconds>" into a test-only step that plays a sine on the AICA stream channel; 100-20000 Hz, 1-60 s.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "tone", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_TONE", arg the frequency and stop_state the seconds
+#----------------------
+def parse_tone(tokens, lineno):
+    if len(tokens) != 2 or not all(t.isdigit() for t in tokens):
+        raise ScriptError("line %d: tone needs <hz> <seconds>" % lineno)
+    hz, seconds = int(tokens[0]), int(tokens[1])
+    if not 100 <= hz <= 20000 or not 1 <= seconds <= 60:
+        raise ScriptError("line %d: tone needs 100-20000 Hz and 1-60 s, not %d Hz %d s" % (lineno, hz, seconds))
+    return {"op": "PAD_OP_TONE", "arg": hz, "buttons_macros": [], "name": "", "stop_state": seconds}
+
+
+#----------------------
+# | parse_longvoice
+# | Description: Parses "longvoice <seconds>" into a test-only step that plays a streamed long sample on SPU voice 23; 1-60 s.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "longvoice", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_LONGVOICE" and arg the seconds
+#----------------------
+def parse_longvoice(tokens, lineno):
+    if len(tokens) != 1 or not tokens[0].isdigit() or not 1 <= int(tokens[0]) <= 60:
+        raise ScriptError("line %d: longvoice needs <seconds> 1-60" % lineno)
+    return {"op": "PAD_OP_LONGVOICE", "arg": int(tokens[0]), "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | OPEN_TARGETS
 # | Description: Secondary overlays "open <name>" reaches, in the index order field_watch_unit.c's opener table uses.
 # | Author: suinevere
@@ -224,10 +257,53 @@ def parse_open(tokens, lineno):
 
 
 #----------------------
+# | MUSIC_RESOURCES / SFXSET_RESOURCES
+# | Description: CD resources the music and sfxset steps accept: convert_sound.SOUND_RESOURCES' music kind, and its effect_set, bank, sfx_set and weapon_sfx kinds.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+MUSIC_RESOURCES = frozenset(list(range(23, 74)) + [146] + list(range(147, 167)))
+SFXSET_RESOURCES = frozenset([21, 22] + list(range(81, 119)) + list(range(131, 142)))
+
+
+#----------------------
+# | parse_resource_step
+# | Description: Parses "<verb> <resource>" into a test-only step whose arg is a CD resource from the allowed set.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: verb -- step verb, op -- PAD_OP_* name, allowed -- accepted resources, tokens -- tokens after the verb, lineno -- 1-based source line
+# | Returns: step dict with op and arg the resource
+#----------------------
+def parse_resource_step(verb, op, allowed, tokens, lineno):
+    if len(tokens) != 1 or not tokens[0].isdigit() or int(tokens[0]) not in allowed:
+        raise ScriptError("line %d: %s needs one of its sound resources, not %r" % (lineno, verb, " ".join(tokens)))
+    return {"op": op, "arg": int(tokens[0]), "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
+# | parse_musicoff
+# | Description: Parses "musicoff" into a test-only step that stops the playing song.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "musicoff", lineno -- 1-based source line
+# | Returns: step dict with op "PAD_OP_MUSICOFF"
+#----------------------
+def parse_musicoff(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: musicoff takes no arguments" % lineno)
+    return {"op": "PAD_OP_MUSICOFF", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | parse_script
 # | Description: Parses every non-comment, non-blank line of a .pad script into step dicts.
 # | Author: suinevere
-# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, ScriptError
+# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, parse_tone, parse_longvoice, parse_resource_step, parse_musicoff, ScriptError
 # | Globals: N/A
 # | Params: text -- script file contents
 # | Returns: list of step dicts
@@ -256,6 +332,16 @@ def parse_script(text):
             steps.append(parse_open(rest, lineno))
         elif verb == "gameover":
             steps.append(parse_gameover(rest, lineno))
+        elif verb == "tone":
+            steps.append(parse_tone(rest, lineno))
+        elif verb == "longvoice":
+            steps.append(parse_longvoice(rest, lineno))
+        elif verb == "music":
+            steps.append(parse_resource_step(verb, "PAD_OP_MUSIC", MUSIC_RESOURCES, rest, lineno))
+        elif verb == "musicoff":
+            steps.append(parse_musicoff(rest, lineno))
+        elif verb == "sfxset":
+            steps.append(parse_resource_step(verb, "PAD_OP_SFXSET", SFXSET_RESOURCES, rest, lineno))
         else:
             raise ScriptError("line %d: unknown verb %r" % (lineno, verb))
     return steps

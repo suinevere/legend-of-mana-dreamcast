@@ -15,7 +15,7 @@ REPO = os.path.normpath(os.path.join(PORT, ".."))
 DREAMCAST_DIR = os.path.join(REPO, "dreamcast")
 DREAMCAST_MAKEFILE = os.path.join(DREAMCAST_DIR, "makefile")
 
-SATURN_ONLY = {"boot/layout_pack.c"}
+SATURN_ONLY = {"boot/layout_pack.c", "stubs/akao_stubs.c"}
 
 
 def _dreamcast_port_sources():

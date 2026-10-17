@@ -102,14 +102,14 @@ extern unsigned char lom_collision_lists[];
 
 /*----------------------
  | AKAO_PRIMARY_SONG_ADDRESS / BIOS_STACK_ADDRESS
- | Description: Still trapped: AKAO_PRIMARY_SONG_ADDRESS's only reader is src/main/audio/akao_cmd.c, which is not in dreamcast/makefile's SOURCES or DECOMP_MAIN/DECOMP_FIELD lists and so is never compiled into either Dreamcast image -- dead code on this platform, safe to leave on the small trap buffer. BIOS_STACK_ADDRESS is unused (D1 never boots through the BIOS stack).
+ | Description: AKAO_PRIMARY_SONG_ADDRESS is the address of g_akao_seq_channel0 itself, as on the PS1, read by akao_cmd.c after its AKAO headers declare it. BIOS_STACK_ADDRESS is unused (D1 never boots through the BIOS stack).
  | Author: suinevere
- | Dependencies: N/A
- | Globals: lom_trap_buffer
+ | Dependencies: src/main/audio/internal/akao_driver.h (g_akao_seq_channel0)
+ | Globals: g_akao_seq_channel0
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define AKAO_PRIMARY_SONG_ADDRESS ((unsigned int)lom_trap_buffer)
+#define AKAO_PRIMARY_SONG_ADDRESS ((unsigned int)&g_akao_seq_channel0)
 #define BIOS_STACK_ADDRESS 0
 
 #endif

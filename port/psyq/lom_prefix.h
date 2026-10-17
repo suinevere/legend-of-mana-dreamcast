@@ -2,7 +2,7 @@
  | lom_prefix.h
  | Description: Forced-include prefix that maps the decomp's fixed PS1 addresses to platform buffers and makes packet macros endian-correct; each backend's lom_platform_memory.h supplies its own memory map.
  | Author: suinevere
- | Dependencies: gte_saturn.h, lom_platform_memory.h, common.h, libgpu.h, common/gpu_packet.h
+ | Dependencies: gte_saturn.h, lom_platform_memory.h, spu_shadow.h (Dreamcast), common.h, libgpu.h, common/gpu_packet.h
  | Globals: lom_resident_state, lom_load_buffer, lom_sound_bank, lom_font_buffer, lom_render_arena, lom_primary_upper, lom_scratchpad, lom_text_cache, lom_trap_buffer
  | Params: N/A
  | Returns: N/A
@@ -129,6 +129,19 @@ extern unsigned char lom_trap_buffer[];
  | Returns: N/A
  ----------------------*/
 #define TEXT_CACHE_ADDRESS ((unsigned int)lom_text_cache)
+
+/*----------------------
+ | SPU registers
+ | Description: On the Dreamcast, spu_shadow.h defines SPU_REGISTER_BASE first, so AKAO's spu_registers.h macros write the RAM shadow the voice flush reads.
+ | Author: suinevere
+ | Dependencies: ../sound/spu_shadow.h, include/main/audio/spu_registers.h
+ | Globals: lom_spu_shadow
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#ifdef LOM_DREAMCAST
+#include "../sound/spu_shadow.h"
+#endif
 
 #include "common.h"
 

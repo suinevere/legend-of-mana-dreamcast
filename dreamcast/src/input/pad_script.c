@@ -226,9 +226,9 @@ void pad_script_start(const PadScriptStep *steps, unsigned count)
 
 /*----------------------
  | pad_script_poll
- | Description: Advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, or calls the scene-jump or battle hook once.
+ | Description: Feeds the test tone, then advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, calls the scene-jump or battle hook once, starts a tone, long voice or song, stops the song, or uploads an effect set.
  | Author: suinevere
- | Dependencies: advance, log_capture, mash_stopped, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
+ | Dependencies: advance, log_capture, mash_stopped, sound_test_poll, sound_test_tone, sound_test_longvoice, sound_test_music, sound_test_music_off, sound_test_sfxset, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
  | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
  | Params: vblank -- current vblank count (unused), game_state -- current g_game_state
  | Returns: N/A
@@ -238,6 +238,7 @@ void pad_script_poll(unsigned vblank, int game_state)
     const PadScriptStep *step;
 
     (void)vblank;
+    sound_test_poll();
     if (s_index >= s_count)
     {
         s_buttons = 0;
@@ -319,6 +320,31 @@ void pad_script_poll(unsigned vblank, int game_state)
         {
             g_dc_field_battle();
         }
+        advance();
+        break;
+    case PAD_OP_TONE:
+        s_buttons = 0;
+        sound_test_tone((int)step->arg, (int)step->stop_state);
+        advance();
+        break;
+    case PAD_OP_LONGVOICE:
+        s_buttons = 0;
+        sound_test_longvoice((int)step->arg);
+        advance();
+        break;
+    case PAD_OP_MUSIC:
+        s_buttons = 0;
+        sound_test_music((int)step->arg);
+        advance();
+        break;
+    case PAD_OP_MUSICOFF:
+        s_buttons = 0;
+        sound_test_music_off();
+        advance();
+        break;
+    case PAD_OP_SFXSET:
+        s_buttons = 0;
+        sound_test_sfxset((int)step->arg);
         advance();
         break;
     case PAD_OP_GAMEOVER:

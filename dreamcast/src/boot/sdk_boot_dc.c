@@ -1,15 +1,14 @@
 /*----------------------
  | sdk_boot_dc.c
- | Description: No-op Dreamcast versions of the Psy-Q system, card, sound and BIOS calls the PS1 boot path makes; libgpu_dc.c owns the graphics ones.
+ | Description: No-op Dreamcast versions of the Psy-Q system, card and BIOS calls the PS1 boot path makes; libgpu_dc.c owns the graphics ones and port/sound/libspu_shim.c the sound ones.
  | Author: suinevere
- | Dependencies: lom_prefix.h, libapi.h, libetc.h, libspu.h, libmcx.h, saturn/src/boot/sdk_boot.c
+ | Dependencies: lom_prefix.h, libapi.h, libetc.h, libmcx.h, saturn/src/boot/sdk_boot.c
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 #include <libapi.h>
 #include <libetc.h>
-#include <libspu.h>
 #include <libmcx.h>
 
 /*----------------------
@@ -109,19 +108,6 @@ long SetVideoMode(long mode)
  | Returns: N/A
  ----------------------*/
 void __main(void)
-{
-}
-
-/*----------------------
- | SpuInit
- | Description: Ignores PS1 SPU initialization; Dreamcast sound is not ported yet.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-void SpuInit(void)
 {
 }
 

@@ -1,6 +1,7 @@
 #include "internal/akao_sequencer.h"
 #include "internal/akao_control.h"
 #include "internal/akao_voice.h"
+#include "main/audio/spu_registers.h"
 
 /* Channel-role AkaoChannelState.flags bits. */
 #define AKAO_CH_PITCH_LFO 0x01
@@ -27,10 +28,6 @@
 
 /** @brief Read a little-endian signed 16-bit bytecode operand. */
 #define AKAO_READ_S16(p) ((s16)((p)[0] | ((p)[1] << 8)))
-
-/** @brief SPU CD-audio input volume registers (left/right). */
-#define SPU_CD_VOLUME_LEFT (*(s16*)0x1F801DB0)
-#define SPU_CD_VOLUME_RIGHT (*(s16*)0x1F801DB2)
 
 /** @brief The driver articulation table, viewed as articulation entries. */
 #define AKAO_ARTICULATIONS ((AkaoArticulation*)g_akao_articulation_slots)

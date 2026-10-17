@@ -7,6 +7,7 @@
 
 #include "main/audio/akao.h"
 #include <libspu.h>
+#include "main/audio/spu_registers.h"
 
 #define AKAO_SFX_FIRST_VOICE 12
 #define AKAO_FULL_VOLUME (AKAO_VOLUME_MAX << 8)
@@ -15,12 +16,7 @@
 #define AKAO_REVERB_DEPTH_UPDATE_PENDING 0x80
 #define AKAO_DEFAULT_REVERB_TYPE 4
 
-#define SPU_CONTROL_ADDRESS 0x1F801DAA
 #define SPU_INITIAL_CONTROL_MASK 0xFFFA
-#define SPU_MASTER_VOLUME_LEFT (*(s16*)0x1F801D80)
-#define SPU_MASTER_VOLUME_RIGHT (*(s16*)0x1F801D82)
-#define SPU_CD_VOLUME_LEFT (*(s16*)0x1F801DB0)
-#define SPU_CD_VOLUME_RIGHT (*(s16*)0x1F801DB2)
 #define SPU_MAX_MASTER_VOLUME 0x3FFF
 #define SPU_MAX_CD_VOLUME 0x7FFF
 

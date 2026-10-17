@@ -2,14 +2,7 @@
 #include "internal/akao_sequencer.h"
 #include <libspu.h>
 #include <libapi.h>
-
-/** @brief Fixed address of the SPU voice register blocks. */
-#define SPU_VOICE_REGS ((SpuVoiceRegisters*)0x1F801C00)
-
-/**
- * @brief One register of SPU voice @p voice, addressed as voice 0's register plus the block stride.
- */
-#define SPU_VOICE_REG(voice, field) (*(u16*)((u8*)&SPU_VOICE_REGS[0].field + (voice) * sizeof(SpuVoiceRegisters)))
+#include "main/audio/spu_registers.h"
 
 /*
  * SpuVoiceParams::update_flags groups. Each group lists every AKAO update bit
@@ -21,18 +14,6 @@
 #define SPU_UPDATE_ADSR_HIGH 0x6600
 #define SPU_UPDATE_ADSR_LOW 0x9900
 #define SPU_UPDATE_REPEAT_ADDR 0x10000
-
-/* SPU voice bitmap registers; each is split into a low (voices 0-15) and high (voices 16-23) halfword. */
-#define SPU_KEY_ON_LOW (*(u16*)0x1F801D88)
-#define SPU_KEY_ON_HIGH (*(u16*)0x1F801D8A)
-#define SPU_KEY_OFF_LOW (*(u16*)0x1F801D8C)
-#define SPU_KEY_OFF_HIGH (*(u16*)0x1F801D8E)
-#define SPU_PITCH_MOD_LOW (*(u16*)0x1F801D90)
-#define SPU_PITCH_MOD_HIGH (*(u16*)0x1F801D92)
-#define SPU_NOISE_LOW (*(u16*)0x1F801D94)
-#define SPU_NOISE_HIGH (*(u16*)0x1F801D96)
-#define SPU_REVERB_LOW (*(u16*)0x1F801D98)
-#define SPU_REVERB_HIGH (*(u16*)0x1F801D9A)
 
 /** @brief LFO waveform sample or zero-pair relative-jump marker. */
 typedef struct
@@ -49,19 +30,6 @@ typedef struct AkaoVoiceAllocation
     s16 envelope_level;
     s16 unknown_0x06;
 } AkaoVoiceAllocation;
-
-/** @brief One 16-byte SPU voice register block. */
-typedef struct
-{
-    s16 volume_left;
-    s16 volume_right;
-    u16 pitch;
-    u16 start_addr;
-    u16 adsr_low;
-    u16 adsr_high;
-    u16 envelope_level;
-    u16 repeat_addr;
-} SpuVoiceRegisters;
 
 extern AkaoVoiceAllocation g_akao_voice_allocations[];
 

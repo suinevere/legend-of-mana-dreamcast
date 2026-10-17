@@ -181,14 +181,15 @@ def _grab_capture(container, cap_name, cap_dir, captures):
 # | run_flycast
 # | Description: Boots image in lom-flycast with a job-local config, collecting stdout lines until until appears, a halt line appears or seconds pass.
 # |              Grabs a PNG at each capture marker before checking until when captures is given; always kills the container.
+# |              With audio_out, SDL's disk driver writes Flycast's mixed output (s16le stereo 44100 Hz, per core/audio/audiobackend_sdl2.cpp) to /job/audio.raw, copied to audio_out afterwards.
 # | Author: suinevere
 # | Dependencies: find_flycast, _pump, _grab_capture, docker
 # | Globals: DOCKER_IMAGE, EMU_CFG, EMU_CFG_CAPTURE, HALT_MARKER, CAPTURE_PREFIX, CAPTURE_DISPLAY
 # | Params: image -- path to a .cdi/.gdi, seconds -- time limit, until -- text to wait for or None, captures -- directory to save "<name>.png" grabs into, or None for a plain boot check,
-# |         vmu_in -- VMU image bytes to start with (Flycast formats a blank one otherwise), vmu_out -- path to copy the VMU image to afterwards, no_vmu -- run with no VMU attached
+# |         vmu_in -- VMU image bytes to start with (Flycast formats a blank one otherwise), vmu_out -- path to copy the VMU image to afterwards, no_vmu -- run with no VMU attached, audio_out -- raw audio path or None
 # | Returns: (exit_code, lines) -- 0 found or plain timeout, 2 halt, 3 timeout waiting for until
 #----------------------
-def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None, no_vmu=False):
+def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None, no_vmu=False, audio_out=None):
     image = os.path.abspath(image)
     job = tempfile.mkdtemp(prefix="lom-flycast-")
     os.makedirs(os.path.join(job, "config", "flycast"))
@@ -211,8 +212,10 @@ def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None,
         xvfb_args = ["xvfb-run", "-a", "flycast"]
     cmd = ["docker", "run", "--rm", "--init", "--name", name,
            "-v", job + ":/job", "-v", os.path.dirname(image) + ":/disc:ro",
-           "-e", "XDG_CONFIG_HOME=/job/config", "-e", "XDG_DATA_HOME=/job/data",
-           DOCKER_IMAGE] + xvfb_args + ["/disc/" + os.path.basename(image)]
+           "-e", "XDG_CONFIG_HOME=/job/config", "-e", "XDG_DATA_HOME=/job/data"]
+    if audio_out is not None:
+        cmd += ["-e", "SDL_AUDIODRIVER=disk", "-e", "SDL_DISKAUDIOFILE=/job/audio.raw"]
+    cmd += [DOCKER_IMAGE] + xvfb_args + ["/disc/" + os.path.basename(image)]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
     lines = []
     code = 3 if until else 0
@@ -248,6 +251,8 @@ def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None,
             proc.wait()
         if vmu_out is not None and os.path.exists(vmu_path):
             shutil.copy(vmu_path, vmu_out)
+        if audio_out is not None and os.path.exists(os.path.join(job, "audio.raw")):
+            shutil.copy(os.path.join(job, "audio.raw"), audio_out)
         shutil.rmtree(job, ignore_errors=True)
     return code, lines
 
