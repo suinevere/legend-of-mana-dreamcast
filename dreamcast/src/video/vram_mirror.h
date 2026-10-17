@@ -20,5 +20,6 @@ void vram_mirror_fill(int x, int y, int w, int h, uint16_t colour);
 void vram_mirror_invalidate(int x, int y, int w, int h, const unsigned short *pixels);
 const unsigned short *vram_mirror_at(int x, int y);
 uint32_t vram_mirror_generation(int x, int y, int w, int h);
+uint32_t vram_mirror_write_count(void);
 
 #endif

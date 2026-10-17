@@ -565,6 +565,7 @@ static void gte_set_ir(int index, int64_t value, int64_t flag_value, int lm)
 /*----------------------
  | gte_matrix_vector
  | Description: Computes MAC1-MAC3 = (add*0x1000 + matrix*vector) >> (sf*12) with per-step 44-bit checks and saturates IR1-IR3.
+ | The checks are skipped when every add term is below 2^30 in magnitude, since the sums then stay inside 44 bits.
  | Author: suinevere
  | Dependencies: gte_mac44, gte_set_ir
  | Globals: lom_gte
@@ -577,12 +578,24 @@ static int64_t gte_matrix_vector(const int16_t matrix[3][3], const int16_t vecto
     int i;
     int j;
 
-    for (i = 0; i < 3; i++)
+    if (add == NULL || (add[0] < 0x40000000 && add[0] > -0x40000000 && add[1] < 0x40000000 && add[1] > -0x40000000
+                        && add[2] < 0x40000000 && add[2] > -0x40000000))
     {
-        sums[i] = add != NULL ? (int64_t)add[i] * 0x1000 : 0;
-        for (j = 0; j < 3; j++)
+        for (i = 0; i < 3; i++)
         {
-            sums[i] = gte_mac44(i + 1, sums[i] + (int64_t)matrix[i][j] * vector[j]);
+            sums[i] = (add != NULL ? (int64_t)add[i] * 0x1000 : 0) + (int32_t)matrix[i][0] * vector[0]
+                      + (int32_t)matrix[i][1] * vector[1] + (int32_t)matrix[i][2] * vector[2];
+        }
+    }
+    else
+    {
+        for (i = 0; i < 3; i++)
+        {
+            sums[i] = (int64_t)add[i] * 0x1000;
+            for (j = 0; j < 3; j++)
+            {
+                sums[i] = gte_mac44(i + 1, sums[i] + (int64_t)matrix[i][j] * vector[j]);
+            }
         }
     }
     for (i = 0; i < 3; i++)
@@ -644,10 +657,7 @@ static uint32_t gte_divide(uint32_t h, uint32_t sz)
         gte_set_flag(GTE_FLAG_DIVIDE);
         return 0x1FFFF;
     }
-    while (((sz << z) & 0x8000) == 0)
-    {
-        z++;
-    }
+    z = (uint32_t)__builtin_clz(sz) - 16u;
     n = h << z;
     d = sz << z;
     u = gte_saturn_unr_entry((int)((d - 0x7FC0) >> 7)) + 0x101;

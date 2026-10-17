@@ -33,6 +33,17 @@
 #define LOM_RENDER_ARENA_SIZE 0x20000
 
 /*----------------------
+ | LOM_DC_LOAD_BUFFER_SIZE
+ | Description: Bytes in the Dreamcast lom_load_buffer: room for the largest music file field_load_song reads whole (0x5EC9C bytes), past the PS1's 0x5A000-byte region whose reads spill into the scratch above it.
+ | Author: suinevere
+ | Dependencies: main_globals_dc.c, src/overlays/field/runtime/field_audio_runtime.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define LOM_DC_LOAD_BUFFER_SIZE 0x60000
+
+/*----------------------
  | LOM_SECONDARY_OVERLAY_SIZE
  | Description: Bytes in lom_secondary_overlay: the PS1 secondary region up to the end of WSEL's two 0x80CC-byte render buffers at +0x30000.
  | Author: suinevere

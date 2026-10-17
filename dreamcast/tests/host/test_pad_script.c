@@ -1,7 +1,7 @@
 /*----------------------
  | test_pad_script.c
  | Description: Host tests for the pad script interpreter: wait-state holding and advance, press hold/release timing, a plain wait, a single capture log line, and mash's stop-then-period presses.
- | Also checks done() going to 1 with buttons staying 0.
+ | Also checks done() going to 1 with buttons staying 0, and that scene and battle steps call their hooks once.
  | Author: suinevere
  | Dependencies: pad_script.h, pad_script.c, watch.h, watch.c
  ----------------------*/
@@ -195,6 +195,62 @@ static void test_mash_marker_stop_uses_watch_seen(void)
     CHECK(pad_script_done());
 }
 
+static int s_jumps;
+static int s_jump_scene;
+static int s_jump_spawn;
+static int s_battles;
+
+void (*g_dc_field_scene_jump)(int scene, int spawn);
+void (*g_dc_field_battle)(void);
+
+static void record_jump(int scene, int spawn)
+{
+    s_jumps++;
+    s_jump_scene = scene;
+    s_jump_spawn = spawn;
+}
+
+static void record_battle(void)
+{
+    s_battles++;
+}
+
+static void test_scene_and_battle_call_their_hooks_once(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_SCENE, 71, 0, "", 2 },
+        { PAD_OP_BATTLE, 0, 0, "", 0 },
+    };
+
+    g_dc_field_scene_jump = record_jump;
+    g_dc_field_battle = record_battle;
+    pad_script_start(steps, 2);
+    pad_script_poll(0, 0);
+    CHECK(s_jumps == 1 && s_jump_scene == 71 && s_jump_spawn == 2);
+    CHECK(s_battles == 0);
+    pad_script_poll(1, 0);
+    CHECK(s_battles == 1);
+    CHECK(pad_script_done());
+    CHECK(pad_script_buttons() == 0);
+    pad_script_poll(2, 0);
+    CHECK(s_jumps == 1 && s_battles == 1);
+}
+
+static void test_scene_and_battle_advance_without_hooks(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_SCENE, 71, 0, "", 0 },
+        { PAD_OP_BATTLE, 0, 0, "", 0 },
+    };
+
+    g_dc_field_scene_jump = 0;
+    g_dc_field_battle = 0;
+    pad_script_start(steps, 2);
+    pad_script_poll(0, 0);
+    pad_script_poll(1, 0);
+    CHECK(pad_script_done());
+}
+
 int main(void)
 {
     pad_script_set_printer(record_capture);
@@ -206,6 +262,8 @@ int main(void)
     test_mash_checks_stop_before_pressing();
     test_mash_presses_every_period_until_state_matches();
     test_mash_marker_stop_uses_watch_seen();
+    test_scene_and_battle_call_their_hooks_once();
+    test_scene_and_battle_advance_without_hooks();
     if (s_failures == 0)
     {
         printf("OK\n");

@@ -256,6 +256,20 @@ uint32_t vram_mirror_generation(int x, int y, int w, int h)
 }
 
 /*----------------------
+ | vram_mirror_write_count
+ | Description: Returns the global write counter, which moves whenever any mirror pixel changes, so callers can cache results until VRAM changes.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_gen_counter
+ | Params: N/A
+ | Returns: current write counter
+ ----------------------*/
+uint32_t vram_mirror_write_count(void)
+{
+    return s_gen_counter;
+}
+
+/*----------------------
  | vram_mirror_at
  | Description: Resolves a wrapped (x, y) pixel to its slot in the mirror, for read-only inspection.
  | Author: suinevere

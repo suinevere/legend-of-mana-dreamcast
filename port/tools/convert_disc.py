@@ -724,16 +724,16 @@ def check_buffer_users(sizes):
 
 #----------------------
 # | dreamcast_overlay_exported
-# | Description: Whether an overlay is exported as KIND_OVERLAY for this target: always true with no region table, else region membership minus DREAMCAST_UNLINKED_OVERLAYS for a target without convert rules.
+# | Description: Whether an overlay is exported as KIND_OVERLAY for this target: with no region table, every overlay but SATURN_UNLINKED_OVERLAYS, else region membership minus DREAMCAST_UNLINKED_OVERLAYS for a target without convert rules.
 # | Author: suinevere
-# | Dependencies: targets.DREAMCAST_UNLINKED_OVERLAYS
+# | Dependencies: targets.DREAMCAST_UNLINKED_OVERLAYS, targets.SATURN_UNLINKED_OVERLAYS
 # | Globals: N/A
 # | Params: target -- converter Target; name -- overlay name
 # | Returns: True if the overlay should be converted and linked, False if it should be KIND_SKIP
 #----------------------
 def dreamcast_overlay_exported(target, name):
     if target.regions is None:
-        return True
+        return name not in targets.SATURN_UNLINKED_OVERLAYS
     if name not in target.regions:
         return False
     return target.convert_rules or name not in targets.DREAMCAST_UNLINKED_OVERLAYS

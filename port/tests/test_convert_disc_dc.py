@@ -131,3 +131,11 @@ def test_saturn_folder_capacity_is_unchanged_by_the_target_default():
     cd.check_folder_capacity(overlays + resources, targets.SATURN)
     with pytest.raises(ValueError, match="RES"):
         cd.check_folder_capacity(resources + [(8999, cd.KIND_STREAM, 1)], targets.SATURN)
+
+
+def test_dreamcast_exports_menu_now_that_it_links():
+    assert cd.dreamcast_overlay_exported(targets.DREAMCAST, "menu")
+
+
+def test_saturn_skips_menu_until_it_has_byte_order_rules():
+    assert not cd.dreamcast_overlay_exported(targets.SATURN, "menu")

@@ -72,12 +72,19 @@ static unsigned sh_clip_edge(const ClipVertF *in, unsigned n, ClipVertF *out, fl
     unsigned count = 0;
     unsigned i;
 
+    const ClipVertF *prev;
+    float prev_d;
+
+    if (n == 0)
+    {
+        return 0;
+    }
+    prev = &in[n - 1];
+    prev_d = a * prev->x + b * prev->y + c;
     for (i = 0; i < n; i++)
     {
         const ClipVertF *cur = &in[i];
-        const ClipVertF *prev = &in[(i + n - 1) % n];
         float cur_d = a * cur->x + b * cur->y + c;
-        float prev_d = a * prev->x + b * prev->y + c;
         int cur_in = cur_d >= 0.0f;
         int prev_in = prev_d >= 0.0f;
 
@@ -101,13 +108,15 @@ static unsigned sh_clip_edge(const ClipVertF *in, unsigned n, ClipVertF *out, fl
         {
             out[count++] = *cur;
         }
+        prev = cur;
+        prev_d = cur_d;
     }
     return count;
 }
 
 /*----------------------
  | sh_clip
- | Description: Clips a convex polygon against the draw area's four edges in sequence, left, right, top, then bottom.
+ | Description: Clips a convex polygon against the draw area's four edges in sequence, left, right, top, then bottom, copying it untouched when every vertex is already inside.
  | Author: suinevere
  | Dependencies: sh_clip_edge
  | Globals: N/A
@@ -122,6 +131,21 @@ static unsigned sh_clip(const ClipVertF *verts, unsigned n, float w, float h, Cl
     ClipVertF *dst = buf_a;
     unsigned i;
 
+    for (i = 0; i < n; i++)
+    {
+        if (!(verts[i].x >= 0.0f && w - verts[i].x >= 0.0f && verts[i].y >= 0.0f && h - verts[i].y >= 0.0f))
+        {
+            break;
+        }
+    }
+    if (i == n)
+    {
+        for (i = 0; i < n; i++)
+        {
+            result[i] = verts[i];
+        }
+        return n;
+    }
     n = sh_clip_edge(src, n, dst, 1.0f, 0.0f, 0.0f);
     src = dst;
     dst = buf_b;

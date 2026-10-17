@@ -190,6 +190,21 @@ static int contains(const char *haystack, const char *needle)
 }
 
 /*----------------------
+ | watch_clear_seen
+ | Description: Empties the ring of recently printed lines watch_seen searches.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_ring_next, s_ring_filled
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void watch_clear_seen(void)
+{
+    s_ring_next = 0;
+    s_ring_filled = 0;
+}
+
+/*----------------------
  | watch_seen
  | Description: Reports whether any of the last 32 printed lines contains text as a substring.
  | Author: suinevere

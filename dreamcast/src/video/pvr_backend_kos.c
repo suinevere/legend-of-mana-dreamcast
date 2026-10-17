@@ -3,7 +3,7 @@
  | Description: KallistiOS PowerVR backend for pvr_submit: one autosort-off translucent list written through the store queues, the texture and palette memory hooks, and the displayed framebuffer for readback.
  | Author: suinevere
  | Dependencies: kos.h, pvr_submit.h, pvr_backend.h, texture_cache.h, palette_bank.h, blend.h, dc_system.h
- | Globals: s_flip_base, s_dr, s_dr_active, s_blend_factor, s_texture_ops, s_palette_ops, s_kos_backend
+ | Globals: s_flip_base, s_settle_closed, s_settled, s_dr, s_dr_active, s_blend_factor, s_texture_ops, s_palette_ops, s_kos_backend
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -70,6 +70,30 @@
  | Returns: N/A
  ----------------------*/
 static size_t s_flip_base;
+
+/*----------------------
+ | s_settle_closed
+ | Description: Scenes closed when the open scene began, the flip count settle_previous_scene waits for.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_settle_closed;
+
+/*----------------------
+ | s_settled
+ | Description: Set once the open scene has confirmed or given up waiting for the previous flip, so it waits at most once.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_settled = 1;
+
+static void settle_previous_scene(void);
 
 /*----------------------
  | s_dr
@@ -158,15 +182,16 @@ static void *texture_alloc(unsigned bytes)
 
 /*----------------------
  | texture_free_all
- | Description: TextureOps.free_all: forgets every texture allocation at once.
+ | Description: TextureOps.free_all: forgets every texture allocation at once, after the previous scene stops reading them.
  | Author: suinevere
- | Dependencies: pvr_mem_reset
+ | Dependencies: settle_previous_scene, pvr_mem_reset
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 static void texture_free_all(void)
 {
+    settle_previous_scene();
     pvr_mem_reset();
 }
 
@@ -175,28 +200,30 @@ static void texture_free_all(void)
  | Description: TextureOps.upload: copies a built texture into texture memory through the store queues.
  | Releases the direct-rendering store-queue lock first, because pvr_txr_load takes the same non-recursive sq_lock and would deadlock.
  | Author: suinevere
- | Dependencies: dr_suspend, pvr_txr_load
+ | Dependencies: settle_previous_scene, dr_suspend, pvr_txr_load
  | Globals: N/A
  | Params: dst -- texture memory, src -- built texture, bytes -- size
  | Returns: N/A
  ----------------------*/
 static void texture_upload(void *dst, const void *src, unsigned bytes)
 {
+    settle_previous_scene();
     dr_suspend();
     pvr_txr_load((void *)src, (pvr_ptr_t)dst, bytes);
 }
 
 /*----------------------
  | palette_set_entry
- | Description: PaletteOps.set_entry: writes one ARGB8888 palette RAM entry.
+ | Description: PaletteOps.set_entry: writes one ARGB8888 palette RAM entry, after the previous scene stops reading palette RAM.
  | Author: suinevere
- | Dependencies: pvr_set_pal_entry
+ | Dependencies: settle_previous_scene, pvr_set_pal_entry
  | Globals: N/A
  | Params: index -- entry 0-1023, argb8888 -- colour
  | Returns: N/A
  ----------------------*/
 static void palette_set_entry(unsigned index, uint32_t argb8888)
 {
+    settle_previous_scene();
     pvr_set_pal_entry(index, argb8888);
 }
 
@@ -265,27 +292,53 @@ static int kos_scene_shown(unsigned scenes_closed)
 }
 
 /*----------------------
- | kos_scene_begin
- | Description: Starts a scene and its translucent list once the previous scene is on screen; the first scene skips pvr_wait_ready, whose semaphore starts at zero.
- | Logs once and reports failure when the flip wait expires, so the caller can leave a pending texture flush for a scene that actually catches up.
+ | settle_previous_scene
+ | Description: Before the open scene's first write to texture memory or palette RAM, waits once for the previous scene to reach the screen so its render no longer reads them.
  | Author: suinevere
- | Dependencies: pvr_wait_ready, wait_previous_flip, pvr_scene_begin, pvr_list_begin, dc_log
- | Globals: s_dr_active
+ | Dependencies: wait_previous_flip, dc_log
+ | Globals: s_settle_closed, s_settled
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void settle_previous_scene(void)
+{
+    if (s_settled)
+    {
+        return;
+    }
+    s_settled = 1;
+    if (!wait_previous_flip(s_settle_closed))
+    {
+        dc_log("PVR: flip wait expired");
+    }
+}
+
+/*----------------------
+ | kos_scene_begin
+ | Description: Starts a scene and its translucent list once the TA buffer is free, waiting for the previous flip only when a texture flush is pending; later writes settle lazily.
+ | The first scene skips pvr_wait_ready, whose semaphore starts at zero.
+ | Author: suinevere
+ | Dependencies: pvr_wait_ready, texture_cache_flush_pending, settle_previous_scene, kos_scene_shown, pvr_scene_begin, pvr_list_begin
+ | Globals: s_dr_active, s_settle_closed, s_settled
  | Params: scenes_closed -- scenes handed to the PowerVR so far
- | Returns: 1 if the wait succeeded or none was needed, 0 if the flip wait expired
+ | Returns: 1 if every closed scene is confirmed on screen, else 0
  ----------------------*/
 static int kos_scene_begin(unsigned scenes_closed)
 {
     int flip_ok = 1;
 
+    s_settle_closed = scenes_closed;
+    s_settled = 1;
     if (scenes_closed != 0)
     {
         pvr_wait_ready();
-        flip_ok = wait_previous_flip(scenes_closed);
-        if (!flip_ok)
+        s_settled = 0;
+        if (texture_cache_flush_pending())
         {
-            dc_log("PVR: flip wait expired");
+            settle_previous_scene();
         }
+        flip_ok = kos_scene_shown(scenes_closed);
+        s_settled = s_settled || flip_ok;
     }
     pvr_scene_begin();
     pvr_list_begin(PVR_LIST_TR_POLY);

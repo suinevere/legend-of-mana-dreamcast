@@ -54,6 +54,7 @@ int texture_cache_lookup(int tpage_x, int tpage_y, int clut_x, int clut_y, int d
 unsigned texture_cache_flushes(void);
 unsigned texture_cache_expansions(void);
 unsigned texture_cache_skips(void);
+int texture_cache_flush_pending(void);
 void texture_cache_begin_frame(void);
 void texture_cache_flush_now(void);
 uint32_t texture_twiddle_index(unsigned x, unsigned y);

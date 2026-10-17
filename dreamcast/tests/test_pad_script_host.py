@@ -89,3 +89,17 @@ def test_gen_pad_script_mash_marker_keeps_the_full_watcher_text():
     with open(header_path) as f:
         header = f.read()
     assert '{ PAD_OP_MASH, 30, PAD_SCRIPT_BTN_CROSS, "field scene 857", 0 },' in header
+
+def test_gen_pad_script_scene_and_battle_compile_to_their_ops():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "jump.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("scene 71 2"+chr(10)+"battle"+chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                             capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_SCENE, 71, 0, "", 2 },' in header
+    assert '{ PAD_OP_BATTLE, 0, 0, "", 0 },' in header

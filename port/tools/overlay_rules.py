@@ -51,6 +51,7 @@ OverlaySpec.__new__.__defaults__ = (0, None, (), None)
 #----------------------
 # | FUNCTION_TABLES
 # | Description: Per overlay name, the function-pointer tables (name, entry count) defined in generated C from their PS1 entries instead of linked as raw overlay data.
+# |              g_field_object_flag_handlers mixes built-in animation ids below TABLE_LITERAL_LIMIT with handler pointers, so detection skips it and it is listed here.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -58,7 +59,8 @@ OverlaySpec.__new__.__defaults__ = (0, None, (), None)
 # | Returns: N/A
 #----------------------
 FUNCTION_TABLES = {
-    "field": (("g_field_script_op_table", 64), ("g_field_script_pair_op_table", 32), ("g_field_script_ext_op_table", 16)),
+    "field": (("g_field_script_op_table", 64), ("g_field_script_pair_op_table", 32), ("g_field_script_ext_op_table", 16),
+              ("g_field_object_flag_handlers", 16)),
     "wmap": (("D_800D7314", 6), ("D_800D732C", 22), ("D_800D7384", 4), ("D_800D7394", 4), ("D_800D73A4", 6),
              ("D_800D73BC", 6), ("D_800D73D4", 6), ("D_800D73EC", 6), ("D_800D7404", 6), ("D_800D741C", 6),
              ("D_800D7434", 6), ("D_800D744C", 4), ("D_800D745C", 6), ("g_wmap_effect_resource_loaders", 36),
@@ -746,10 +748,23 @@ def convert_wmap(buf, off):
 
 
 #----------------------
-# | OVERLAYS
-# | Description: Overlays the Saturn build loads, keyed by CD resource index; WMAP's large buffers are cut out of its ranges and placed by wmap_memory.
+# | convert_menu
+# | Description: MENU has no big-endian rules yet; Saturn skips it through targets.SATURN_UNLINKED_OVERLAYS, so reaching this is a bug.
 # | Author: suinevere
-# | Dependencies: convert_title, convert_checkps, convert_field, convert_gname, convert_wsel, convert_wmap, WSEL_TIMS, split_ranges, wmap_memory.place, wmap_memory.BUFFERS
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: buf -- packed bytearray, off -- symbol name to packed offset
+# | Returns: N/A; always raises ValueError
+#----------------------
+def convert_menu(buf, off):
+    raise ValueError("MENU has no Saturn data rules")
+
+
+#----------------------
+# | OVERLAYS
+# | Description: Overlays the converter packs, keyed by CD resource index; WMAP's large buffers are cut out of its ranges and placed by wmap_memory. MENU is Dreamcast-only for now.
+# | Author: suinevere
+# | Dependencies: convert_title, convert_checkps, convert_field, convert_gname, convert_wsel, convert_wmap, convert_menu, WSEL_TIMS, split_ranges, wmap_memory.place, wmap_memory.BUFFERS
 # | Globals: SECONDARY_BASE
 # | Params: N/A
 # | Returns: N/A
@@ -764,6 +779,8 @@ OVERLAYS = {
                     ["g_checkps_image_asset"], convert_checkps),
     5: OverlaySpec("gname", 0x80140000, [(0x80142C98, 0x8014F7B0)], "gname_symbol_addrs.txt",
                    ["g_name_entry_tim"], convert_gname, SECONDARY_BASE, None),
+    6: OverlaySpec("menu", 0x80140000, [(0x8014FBF4, 0x8016B9DC)], "menu_symbol_addrs.txt",
+                   [], convert_menu, SECONDARY_BASE, None),
     14: OverlaySpec("wsel", 0x8004FC70, [(0x80052608, 0x800CA8E4)], "wsel_symbol_addrs.txt",
                     WSEL_TIMS, convert_wsel),
     3: OverlaySpec("wmap", 0x8004FC70,
@@ -805,15 +822,45 @@ def relocate_wmap_pointers(buf, off, target):
 
 
 #----------------------
-# | POINTER_RULES
-# | Description: Per overlay name, the pointer relocation a target without convert rules runs instead; an overlay with no packed-range pointers has no entry.
+# | MENU_CONTENT_TABLE_WORDS / MENU_SCRIPT_POINTERS
+# | Description: g_menu_content_table's word count, every word a pointer or 0, and g_script_table's leading pointer count after its count word.
 # | Author: suinevere
-# | Dependencies: relocate_title_pointers, relocate_wmap_pointers
+# | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-POINTER_RULES = {"title": relocate_title_pointers, "wmap": relocate_wmap_pointers}
+MENU_CONTENT_TABLE_WORDS = 32
+MENU_SCRIPT_POINTERS = 11
+
+
+#----------------------
+# | relocate_menu_pointers
+# | Description: MENU pointer rule for a little-endian target: relocates the content table and the script table's pointers, the only packed-range pointers in its data.
+# | Author: suinevere
+# | Dependencies: relocate_words, OVERLAYS, MENU_CONTENT_TABLE_WORDS, MENU_SCRIPT_POINTERS
+# | Globals: N/A
+# | Params: buf -- packed bytearray, off -- symbol name to packed offset, target -- targets.Target
+# | Returns: N/A
+#----------------------
+def relocate_menu_pointers(buf, off, target):
+    content = off("g_menu_content_table")
+    script = off("g_script_table")
+    positions = [content + i * 4 for i in range(MENU_CONTENT_TABLE_WORDS)]
+    positions += [script + 4 + i * 4 for i in range(MENU_SCRIPT_POINTERS)]
+    relocate_words(buf, positions, OVERLAYS[6], target)
+
+
+#----------------------
+# | POINTER_RULES
+# | Description: Per overlay name, the pointer relocation a target without convert rules runs instead; an overlay with no packed-range pointers has no entry.
+# | Author: suinevere
+# | Dependencies: relocate_title_pointers, relocate_wmap_pointers, relocate_menu_pointers
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+POINTER_RULES = {"title": relocate_title_pointers, "wmap": relocate_wmap_pointers, "menu": relocate_menu_pointers}
 
 
 #----------------------
@@ -876,10 +923,22 @@ def tables_for(spec, overlay, symbols):
 
 
 #----------------------
-# | function_table_source
-# | Description: Builds C definitions of an overlay's function tables (tables_for), naming each PS1 entry through the symbol map; raises ValueError for an entry with no symbol.
+# | TABLE_LITERAL_LIMIT
+# | Description: Function-table entries below this are plain numbers (FIELD_OBJECT_HANDLER_FUNCTION_MIN) and are emitted as literal casts rather than named.
 # | Author: suinevere
-# | Dependencies: tables_for
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+TABLE_LITERAL_LIMIT = 0x100
+
+
+#----------------------
+# | function_table_source
+# | Description: Builds C definitions of an overlay's function tables (tables_for), naming each PS1 entry through the symbol map and casting entries below TABLE_LITERAL_LIMIT; raises ValueError for any other entry with no symbol.
+# | Author: suinevere
+# | Dependencies: tables_for, TABLE_LITERAL_LIMIT
 # | Globals: N/A
 # | Params: spec -- OverlaySpec, overlay -- decompressed overlay bytes, symbols -- name to PS1 address
 # | Returns: C source text, or None when the overlay has no function tables
@@ -897,11 +956,14 @@ def function_table_source(spec, overlay, symbols):
         row = []
         for i in range(count):
             (addr,) = struct.unpack_from("<I", overlay, start + i * 4)
+            if addr < TABLE_LITERAL_LIMIT:
+                row.append((None, addr))
+                continue
             if addr not in names:
                 raise ValueError("%s[%d] = 0x%08X names no symbol" % (table, i, addr))
-            row.append(names[addr])
+            row.append((names[addr], addr))
         entries.append((table, row))
-    functions = sorted({name for _, row in entries for name in row})
+    functions = sorted({name for _, row in entries for name, _ in row if name is not None})
     out = ["/*----------------------",
            " | %s_function_tables.c" % spec.name,
            " | Description: Generated by tools/convert_disc.py from the PS1 %s overlay: its function-pointer tables, with each entry named through the symbol map." % spec.name.upper(),
@@ -915,7 +977,7 @@ def function_table_source(spec, overlay, symbols):
     for table, row in entries:
         out.append("")
         out.append("void (*%s[%d])() = {" % (table, len(row)))
-        out += ["    %s," % name for name in row]
+        out += ["    %s," % (name if name is not None else "(void (*)())0x%X" % value) for name, value in row]
         out.append("};")
     return "\n".join(out) + "\n"
 

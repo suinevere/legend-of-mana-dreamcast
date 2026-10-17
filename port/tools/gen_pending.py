@@ -394,7 +394,7 @@ BENIGN = {
 
 #----------------------
 # | DREAMCAST_BENIGN
-# | Description: Pending Dreamcast functions GNAME's path reaches with no input once FIELD got its own overlay (Task 6); McxCardType is Saturn's memory-card probe, absent hardware on Dreamcast; akao_set_master_volume is sound, stubbed until D6.
+# | Description: Pending Dreamcast functions GNAME's path reaches with no input once FIELD got its own overlay (Task 6); McxCardType is Saturn's memory-card probe, absent hardware on Dreamcast; every akao_* call FIELD reaches is sound, stubbed until D6: queries report no effect playing and every transfer finished (0) so callers waiting on them move on, and commands do nothing.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -405,6 +405,20 @@ DREAMCAST_BENIGN = {
     "McxCardType": "zero",
     "cdrom_set_audio_volume": "void",
     "akao_set_master_volume": "zero",
+    "akao_is_sfx_playing": "zero",
+    "akao_get_xfer_state": "zero",
+    "akao_load_bank_slot": "zero",
+    "akao_load_upper_bank_slot": "zero",
+    "akao_reset_xfer_state": "zero",
+    "akao_start_song_channels": "zero",
+    "akao_streaming_upload_tick": "zero",
+    "akao_switch_song": "zero",
+    "akao_fade_sfx_pan": "void",
+    "akao_fade_sfx_volume": "void",
+    "akao_pause_audio": "void",
+    "akao_play_sound": "void",
+    "akao_resume_audio": "void",
+    "akao_stop_sfx": "void",
 }
 
 #----------------------

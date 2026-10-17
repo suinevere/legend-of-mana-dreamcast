@@ -3,7 +3,7 @@
  | Description: Manages PowerVR palette RAM as 64 slots of 16 ARGB8888 entries: 4bpp CLUTs take one slot, 8bpp CLUTs an aligned run of 16, evicted least recently used.
  | Author: suinevere
  | Dependencies: palette_bank.h, vram_mirror.h, gpu_decode.h
- | Globals: s_palette_ops, s_slots, s_tick
+ | Globals: s_palette_ops, s_slots, s_tick, s_stp_memo
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -112,6 +112,47 @@ static PaletteSlot s_slots[PALETTE_SLOTS];
 static uint32_t s_tick;
 
 /*----------------------
+ | STP_MEMO_ENTRIES
+ | Description: Size of the direct-mapped table remembering each CLUT's semi-transparency class; a power of two.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define STP_MEMO_ENTRIES 256
+
+/*----------------------
+ | StpMemo
+ | Description: One remembered palette_clut_stp result with the CLUT key and the VRAM generation it was read at.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct
+{
+    uint32_t generation;
+    int16_t clut_x;
+    int16_t clut_y;
+    uint8_t depth;
+    uint8_t stp;
+    uint8_t valid;
+} StpMemo;
+
+/*----------------------
+ | s_stp_memo
+ | Description: Remembered CLUT classes, so primitives sharing an unchanged CLUT skip rescanning its entries.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static StpMemo s_stp_memo[STP_MEMO_ENTRIES];
+
+/*----------------------
  | clut_entries
  | Description: Number of CLUT entries for a texture depth.
  | Author: suinevere
@@ -138,7 +179,7 @@ static int clut_entries(int depth)
  | Description: Forgets every slot and remembers the backend that writes palette RAM.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_palette_ops, s_slots, s_tick
+ | Globals: s_palette_ops, s_slots, s_tick, s_stp_memo
  | Params: ops -- palette RAM backend
  | Returns: N/A
  ----------------------*/
@@ -154,6 +195,10 @@ void palette_bank_init(const PaletteOps *ops)
         s_slots[i].tick = 0;
         s_slots[i].head = (uint8_t)i;
         s_slots[i].retired = 0;
+    }
+    for (i = 0; i < STP_MEMO_ENTRIES; i++)
+    {
+        s_stp_memo[i].valid = 0;
     }
 }
 
@@ -197,17 +242,16 @@ uint32_t palette_convert(uint16_t ps1, int variant)
 }
 
 /*----------------------
- | palette_clut_stp
- | Description: Classifies a CLUT by the semi-transparency bit of its non-zero entries.
+ | scan_clut_stp
+ | Description: Classifies a CLUT by reading the semi-transparency bit of every non-zero entry.
  | Author: suinevere
- | Dependencies: clut_entries, vram_mirror_at
+ | Dependencies: vram_mirror_at
  | Globals: N/A
- | Params: clut_x, clut_y -- CLUT position in VRAM words, depth -- DC_DEPTH_4 or DC_DEPTH_8
+ | Params: clut_x, clut_y -- CLUT position in VRAM words, count -- entries in the CLUT
  | Returns: STP_NONE, STP_ALL or STP_MIXED
  ----------------------*/
-int palette_clut_stp(int clut_x, int clut_y, int depth)
+static int scan_clut_stp(int clut_x, int clut_y, int count)
 {
-    int count = clut_entries(depth);
     int set = 0;
     int clear = 0;
     int i;
@@ -234,6 +278,33 @@ int palette_clut_stp(int clut_x, int clut_y, int depth)
         return STP_NONE;
     }
     return clear == 0 ? STP_ALL : STP_MIXED;
+}
+
+/*----------------------
+ | palette_clut_stp
+ | Description: Classifies a CLUT by the semi-transparency bit of its non-zero entries, rescanning only when its VRAM generation moved.
+ | Author: suinevere
+ | Dependencies: clut_entries, scan_clut_stp, vram_mirror_generation
+ | Globals: s_stp_memo
+ | Params: clut_x, clut_y -- CLUT position in VRAM words, depth -- DC_DEPTH_4 or DC_DEPTH_8
+ | Returns: STP_NONE, STP_ALL or STP_MIXED
+ ----------------------*/
+int palette_clut_stp(int clut_x, int clut_y, int depth)
+{
+    int count = clut_entries(depth);
+    uint32_t generation = vram_mirror_generation(clut_x, clut_y, count, 1);
+    StpMemo *m = &s_stp_memo[((unsigned)clut_x / 16u * 31u + (unsigned)clut_y * 7u + (unsigned)depth) & (STP_MEMO_ENTRIES - 1)];
+
+    if (!m->valid || m->clut_x != clut_x || m->clut_y != clut_y || m->depth != depth || m->generation != generation)
+    {
+        m->clut_x = (int16_t)clut_x;
+        m->clut_y = (int16_t)clut_y;
+        m->depth = (uint8_t)depth;
+        m->generation = generation;
+        m->stp = (uint8_t)scan_clut_stp(clut_x, clut_y, count);
+        m->valid = 1;
+    }
+    return m->stp;
 }
 
 /*----------------------

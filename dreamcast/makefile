@@ -1,7 +1,7 @@
 #----------------------
 # | makefile
 # | Description: KallistiOS build of the Legend of Mana Dreamcast port: converts the PS1 disc, compiles src/, the shared port/ sources and the decomp's main executable.
-# |              Links lom.elf with dreamcast.ld, links the CHECKPS, TITLE, GNAME, WSEL and WMAP overlays against it and packs everything into lom.cdi.
+# |              Links lom.elf with dreamcast.ld, links the CHECKPS, TITLE, GNAME, WSEL, WMAP and MENU overlays against it and packs everything into lom.cdi.
 # | Author: suinevere
 # | Dependencies: $(KOS_BASE)/Makefile.rules, pre.makefile, dreamcast.ld, src, ../port, ../src, ../include, ../port/tools/overlay_link.py, ../port/tools/gen_pending.py, cd
 # | Globals: N/A
@@ -210,6 +210,17 @@ DECOMP_TITLE = ../src/overlays/title/title.c ../src/overlays/title/title_save.c
 DECOMP_GNAME = ../src/overlays/gname/gname.c
 
 #----------------------
+# | DECOMP_MENU
+# | Description: The decomp MENU files the Dreamcast MENU overlay compiles; its PS1 overlay header is replaced by the generated vectors.
+# | Author: suinevere
+# | Dependencies: src/overlays/menu
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DECOMP_MENU = ../src/overlays/menu/menu.c ../src/overlays/menu/menu_screens.c ../src/overlays/menu/menu_lists.c ../src/overlays/menu/menu_actions.c ../src/overlays/menu/menu_card.c
+
+#----------------------
 # | DECOMP_WMAP
 # | Description: The decomp WMAP files saturn/src/wmap/*_unit.c compile, compiled here by path.
 # | Author: suinevere
@@ -260,6 +271,7 @@ OBJS = $(MAIN_OBJS) $(OBJDIR)/gen/dc_pending.o
 CHECKPS_OBJS = build/ovl/checkps_vectors.o $(call DECOMP_OBJ,$(DECOMP_CHECKPS)) build/overlays/checkps_init_unit.o
 TITLE_OBJS = build/ovl/title_vectors.o $(call DECOMP_OBJ,$(DECOMP_TITLE))
 GNAME_OBJS = build/ovl/gname_vectors.o $(call DECOMP_OBJ,$(DECOMP_GNAME))
+MENU_OBJS = build/ovl/menu_vectors.o $(call DECOMP_OBJ,$(DECOMP_MENU))
 WSEL_OBJS = build/ovl/wsel_vectors.o build/overlays/wsel_unit.o
 
 #----------------------
@@ -276,24 +288,25 @@ ifneq (,$(findstring LOM_PAD_SCRIPT,$(EXTRA_CFLAGS)))
 FIELD_OBJS += $(FIELD_TEST_OBJS)
 endif
 WMAP_OBJS = build/ovl/wmap_vectors.o $(call DECOMP_OBJ,$(DECOMP_WMAP)) build/ovl/wmap_function_tables.o build/overlays/wmap_controller_ports.o
-OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_OBJS) $(WMAP_OBJS)
+OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_OBJS) $(WMAP_OBJS) $(MENU_OBJS)
 
 #----------------------
 # | OVERLAY_NAMES / OVERLAY_GROUP_*
 # | Description: The linked overlays and each one's objects, for recipes that must judge every overlay against main alone, as its own link does.
 # | Author: suinevere
-# | Dependencies: CHECKPS_OBJS, TITLE_OBJS, GNAME_OBJS, WSEL_OBJS, FIELD_OBJS, WMAP_OBJS
+# | Dependencies: CHECKPS_OBJS, TITLE_OBJS, GNAME_OBJS, WSEL_OBJS, FIELD_OBJS, WMAP_OBJS, MENU_OBJS
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_NAMES = checkps title gname wsel field wmap
+OVERLAY_NAMES = checkps title gname wsel field wmap menu
 OVERLAY_GROUP_checkps = $(CHECKPS_OBJS)
 OVERLAY_GROUP_title = $(TITLE_OBJS)
 OVERLAY_GROUP_gname = $(GNAME_OBJS)
 OVERLAY_GROUP_wsel = $(WSEL_OBJS)
 OVERLAY_GROUP_field = $(FIELD_OBJS)
 OVERLAY_GROUP_wmap = $(WMAP_OBJS)
+OVERLAY_GROUP_menu = $(MENU_OBJS)
 
 #----------------------
 # | OVERLAY_SYMBOLS / OVERLAY_CODE
@@ -304,8 +317,8 @@ OVERLAY_GROUP_wmap = $(WMAP_OBJS)
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_SYMBOLS = gen/checkps_symbols.ld gen/title_symbols.ld gen/gname_symbols.ld gen/wsel_symbols.ld gen/field_symbols.ld gen/wmap_symbols.ld
-OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/OVL05C.BIN $(OBJDIR)/ovl/OVL14C.BIN $(OBJDIR)/ovl/OVL02C.BIN $(OBJDIR)/ovl/OVL03C.BIN
+OVERLAY_SYMBOLS = gen/checkps_symbols.ld gen/title_symbols.ld gen/gname_symbols.ld gen/wsel_symbols.ld gen/field_symbols.ld gen/wmap_symbols.ld gen/menu_symbols.ld
+OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/OVL05C.BIN $(OBJDIR)/ovl/OVL14C.BIN $(OBJDIR)/ovl/OVL02C.BIN $(OBJDIR)/ovl/OVL03C.BIN $(OBJDIR)/ovl/OVL06C.BIN
 
 #----------------------
 # | CFLAGS
@@ -460,6 +473,17 @@ build/decomp/overlays/field/runtime/field_subsystem_init.o: DECOMP_STD += -D_POS
 build/decomp/overlays/field/ui/field_ring_selection.o: DECOMP_STD += -D_POSIX_C_SOURCE=200809L
 
 #----------------------
+# | MENU objects
+# | Description: menu.h includes <strings.h>, so every MENU file hits the same legacy-bcopy clash as kanji.o; same fix.
+# | Author: suinevere
+# | Dependencies: ../include/overlays/menu/menu.h, ../port/psyq/lom_prefix.h
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(call DECOMP_OBJ,$(DECOMP_MENU)): DECOMP_STD += -D_POSIX_C_SOURCE=200809L
+
+#----------------------
 # | build/decomp/overlays/field/actors/field_actor_hud_effects.o
 # | Description: field_actor_hud_effects.c declares its own bcopy prototype, clashing with lom_prefix.h's Psy-Q one. LOM_SKIP_PREFIX_BCOPY hides lom_prefix.h's so only the file's own applies, still resolving to port/stubs/main_stubs.c at link time.
 # | Author: suinevere
@@ -585,7 +609,7 @@ $(OBJDIR)/ovl/overlay_externs.ld: $(OVERLAY_OBJS) $(OVERLAY_SYMBOLS)
 
 #----------------------
 # | $(OBJDIR)/ovl/OVL15C.BIN / $(OBJDIR)/ovl/OVL04C.BIN / $(OBJDIR)/ovl/OVL02C.BIN / $(OBJDIR)/ovl/OVL05C.BIN / $(OBJDIR)/ovl/OVL14C.BIN / $(OBJDIR)/ovl/OVL03C.BIN
-# | Description: Links CHECKPS, TITLE, FIELD, GNAME, WSEL and WMAP at their arena code regions against $(TARGET), per-OBJDIR since lom.elf and lom_test.elf differ.
+# | Description: Links CHECKPS, TITLE, FIELD, GNAME, WSEL, WMAP and MENU at their arena code regions against $(TARGET), per-OBJDIR since lom.elf and lom_test.elf differ.
 # |              GNAME links after FIELD and also against FIELD's own elf (--links field), as saturn/makefile's OVERLAY_LINKS_gname = field does.
 # | Author: suinevere
 # | Dependencies: ../port/tools/overlay_link.py, gen/checkps.ld, gen/title.ld, gen/field.ld, gen/gname.ld, gen/wsel.ld, gen/wmap.ld
@@ -616,6 +640,10 @@ $(OBJDIR)/ovl/OVL14C.BIN: $(TARGET) $(WSEL_OBJS) gen/wsel.ld gen/wsel_pending.ld
 $(OBJDIR)/ovl/OVL03C.BIN: $(TARGET) $(WMAP_OBJS) gen/wmap.ld gen/wmap_pending.ld
 	@mkdir -p $(dir $@)
 	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link wmap $(TARGET) $(OBJDIR)/ovl $@ $(WMAP_OBJS)
+
+$(OBJDIR)/ovl/OVL06C.BIN: $(TARGET) $(MENU_OBJS) gen/menu.ld gen/menu_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link menu $(TARGET) $(OBJDIR)/ovl $@ $(MENU_OBJS) --links field
 
 #----------------------
 # | $(OBJDIR)/cd-data/.stamp
@@ -698,8 +726,8 @@ PENDING_DEFINED = $(KOS_LIBKALLISTI) $(KOS_CDROM_PATCH_OBJS) $(TOOLCHAIN_LIBS) d
 
 #----------------------
 # | pending
-# | Description: Compiles main, CHECKPS, TITLE, FIELD, GNAME, WSEL and WMAP, then regenerates gen/dc_pending.c (halting stubs), gen/dc_pending.ld (data aliases) and each overlay's gen/<overlay>_pending.ld (its unnamed own data).
-# |              Each overlay links against main alone, so main's and every overlay's references count only what that link defines, except GNAME's group also resolves against FIELD's own objects (--group-links gname:field), matching GNAME's real --links field; overlays share PS1 addresses.
+# | Description: Compiles main, CHECKPS, TITLE, FIELD, GNAME, WSEL, WMAP and MENU, then regenerates gen/dc_pending.c (halting stubs), gen/dc_pending.ld (data aliases) and each overlay's gen/<overlay>_pending.ld (its unnamed own data).
+# |              Each overlay links against main alone, so main's and every overlay's references count only what that link defines, except GNAME's and MENU's groups also resolve against FIELD's own objects (--group-links gname:field menu:field), matching their real --links field; overlays share PS1 addresses.
 # | Author: suinevere
 # | Dependencies: ../port/tools/gen_pending.py, sh-elf-nm, ../config/us/symbols/*.txt, PENDING_DEFINED, OVERLAY_SYMBOLS
 # | Globals: N/A
@@ -710,7 +738,7 @@ pending: $(PRE_BUILD_STAMP) $(MAIN_OBJS) $(OVERLAY_OBJS) $(KOS_CDROM_PATCH_OBJS)
 	$(PYTHON) ../port/tools/gen_pending.py --nm sh-elf-nm --overlay dreamcast \
 		--objects $(MAIN_OBJS) \
 		$(foreach o,$(OVERLAY_NAMES),--overlay-group $(OVERLAY_GROUP_$(o)) gen/$(o)_symbols.ld) \
-		--group-links gname:field \
+		--group-links gname:field menu:field \
 		--symbols $(wildcard ../config/us/symbols/*.txt) \
 		--defined $(PENDING_DEFINED) --alias-defined gen/overlay_entries.ld \
 		--out-c gen/dc_pending.c --out-ld gen/dc_pending.ld --group-out-dir gen

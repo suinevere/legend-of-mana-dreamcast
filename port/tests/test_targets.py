@@ -169,3 +169,19 @@ def test_dreamcast_wmap_relocates_its_input_script_pointers():
     overlay_rules.POINTER_RULES["wmap"](buf, off, targets.DREAMCAST)
     base = targets.DREAMCAST.regions["wmap"].data_base
     assert struct.unpack_from("<3I", buf, scripts) == (base + off("D_800D0460"), base + off("D_800D0460") + 4, 0)
+
+
+def test_menu_pointer_rule_relocates_both_tables_and_keeps_the_script_count():
+    spec = spec_named("menu")
+    symbols = {"g_menu_content_table": 0x801686F8, "g_script_table": 0x80168778}
+    overlay = bytearray(0x2B9DC)
+    content = 0x801686F8 - spec.vram
+    script = 0x80168778 - spec.vram
+    struct.pack_into("<3I", overlay, content, 0x8014FF7C, 0, 0x80151A54)
+    struct.pack_into("<3I", overlay, script, 1, 0x80150594, 0x80151104)
+    buf, _ = overlay_rules.build_overlay(spec, overlay, symbols, targets.DREAMCAST)
+    off = functools.partial(overlay_rules.symbol_offset, symbols, spec)
+    base = targets.DREAMCAST.regions["menu"].data_base
+    first = spec.ranges[0][0]
+    assert struct.unpack_from("<3I", buf, off("g_menu_content_table")) == (base + 0x8014FF7C - first, 0, base + 0x80151A54 - first)
+    assert struct.unpack_from("<3I", buf, off("g_script_table")) == (1, base + 0x80150594 - first, base + 0x80151104 - first)

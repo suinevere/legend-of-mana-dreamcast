@@ -32,6 +32,11 @@ void dc_halt(const char *message)
     longjmp(s_halt_jump, 1);
 }
 
+void dc_log(const char *format, ...)
+{
+    (void)format;
+}
+
 void load_overlay(int resource_index)
 {
     (void)resource_index;
@@ -148,6 +153,17 @@ static void test_queue_read_of_entry_9_skip_halts_naming_not_on_disc(void)
     CHECK(strstr(s_halt_message, "resource 9 not on disc") != 0);
 }
 
+static void test_queue_seek_returns_size_without_halting(void)
+{
+    s_halted = 0;
+    if (setjmp(s_halt_jump) == 0)
+    {
+        CHECK(cdrom_queue_seek(0x123) == 4);
+        CHECK(cdrom_queue_seek(12) == 0);
+    }
+    CHECK(!s_halted);
+}
+
 static void test_queue_read_reads_a_fanned_out_res_subfolder(void)
 {
     unsigned char dst[4];
@@ -216,6 +232,7 @@ int main(void)
     test_stream_returns_zero_for_skipped_resource();
     test_queue_read_of_skipped_resource_halts_naming_not_on_disc();
     test_queue_read_of_entry_9_skip_halts_naming_not_on_disc();
+    test_queue_seek_returns_size_without_halting();
     test_queue_read_reads_a_fanned_out_res_subfolder();
     test_truncated_file_halts_naming_both_sizes();
     test_queue_read_reads_a_wmap_layout_cell_raw();

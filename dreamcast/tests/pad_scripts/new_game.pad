@@ -46,4 +46,18 @@ capture wmap-home-dark
 wait 140
 capture wmap-board-home
 mash CROSS 40 marker field scene 857
+mash CROSS 40 marker field map 18
+wait 240
+press DOWN 120
+press LEFT 120
+capture field-home
+scene 71 0
+mash CROSS 40 marker field scene 71
+wait 300
+capture field-battle-scene
+battle
+wait 60
+capture field-battle
+mash CROSS 20 marker field battle 0
+wait 120
 capture field-battle-end

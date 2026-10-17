@@ -342,7 +342,9 @@ static void test_mid_frame_flush_deferred(void)
     s_arena_limit = 96u * 1024u;
     CHECK(texture_cache_lookup(0, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 1, &first) == 0);
     CHECK(texture_cache_lookup(64, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 1, &out) == 0);
+    CHECK(!texture_cache_flush_pending());
     CHECK(texture_cache_lookup(128, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 1, &out) == -1);
+    CHECK(texture_cache_flush_pending());
     CHECK(s_free_all_calls == 0);
     CHECK(texture_cache_skips() == 1);
     CHECK(texture_cache_flushes() == 1);
@@ -351,6 +353,7 @@ static void test_mid_frame_flush_deferred(void)
     CHECK(s_free_all_calls == 0);
     texture_cache_begin_frame();
     CHECK(s_free_all_calls == 1);
+    CHECK(!texture_cache_flush_pending());
     CHECK(texture_cache_lookup(128, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 2, &out) == 0);
     CHECK(out.texture != NULL);
     CHECK(texture_cache_flushes() == 1);
@@ -447,6 +450,72 @@ static void test_clut_stp(void)
     CHECK(palette_clut_stp(32, 470, DC_DEPTH_4) == STP_NONE);
 }
 
+static int expected_stp(int k)
+{
+    return k % 3 == 0 ? STP_NONE : k % 3 == 1 ? STP_ALL : STP_MIXED;
+}
+
+static void load_stp_clut(int k)
+{
+    unsigned short words[16];
+    RECT clut;
+
+    clut.x = (short)((k % 64) * 16);
+    clut.y = (short)(300 + k / 64);
+    clut.w = 16;
+    clut.h = 1;
+    memset(words, 0, sizeof(words));
+    words[1] = (unsigned short)(expected_stp(k) == STP_NONE ? 0x0001 : 0x8001);
+    words[2] = (unsigned short)(expected_stp(k) == STP_MIXED ? 0x0002 : words[1]);
+    vram_mirror_load(&clut, (u_long *)words);
+}
+
+static void test_clut_stp_many_cluts(void)
+{
+    int pass;
+    int k;
+
+    for (k = 0; k < 320; k++)
+    {
+        load_stp_clut(k);
+    }
+    for (pass = 0; pass < 2; pass++)
+    {
+        for (k = 0; k < 320; k++)
+        {
+            CHECK(palette_clut_stp((k % 64) * 16, 300 + k / 64, DC_DEPTH_4) == expected_stp(k));
+        }
+    }
+    load_word(0, 300, 0x8005);
+    CHECK(palette_clut_stp(0, 300, DC_DEPTH_4) == STP_MIXED);
+    for (k = 1; k < 320; k++)
+    {
+        CHECK(palette_clut_stp((k % 64) * 16, 300 + k / 64, DC_DEPTH_4) == expected_stp(k));
+    }
+}
+
+static void test_repeat_lookup_sees_flush_and_writes_in_same_frame(void)
+{
+    DcSurfaceTexture out;
+    DcSurfaceTexture again;
+
+    reset_all();
+    load_word(64, 0, 0x2468);
+    CHECK(texture_cache_lookup(64, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 7, &out) == 0);
+    CHECK(texture_cache_lookup(64, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 7, &again) == 0);
+    CHECK(s_uploads == 1);
+    CHECK(again.texture == out.texture && again.palette_slot == out.palette_slot);
+    texture_cache_flush_now();
+    CHECK(texture_cache_lookup(64, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 7, &again) == 0);
+    CHECK(s_uploads == 2);
+    load_word(66, 3, 0x1357);
+    CHECK(texture_cache_lookup(64, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 7, &again) == 0);
+    CHECK(s_uploads == 3);
+    load_word(1, 480, 0x7FFF);
+    CHECK(texture_cache_lookup(64, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 7, &again) == 0);
+    CHECK(again.palette_slot != out.palette_slot);
+}
+
 int main(void)
 {
     test_palette_convert();
@@ -464,6 +533,8 @@ int main(void)
     test_clut_changed_mid_frame_gets_new_slot();
     test_clut_changed_mid_frame_with_no_slot_falls_back();
     test_clut_stp();
+    test_clut_stp_many_cluts();
+    test_repeat_lookup_sees_flush_and_writes_in_same_frame();
 
     if (failures != 0)
     {

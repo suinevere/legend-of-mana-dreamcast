@@ -17,7 +17,7 @@
 
 /*----------------------
  | lom_resident_state / lom_load_buffer
- | Description: PS1 fixed-address scratch state and FIELD's CD load buffer, sized as the Saturn's but aligned for the SH4 instead of pinned to LWRAM.
+ | Description: PS1 fixed-address scratch state and FIELD's CD load buffer, aligned for the SH4; the buffer holds the largest music file, since nothing past it on the Dreamcast is scratch the way the PS1's CD stream area is.
  | Author: suinevere
  | Dependencies: lom_prefix.h, lom_platform_memory.h
  | Globals: N/A
@@ -25,7 +25,7 @@
  | Returns: N/A
  ----------------------*/
 u8 lom_resident_state[0x1000] __attribute__((aligned(32)));
-u8 lom_load_buffer[LOM_LOAD_BUFFER_SIZE] __attribute__((aligned(32)));
+u8 lom_load_buffer[LOM_DC_LOAD_BUFFER_SIZE] __attribute__((aligned(32)));
 
 /*----------------------
  | lom_sound_bank

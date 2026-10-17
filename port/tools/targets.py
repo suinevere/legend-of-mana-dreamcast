@@ -3,7 +3,7 @@
 # | Description: Converter targets: the Saturn profile with its byte-swap and colour rules, and the little-endian Dreamcast profile with fixed per-overlay arena regions.
 # | Author: suinevere
 # | Dependencies: N/A
-# | Globals: SATURN, DREAMCAST, DREAMCAST_UNLINKED_OVERLAYS, ARENA_BASE, ARENA_END, TARGETS
+# | Globals: SATURN, DREAMCAST, DREAMCAST_UNLINKED_OVERLAYS, SATURN_UNLINKED_OVERLAYS, ARENA_BASE, ARENA_END, TARGETS
 # | Params: N/A
 # | Returns: N/A
 #----------------------
@@ -67,6 +67,7 @@ SATURN = Target("saturn", True, None, True)
 # |              shift up by FIELD's growth (0x20000) to stay clear of it; WMAP's own sizing follows the same rule from its
 # |              measured SH-4 text (0x493AC bytes) and its whole PS1 data span, buffers included (0xF03D0 bytes plus a
 # |              0x3738-byte tail).
+# |              MENU's code region holds its PS1 0xFBF4 bytes of MIPS text with room to spare, and its data region its 0x1BDE8-byte blob plus bss.
 # | Author: suinevere
 # | Dependencies: Region, ARENA_BASE
 # | Globals: N/A
@@ -80,6 +81,7 @@ DREAMCAST = Target("dreamcast", False, {
     "title": Region(0x8C880000, 0x40000, 0x8C8C0000, 0xC0000),
     "gname": Region(0x8C980000, 0x40000, 0x8C9C0000, 0x40000),
     "wsel": Region(0x8CA00000, 0x40000, 0x8CA40000, 0xC0000),
+    "menu": Region(0x8CB00000, 0x40000, 0x8CB40000, 0x40000),
 }, False)
 
 #----------------------
@@ -92,6 +94,17 @@ DREAMCAST = Target("dreamcast", False, {
 # | Returns: N/A
 #----------------------
 DREAMCAST_UNLINKED_OVERLAYS = ()
+
+#----------------------
+# | SATURN_UNLINKED_OVERLAYS
+# | Description: Overlays the Dreamcast links that the Saturn build does not yet, since they have no big-endian data rules; Saturn skips them on the disc and in its link scripts.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+SATURN_UNLINKED_OVERLAYS = ("menu",)
 
 #----------------------
 # | TARGETS

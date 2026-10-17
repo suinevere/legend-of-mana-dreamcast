@@ -1,6 +1,6 @@
 /*----------------------
  | test_watch.c
- | Description: Host test for the watcher: first-poll and change printing, and watch_seen's substring search over recently printed lines.
+ | Description: Host test for the watcher: first-poll and change printing, and watch_seen's substring search over recently printed lines, and watch_clear_seen forgetting them.
  | Author: suinevere
  | Dependencies: watch.h, watch.c
  ----------------------*/
@@ -34,6 +34,17 @@ int main(void)
     if (!watch_seen("scene 857") || watch_seen("scene 16"))
     {
         return 2;
+    }
+    watch_clear_seen();
+    if (watch_seen("scene 857"))
+    {
+        return 3;
+    }
+    a = 16;
+    watch_poll();
+    if (!watch_seen("scene 16"))
+    {
+        return 4;
     }
     puts("OK");
     return 0;

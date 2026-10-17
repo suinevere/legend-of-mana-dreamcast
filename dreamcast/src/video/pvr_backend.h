@@ -18,7 +18,7 @@
 /*----------------------
  | PvrBackend
  | Description: Starts and finishes a scene, sets the background, and writes a polygon header or one strip vertex in screen pixels with page-normalised texel coordinates.
- | scene_begin returns 0 if it gave up waiting for the previous flip, leaving a pending texture flush for later; scene_shown reports that wait's result without waiting.
+ | scene_begin returns 0 when the previous flip is not yet confirmed, leaving a pending texture flush for later; scene_shown checks the same without waiting.
  | Author: suinevere
  | Dependencies: DcSurfaceTexture, BlendPass
  | Globals: N/A

@@ -63,6 +63,18 @@ void watch_poll(void);
 int watch_seen(const char *text);
 
 /*----------------------
+ | watch_clear_seen
+ | Description: Forgets every recently printed line, so a later watch_seen only finds lines printed after this call.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void watch_clear_seen(void);
+
+
+/*----------------------
  | g_dc_watch_poll
  | Description: Main's per-vblank watcher hook, set by field_watch_install; NULL until installed, called from the test image's VSync handler.
  | Author: suinevere

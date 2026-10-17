@@ -1,6 +1,6 @@
 /*----------------------
  | pad_script.c
- | Description: Interpreter for a compiled-in pad script: one step runs per vblank, advancing on a wait, a state match, a hold-then-release, a one-shot capture log, or a mash's stop check.
+ | Description: Interpreter for a compiled-in pad script: one step runs per vblank, advancing on a wait, a state match, a hold-then-release, a one-shot capture log, a mash's stop check, or a test-only scene jump or battle start.
  | Author: suinevere
  | Dependencies: pad_script.h, watch.h, dc_system.h (LOM_HOST_TEST off), stdio.h (LOM_HOST_TEST on)
  | Globals: s_steps, s_count, s_index, s_remaining, s_releasing, s_buttons, s_printer
@@ -226,10 +226,10 @@ void pad_script_start(const PadScriptStep *steps, unsigned count)
 
 /*----------------------
  | pad_script_poll
- | Description: Advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, or mashes until its stop condition holds.
+ | Description: Advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, or calls the scene-jump or battle hook once.
  | Author: suinevere
- | Dependencies: advance, log_capture, mash_stopped
- | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons
+ | Dependencies: advance, log_capture, mash_stopped, g_dc_field_scene_jump, g_dc_field_battle
+ | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons, g_dc_field_scene_jump, g_dc_field_battle
  | Params: vblank -- current vblank count (unused), game_state -- current g_game_state
  | Returns: N/A
  ----------------------*/
@@ -304,6 +304,22 @@ void pad_script_poll(unsigned vblank, int game_state)
                 s_remaining = PAD_SCRIPT_MASH_PRESS_VBLANKS;
             }
         }
+        break;
+    case PAD_OP_SCENE:
+        s_buttons = 0;
+        if (g_dc_field_scene_jump != 0)
+        {
+            g_dc_field_scene_jump((int)step->arg, (int)step->stop_state);
+        }
+        advance();
+        break;
+    case PAD_OP_BATTLE:
+        s_buttons = 0;
+        if (g_dc_field_battle != 0)
+        {
+            g_dc_field_battle();
+        }
+        advance();
         break;
     case PAD_OP_CAPTURE:
     default:

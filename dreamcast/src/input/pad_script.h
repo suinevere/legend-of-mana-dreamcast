@@ -68,6 +68,28 @@
 #define PAD_OP_MASH 4
 
 /*----------------------
+ | PAD_OP_SCENE
+ | Description: Test-only step op: asks FIELD to change to scene arg at spawn stop_state through g_dc_field_scene_jump, the way a door does, then advances.
+ | Author: suinevere
+ | Dependencies: g_dc_field_scene_jump
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_SCENE 5
+
+/*----------------------
+ | PAD_OP_BATTLE
+ | Description: Test-only step op: starts the current scene's first monster group through g_dc_field_battle, then advances.
+ | Author: suinevere
+ | Dependencies: g_dc_field_battle
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_BATTLE 6
+
+/*----------------------
  | PAD_SCRIPT_BTN_L2
  | Description: PS1 active-high L2 bit, numerically equal to common/pad.h's PAD_BTN_L2.
  | Author: suinevere

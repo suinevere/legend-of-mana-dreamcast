@@ -3,7 +3,7 @@
  | Description: Builds twiddled PowerVR textures from PS1 pages in the VRAM mirror and reuses them until the page's VRAM generation moves; never frees or overwrites memory the current frame used.
  | Author: suinevere
  | Dependencies: texture_cache.h, palette_bank.h, vram_mirror.h, gpu_decode.h
- | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_scratch
+ | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_scratch, s_lookup_memo, s_memo_epoch
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -147,6 +147,63 @@ static unsigned s_skips;
  | Returns: N/A
  ----------------------*/
 static int s_flush_pending;
+
+/*----------------------
+ | LOOKUP_MEMO_ENTRIES
+ | Description: Size of the direct-mapped table of recent lookups; a power of two.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define LOOKUP_MEMO_ENTRIES 64
+
+/*----------------------
+ | LookupMemo
+ | Description: One remembered lookup result with its key, frame, VRAM write count and flush epoch, valid only while all of them still match.
+ | Author: suinevere
+ | Dependencies: DcSurfaceTexture
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct
+{
+    DcSurfaceTexture out;
+    uint32_t writes;
+    unsigned epoch;
+    unsigned frame;
+    int16_t tpage_x;
+    int16_t tpage_y;
+    int16_t clut_x;
+    int16_t clut_y;
+    uint8_t depth;
+    uint8_t variant;
+    uint8_t valid;
+} LookupMemo;
+
+/*----------------------
+ | s_lookup_memo
+ | Description: Recent lookups, so primitives repeating a key within a frame skip the palette and entry scans.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static LookupMemo s_lookup_memo[LOOKUP_MEMO_ENTRIES];
+
+/*----------------------
+ | s_memo_epoch
+ | Description: Bumped by every flush and init, retiring all remembered lookups at once.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_memo_epoch;
 
 /*----------------------
  | s_scratch
@@ -372,10 +429,10 @@ static unsigned build_texture(const TextureEntry *e)
 
 /*----------------------
  | flush_all
- | Description: Frees all texture memory and forgets every entry.
+ | Description: Frees all texture memory and forgets every entry and remembered lookup.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_texture_ops, s_entries
+ | Globals: s_texture_ops, s_entries, s_memo_epoch
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -391,6 +448,7 @@ static void flush_all(void)
     {
         s_entries[i].kind = ENTRY_FREE;
     }
+    s_memo_epoch++;
 }
 
 /*----------------------
@@ -553,7 +611,7 @@ static int ensure_built(TextureEntry *e, uint32_t page_gen, uint32_t clut_gen, u
  | Description: Forgets every entry and zeroes the counters; texture memory is assumed empty.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending
+ | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_memo_epoch
  | Params: ops -- texture memory backend
  | Returns: N/A
  ----------------------*/
@@ -570,6 +628,7 @@ void texture_cache_init(const TextureOps *ops)
     s_expansions = 0;
     s_skips = 0;
     s_flush_pending = 0;
+    s_memo_epoch++;
 }
 
 /*----------------------
@@ -644,23 +703,34 @@ static TextureEntry *lookup_entry(int kind, int tpage_x, int tpage_y, int depth,
 /*----------------------
  | texture_cache_lookup
  | Description: Returns the texture for a page drawn through a CLUT and variant.
- | A shared paletted page with a palette slot, a 15bpp page, or an ARGB1555 expansion when no slot is free.
+ | A shared paletted page with a palette slot, a 15bpp page, or an ARGB1555 expansion when no slot is free; repeats within a frame with VRAM unchanged come from the memo.
  | Author: suinevere
- | Dependencies: lookup_entry, page_words_wide, palette_bank_acquire, vram_mirror_generation
- | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_scratch
+ | Dependencies: lookup_entry, page_words_wide, palette_bank_acquire, vram_mirror_generation, vram_mirror_write_count
+ | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_scratch, s_lookup_memo, s_memo_epoch
  | Params: tpage_x, tpage_y -- page origin in VRAM words, clut_x, clut_y -- CLUT position, depth -- DC_DEPTH_*, variant -- PAL_* alpha variant, frame -- current frame, out -- result
  | Returns: 0 on success, -1 (counted as a skip) on a bad depth or when memory ran out this frame
  ----------------------*/
 int texture_cache_lookup(int tpage_x, int tpage_y, int clut_x, int clut_y, int depth, int variant, unsigned frame, DcSurfaceTexture *out)
 {
     TextureEntry *e;
+    LookupMemo *m;
     uint32_t page_gen;
+    uint32_t writes;
     int slot;
 
     if (s_texture_ops == 0 || out == 0 || (depth != DC_DEPTH_4 && depth != DC_DEPTH_8 && depth != DC_DEPTH_15))
     {
         s_skips++;
         return -1;
+    }
+    writes = vram_mirror_write_count();
+    m = &s_lookup_memo[((unsigned)tpage_x / 64u + (unsigned)tpage_y / 256u * 16u + (unsigned)clut_x / 16u * 5u
+                        + (unsigned)clut_y * 3u + (unsigned)variant * 7u + (unsigned)depth) & (LOOKUP_MEMO_ENTRIES - 1)];
+    if (m->valid && m->frame == frame && m->writes == writes && m->epoch == s_memo_epoch && m->tpage_x == tpage_x
+        && m->tpage_y == tpage_y && m->clut_x == clut_x && m->clut_y == clut_y && m->depth == depth && m->variant == variant)
+    {
+        *out = m->out;
+        return 0;
     }
     page_gen = vram_mirror_generation(tpage_x, tpage_y, page_words_wide(depth), TEXTURE_PAGE_SIZE);
     slot = depth == DC_DEPTH_15 ? -1 : palette_bank_acquire(clut_x, clut_y, depth, variant, frame);
@@ -683,6 +753,17 @@ int texture_cache_lookup(int tpage_x, int tpage_y, int clut_x, int clut_y, int d
     }
     out->texture = e->texture;
     out->palette_slot = slot;
+    m->out = *out;
+    m->writes = writes;
+    m->epoch = s_memo_epoch;
+    m->frame = frame;
+    m->tpage_x = (int16_t)tpage_x;
+    m->tpage_y = (int16_t)tpage_y;
+    m->clut_x = (int16_t)clut_x;
+    m->clut_y = (int16_t)clut_y;
+    m->depth = (uint8_t)depth;
+    m->variant = (uint8_t)variant;
+    m->valid = 1;
     return 0;
 }
 
@@ -726,4 +807,18 @@ unsigned texture_cache_expansions(void)
 unsigned texture_cache_skips(void)
 {
     return s_skips;
+}
+
+/*----------------------
+ | texture_cache_flush_pending
+ | Description: Reports whether a flush is waiting for texture_cache_begin_frame, so the backend knows the next scene must wait for the previous one to finish.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_flush_pending
+ | Params: N/A
+ | Returns: 1 if a deferred flush is pending, else 0
+ ----------------------*/
+int texture_cache_flush_pending(void)
+{
+    return s_flush_pending;
 }

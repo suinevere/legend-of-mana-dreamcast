@@ -148,10 +148,44 @@ def parse_capture(tokens, lineno):
 
 
 #----------------------
+# | parse_scene
+# | Description: Parses "scene <id> <spawn>" into a test-only scene-jump step, carrying the spawn in stop_state.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "scene", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_SCENE", arg scene id, stop_state spawn
+#----------------------
+def parse_scene(tokens, lineno):
+    if len(tokens) != 2:
+        raise ScriptError("line %d: scene needs <id> <spawn>" % lineno)
+    try:
+        scene, spawn = int(tokens[0]), int(tokens[1])
+    except ValueError:
+        raise ScriptError("line %d: scene id and spawn must be integers" % lineno)
+    return {"op": "PAD_OP_SCENE", "arg": scene, "buttons_macros": [], "name": "", "stop_state": spawn}
+
+
+#----------------------
+# | parse_battle
+# | Description: Parses "battle" into a test-only step that starts the current scene's first monster group.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "battle", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_BATTLE"
+#----------------------
+def parse_battle(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: battle takes no arguments" % lineno)
+    return {"op": "PAD_OP_BATTLE", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | parse_script
 # | Description: Parses every non-comment, non-blank line of a .pad script into step dicts.
 # | Author: suinevere
-# | Dependencies: parse_wait, parse_press, parse_capture, ScriptError
+# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, ScriptError
 # | Globals: N/A
 # | Params: text -- script file contents
 # | Returns: list of step dicts
@@ -172,6 +206,10 @@ def parse_script(text):
             steps.append(parse_mash(rest, lineno))
         elif verb == "capture":
             steps.append(parse_capture(rest, lineno))
+        elif verb == "scene":
+            steps.append(parse_scene(rest, lineno))
+        elif verb == "battle":
+            steps.append(parse_battle(rest, lineno))
         else:
             raise ScriptError("line %d: unknown verb %r" % (lineno, verb))
     return steps

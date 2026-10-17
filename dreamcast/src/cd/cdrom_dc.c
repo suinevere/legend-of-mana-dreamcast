@@ -380,7 +380,7 @@ void cdrom_load_resource_table(s32 lba, s32 data_size_bytes)
  | Description: Loads an overlay into its arena region, or decompresses a raw resource or copies a converted stream into the destination, rebasing a map's PS1 pointers.
  |              A missing index halts naming it; a skipped one silently returns instead, matching the Saturn since game code (e.g. the intro movie) expects some targets to omit it.
  | Author: suinevere
- | Dependencies: resource_index_find, load_overlay, stream_raw_resource, read_resource, map_relocate, halt_resource_not_on_disc
+ | Dependencies: resource_index_find, load_overlay, stream_raw_resource, read_resource, map_relocate, halt_resource_not_on_disc, dc_log
  | Globals: N/A
  | Params: resource_index -- PS1 resource, destination -- load address for non-overlay resources
  | Returns: 0
@@ -389,6 +389,7 @@ s32 cdrom_stream(s32 resource_index, u8 *destination)
 {
     const ResourceEntry *entry = resource_index_find(resource_index);
 
+    dc_log("cd stream %d", (int)resource_index);
     if (entry == 0)
     {
         halt_resource_not_on_disc(resource_index);
@@ -418,7 +419,7 @@ s32 cdrom_stream(s32 resource_index, u8 *destination)
  | cdrom_queue_read
  | Description: Reads an exported resource, WMAP layout cells included, immediately, rebasing a map's PS1 pointers. A missing or skipped resource halts naming it, matching cdrom_stream.
  | Author: suinevere
- | Dependencies: resource_index_find, read_resource, map_relocate, halt_resource_not_on_disc
+ | Dependencies: resource_index_find, read_resource, map_relocate, halt_resource_not_on_disc, dc_log
  | Globals: N/A
  | Params: resource_index -- PS1 resource, dst_buffer -- destination
  | Returns: the resource's byte size
@@ -428,6 +429,7 @@ s32 cdrom_queue_read(s32 resource_index, void *dst_buffer)
     const ResourceEntry *entry = resource_index_find(resource_index);
     s32 size;
 
+    dc_log("cd read %d", (int)resource_index);
     if (entry == 0 || entry->kind == RESOURCE_KIND_SKIP)
     {
         halt_resource_not_on_disc(resource_index);
@@ -483,6 +485,20 @@ s32 cdrom_get_resource_size(s32 resource_index)
     const ResourceEntry *entry = resource_index_find(resource_index);
 
     return entry ? (s32)entry->size : 0;
+}
+
+/*----------------------
+ | cdrom_queue_seek
+ | Description: Reads are synchronous, so there is no head to position ahead of a read; returns what the PS1 queue does without reading.
+ | Author: suinevere
+ | Dependencies: cdrom_get_resource_size
+ | Globals: N/A
+ | Params: resource_index -- PS1 resource
+ | Returns: byte size, or 0 when not exported
+ ----------------------*/
+s32 cdrom_queue_seek(s32 resource_index)
+{
+    return cdrom_get_resource_size(resource_index);
 }
 
 /*----------------------

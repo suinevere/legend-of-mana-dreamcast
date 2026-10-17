@@ -114,6 +114,36 @@ static void test_quad_inside_second_area(void)
     CHECK(fabsf_local(poly.v[3].x - 50.0f) < 0.01f && fabsf_local(poly.v[3].y - 94.0f) < 0.01f);
 }
 
+static void test_triangle_on_area_edges_unchanged(void)
+{
+    DcGpuState state;
+    DcPrim prim;
+    DcPoly poly;
+    int rc;
+
+    make_area(&state, 10, 20, 109, 99);
+    memset(&prim, 0, sizeof(prim));
+    prim.shape = DC_SHAPE_TRI;
+    prim.nverts = 3;
+    prim.v[0].x = 10;
+    prim.v[0].y = 20;
+    prim.v[0].u = 7;
+    prim.v[0].r = 200;
+    prim.v[1].x = 110;
+    prim.v[1].y = 20;
+    prim.v[1].v = 9;
+    prim.v[1].g = 100;
+    prim.v[2].x = 10;
+    prim.v[2].y = 100;
+    prim.v[2].b = 50;
+
+    rc = clip_prim(&prim, &state, &poly);
+    CHECK(rc == 3);
+    CHECK(poly.v[0].x == 0.0f && poly.v[0].y == 0.0f && poly.v[0].u == 7.0f && poly.v[0].r == 200);
+    CHECK(poly.v[1].x == 100.0f && poly.v[1].y == 0.0f && poly.v[1].v == 9.0f && poly.v[1].g == 100);
+    CHECK(poly.v[2].x == 0.0f && poly.v[2].y == 80.0f && poly.v[2].b == 50);
+}
+
 static void test_triangle_crosses_left_edge(void)
 {
     DcGpuState state;
@@ -239,6 +269,7 @@ int main(void)
     test_rect_trimmed_right();
     test_rect_fully_outside();
     test_quad_inside_second_area();
+    test_triangle_on_area_edges_unchanged();
     test_triangle_crosses_left_edge();
     test_quad_far_vertex_clipped_not_dropped();
     test_line_becomes_one_pixel_tall_quad();

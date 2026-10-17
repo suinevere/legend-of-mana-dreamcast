@@ -162,3 +162,14 @@ def test_dreamcast_rejects_an_overlay_without_a_region():
                             capture_output=True, text=True)
     assert result.returncode != 0
     assert "nosuchoverlay" in result.stdout + result.stderr
+
+
+def test_dreamcast_menu_entry_is_its_code_base():
+    base = targets.DREAMCAST.regions["menu"].code_base
+    assert "_func_801405B0 = 0x%08X;" % base in overlay_link.dc_entries_ld()
+
+
+def test_saturn_leaves_menu_out_of_its_generated_files():
+    names = [name for name, _ in overlay_link.generated_files(targets.SATURN)]
+    assert "menu.ld" not in names
+    assert "_func_801405B0" not in overlay_link.entries_ld()
