@@ -46,7 +46,7 @@ def test_dreamcast_regions_fit_the_arena_without_overlap():
     for (alo, ahi, a), (blo, bhi, b) in zip(spans, spans[1:]):
         assert ahi <= blo, (a, b)
     assert {"wmap", "field"} <= set(targets.DREAMCAST.regions)
-    assert targets.ARENA_BASE == 0x8C400000
+    assert targets.ARENA_BASE == 0x8C480000
 
 
 def test_secondary_overlays_share_one_region():
@@ -191,3 +191,9 @@ def test_menu_pointer_rule_relocates_both_tables_and_keeps_the_script_count():
     at = lambda addr: base + overlay_rules.packed_offset(addr, spec)
     assert struct.unpack_from("<3I", buf, off("g_menu_content_table")) == (at(0x8014FF7C), 0, at(0x80151A54))
     assert struct.unpack_from("<3I", buf, off("g_script_table")) == (1, at(0x80150594), at(0x80151104))
+
+
+def test_movie_is_a_secondary_overlay_saturn_leaves_unlinked():
+    assert "movie" in targets.SECONDARY_OVERLAYS
+    assert targets.DREAMCAST.regions["movie"] is targets.SECONDARY_REGION
+    assert "movie" in targets.SATURN_UNLINKED_OVERLAYS

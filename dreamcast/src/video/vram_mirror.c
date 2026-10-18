@@ -7,6 +7,8 @@
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#include <string.h>
+
 #include "vram_mirror.h"
 
 /*----------------------
@@ -301,12 +303,23 @@ void vram_mirror_load(const RECT *rect, const u_long *pixels)
 
     for (row = 0; row < rect->h; row++)
     {
+        const unsigned short *line = src + row * rect->w;
+
+        if (wrap_coord(rect->x, VRAM_MIRROR_WIDTH) + rect->w <= VRAM_MIRROR_WIDTH)
+        {
+            unsigned short *dst = mirror_at(rect->x, rect->y + row);
+            size_t bytes = (size_t)rect->w * sizeof(unsigned short);
+
+            changed |= memcmp(dst, line, bytes) != 0;
+            memcpy(dst, line, bytes);
+            continue;
+        }
         for (col = 0; col < rect->w; col++)
         {
             unsigned short *dst = mirror_at(rect->x + col, rect->y + row);
 
-            changed |= *dst != src[row * rect->w + col];
-            *dst = src[row * rect->w + col];
+            changed |= *dst != line[col];
+            *dst = line[col];
         }
     }
     if (changed)

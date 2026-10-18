@@ -1,0 +1,3 @@
+# Decode-speed probe: 150 intro frames decoded in place before the title.
+probe movie
+wait state 2

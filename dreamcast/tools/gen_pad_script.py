@@ -230,6 +230,63 @@ def parse_longvoice(tokens, lineno):
 
 
 #----------------------
+# | parse_movies
+# | Description: Parses "movies" into a test-only step that stops the script holding Start through the intro, so the intro plays.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "movies", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_MOVIES"
+#----------------------
+def parse_movies(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: movies takes no arguments" % lineno)
+    return {"op": "PAD_OP_MOVIES", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
+# | parse_fieldmovie
+# | Description: Parses "fieldmovie" into a test-only step that starts the current scene's first movie animation through FIELD's own restart op.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "fieldmovie", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_FIELD_MOVIE"
+#----------------------
+def parse_fieldmovie(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: fieldmovie takes no arguments" % lineno)
+    return {"op": "PAD_OP_FIELD_MOVIE", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
+# | PROBE_TARGETS
+# | Description: Probes "probe <name>" runs, in the order of their PAD_OP_PROBE_* ops' arguments.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+PROBE_TARGETS = ["movie"]
+
+
+#----------------------
+# | parse_probe
+# | Description: Parses "probe movie" into a test-only step that times software STR decoding of the intro.
+# | Author: suinevere
+# | Dependencies: PROBE_TARGETS, ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "probe", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_PROBE_MOVIE"
+#----------------------
+def parse_probe(tokens, lineno):
+    if len(tokens) != 1 or tokens[0] not in PROBE_TARGETS:
+        raise ScriptError("line %d: probe needs one of %s, not %r" % (lineno, ", ".join(PROBE_TARGETS), " ".join(tokens)))
+    return {"op": "PAD_OP_PROBE_MOVIE", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | OPEN_TARGETS
 # | Description: Secondary overlays "open <name>" reaches, in the index order field_watch_unit.c's opener table uses.
 # | Author: suinevere
@@ -303,7 +360,7 @@ def parse_musicoff(tokens, lineno):
 # | parse_script
 # | Description: Parses every non-comment, non-blank line of a .pad script into step dicts.
 # | Author: suinevere
-# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, parse_tone, parse_longvoice, parse_resource_step, parse_musicoff, ScriptError
+# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, parse_tone, parse_longvoice, parse_resource_step, parse_musicoff, parse_probe, parse_movies, parse_fieldmovie, ScriptError
 # | Globals: N/A
 # | Params: text -- script file contents
 # | Returns: list of step dicts
@@ -342,6 +399,12 @@ def parse_script(text):
             steps.append(parse_musicoff(rest, lineno))
         elif verb == "sfxset":
             steps.append(parse_resource_step(verb, "PAD_OP_SFXSET", SFXSET_RESOURCES, rest, lineno))
+        elif verb == "probe":
+            steps.append(parse_probe(rest, lineno))
+        elif verb == "movies":
+            steps.append(parse_movies(rest, lineno))
+        elif verb == "fieldmovie":
+            steps.append(parse_fieldmovie(rest, lineno))
         else:
             raise ScriptError("line %d: unknown verb %r" % (lineno, verb))
     return steps

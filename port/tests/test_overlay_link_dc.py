@@ -208,3 +208,10 @@ def test_dreamcast_link_strips_main_copies_of_the_aliased_card_calls():
     assert "_carda_init" in names
     for call in ("open", "read", "write", "close", "rename"):
         assert "_%s" % call in names
+
+
+def test_movie_exports_its_four_entries_in_the_secondary_region():
+    movie = overlay_link.overlay_named("movie", targets.DREAMCAST)
+    exported = dict(overlay_link.dc_exported_entries(movie))
+    names = ["movie_play", "movie_init", "movie_update", "movie_service_video_ops"]
+    assert [exported[n] for n in names] == [targets.SECONDARY_REGION.code_base + 16 * i for i in range(4)]

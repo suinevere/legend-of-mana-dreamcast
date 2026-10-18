@@ -15,6 +15,9 @@
 #include "frame_readback.h"
 #include "vsync_pacer.h"
 #include "libgpu_dc.h"
+#include "cdrom_dc.h"
+#include "rgb24_display.h"
+#include "dc_system.h"
 
 /*----------------------
  | s_vsync_hook
@@ -26,6 +29,41 @@
  | Returns: N/A
  ----------------------*/
 static DcVsyncHook s_vsync_hook;
+
+/*----------------------
+ | s_vsync_wait_us
+ | Description: Microseconds VSync has spent waiting for vblanks since start-up, the main thread's idle time.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned long long s_vsync_wait_us;
+
+/*----------------------
+ | s_draw_sync_callback
+ | Description: The handler DrawSyncCallback installed, run when a DrawOTag finishes; NULL for none.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void (*s_draw_sync_callback)(void);
+
+/*----------------------
+ | RGB24_FRAME_PITCH / RGB24_FRAME_ROWS / s_rgb24_frame
+ | Description: The RGB565 staging frame a 24-bit display area converts into, sized as the PowerVR texture it is loaded into.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define RGB24_FRAME_PITCH 512
+#define RGB24_FRAME_ROWS 256
+static uint16_t s_rgb24_frame[RGB24_FRAME_PITCH * RGB24_FRAME_ROWS] __attribute__((aligned(32)));
 
 /*----------------------
  | s_draw_env
@@ -241,16 +279,20 @@ static void sync_flip(void)
 
 /*----------------------
  | DrawOTag
- | Description: Decodes the chain in OT order and submits every primitive to the PowerVR.
+ | Description: Decodes the chain in OT order and submits every primitive to the PowerVR, then runs the DrawSync callback as the PS1 does when drawing ends.
  | Author: suinevere
  | Dependencies: gpu_decode_ot, submit_sink
- | Globals: s_gpu_state
+ | Globals: s_gpu_state, s_draw_sync_callback
  | Params: ot -- first packet of the chain
  | Returns: N/A
  ----------------------*/
 void DrawOTag(u_long *ot)
 {
     gpu_decode_ot(&s_gpu_state, ot, submit_sink, 0);
+    if (s_draw_sync_callback != 0)
+    {
+        s_draw_sync_callback();
+    }
 }
 
 /*----------------------
@@ -319,9 +361,9 @@ int DrawSync(int mode)
 /*----------------------
  | VSync
  | Description: Flips an open PowerVR scene on the waiting modes (0 and above 1) and paces the game on the shared vblank counter.
- | Then runs the hook unless this was a counter read; VSync(1) returns at once on the PS1 and games call it mid-frame, so it never flips.
+ | Then delivers due CD stream sectors and runs the hook unless this was a counter read; VSync(1) returns at once on the PS1 and games call it mid-frame, so it never flips.
  | Author: suinevere
- | Dependencies: pvr_submit_flip, vsync_wait, vsync_count
+ | Dependencies: pvr_submit_flip, vsync_wait, vsync_count, cdrom_dc_vsync_tick
  | Globals: s_vsync_hook
  | Params: mode -- PS1 VSync mode
  | Returns: vblank count for mode < 0, else 0
@@ -329,18 +371,39 @@ int DrawSync(int mode)
 int VSync(int mode)
 {
     int result;
+    unsigned long long t0;
 
     if (mode == 0 || mode > 1)
     {
         pvr_submit_flip();
     }
+    t0 = dc_time_us();
     result = vsync_wait(mode, vsync_count);
+    s_vsync_wait_us += dc_time_us() - t0;
 
+    if (mode >= 0)
+    {
+        cdrom_dc_vsync_tick();
+    }
     if (mode >= 0 && s_vsync_hook != 0)
     {
         s_vsync_hook();
     }
     return result;
+}
+
+/*----------------------
+ | vsync_wait_us
+ | Description: Microseconds VSync has spent waiting for vblanks since start-up.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_vsync_wait_us
+ | Params: N/A
+ | Returns: the total
+ ----------------------*/
+unsigned long long vsync_wait_us(void)
+{
+    return s_vsync_wait_us;
 }
 
 /*----------------------
@@ -433,9 +496,9 @@ DRAWENV *PutDrawEnv(DRAWENV *env)
 
 /*----------------------
  | PutDispEnv
- | Description: Presents a scene drawn into the outgoing display area, then records the new display environment and remembers its area alongside the previous distinct one, so draw areas can be placed on screen.
+ | Description: Presents the outgoing frame, a scene drawn into the display area or, for a 24-bit area, its VRAM as an RGB565 frame; then records the new display environment and remembers its area alongside the previous distinct one.
  | Author: suinevere
- | Dependencies: sync_flip, update_draw_matches_disp
+ | Dependencies: sync_flip, rgb24_to_rgb565, pvr_submit_rgb24, update_draw_matches_disp
  | Globals: s_disp_env, s_disp_seen
  | Params: env -- display environment
  | Returns: env
@@ -443,8 +506,18 @@ DRAWENV *PutDrawEnv(DRAWENV *env)
 DISPENV *PutDispEnv(DISPENV *env)
 {
     const RECT *r = &env->disp;
+    unsigned width = r->w > RGB24_FRAME_PITCH ? RGB24_FRAME_PITCH : (unsigned)r->w;
+    unsigned height = r->h > RGB24_FRAME_ROWS ? RGB24_FRAME_ROWS : (unsigned)r->h;
 
-    sync_flip();
+    if (env->isrgb24)
+    {
+        rgb24_to_rgb565(vram_mirror_at(0, 0), 1024, (unsigned)r->x, (unsigned)r->y, width, height, s_rgb24_frame, RGB24_FRAME_PITCH);
+        pvr_submit_rgb24(s_rgb24_frame, width, height);
+    }
+    else
+    {
+        sync_flip();
+    }
     s_disp_env = *env;
     if (r->x != s_disp_seen[0].x || r->y != s_disp_seen[0].y || r->w != s_disp_seen[0].w || r->h != s_disp_seen[0].h)
     {
@@ -722,4 +795,49 @@ int SetGraphDebug(int level)
 {
     (void)level;
     return 0;
+}
+
+/*----------------------
+ | DrawSyncCallback
+ | Description: Installs the handler run when a DrawOTag finishes.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_draw_sync_callback
+ | Params: func -- handler or NULL
+ | Returns: the previous handler
+ ----------------------*/
+u_long DrawSyncCallback(void (*func)(void))
+{
+    u_long previous = (u_long)(uintptr_t)s_draw_sync_callback;
+
+    s_draw_sync_callback = func;
+    return previous;
+}
+
+/*----------------------
+ | BreakDraw
+ | Description: Drawing finishes inside DrawOTag, so there is never a chain to interrupt.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: NULL, nothing interrupted
+ ----------------------*/
+u_long *BreakDraw(void)
+{
+    return 0;
+}
+
+/*----------------------
+ | LoadImage2
+ | Description: The PS1's immediate upload, which on the Dreamcast is the same mirror write as LoadImage.
+ | Author: suinevere
+ | Dependencies: LoadImage
+ | Globals: N/A
+ | Params: rect -- VRAM rectangle in words, src -- pixels
+ | Returns: 0
+ ----------------------*/
+int LoadImage2(RECT *rect, u_long *src)
+{
+    return LoadImage(rect, src);
 }

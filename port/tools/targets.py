@@ -34,14 +34,14 @@ Target = collections.namedtuple("Target", "name big_endian regions convert_rules
 #----------------------
 # | ARENA_BASE / ARENA_END
 # | Description: Dreamcast overlay arena bounds in main RAM; must match the Dreamcast linker script's NOLOAD arena section.
-# |              ARENA_BASE was lowered to 0x8C400000 to give WMAP and FIELD room below the original four regions.
+# |              ARENA_BASE sits at 0x8C480000, below the original four regions with room for WMAP and FIELD, after D6's SPU RAM image and D7's movie buffers grew main past 0x8C400000.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-ARENA_BASE = 0x8C400000
+ARENA_BASE = 0x8C480000
 ARENA_END = 0x8CE00000
 
 #----------------------
@@ -75,7 +75,7 @@ SECONDARY_REGION = Region(0x8CB00000, 0x40000, 0x8CB40000, 0x40000)
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-SECONDARY_OVERLAYS = ("gname", "menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover")
+SECONDARY_OVERLAYS = ("gname", "menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover", "movie")
 
 #----------------------
 # | DREAMCAST
@@ -96,8 +96,8 @@ SECONDARY_OVERLAYS = ("gname", "menu", "shop", "golem", "zukan", "gosub", "carda
 # | Returns: N/A
 #----------------------
 DREAMCAST = Target("dreamcast", False, {
-    "field": Region(0x8C400000, 0x70000, 0x8C470000, 0x70000),
-    "wmap": Region(0x8C4E0000, 0x60000, 0x8C540000, 0x140000),
+    "field": Region(0x8C480000, 0x70000, 0x8C4F0000, 0x70000),
+    "wmap": Region(0x8C560000, 0x60000, 0x8C5C0000, 0x140000),
     "checkps": Region(0x8C800000, 0x40000, 0x8C840000, 0x40000),
     "title": Region(0x8C880000, 0x40000, 0x8C8C0000, 0xC0000),
     "gname": SECONDARY_REGION,
@@ -107,6 +107,7 @@ DREAMCAST = Target("dreamcast", False, {
     "golem": SECONDARY_REGION,
     "zukan": SECONDARY_REGION,
     "gover": SECONDARY_REGION,
+    "movie": SECONDARY_REGION,
     "addhero": SECONDARY_REGION,
     "niki": SECONDARY_REGION,
     "cload": SECONDARY_REGION,
@@ -134,7 +135,7 @@ DREAMCAST_UNLINKED_OVERLAYS = ()
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-SATURN_UNLINKED_OVERLAYS = ("menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover")
+SATURN_UNLINKED_OVERLAYS = ("menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover", "movie")
 
 #----------------------
 # | TARGETS

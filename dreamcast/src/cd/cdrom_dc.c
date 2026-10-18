@@ -2,7 +2,7 @@
  | cdrom_dc.c
  | Description: Dreamcast implementation of the decomp's cdrom.h API: stdio reads of converted resources under LOM_CD_ROOT, keyed by PS1 resource index, with PS1 callback ordering for queued reads.
  | Author: suinevere
- | Dependencies: main/cdrom.h, main/cdrom_decompress.h, cdrom_dc.h, map_relocate.h, resource_index.h, overlay_loader_dc.h, dc_system.h
+ | Dependencies: main/cdrom.h, main/cdrom_decompress.h, cdrom_dc.h, cd_stream.h, cd_stream_kos.h, vsync_pacer.h, overlays/movie/movie_state.h, map_relocate.h, resource_index.h, overlay_loader_dc.h, dc_system.h
  | Globals: s_index_blob, g_cd_data_ready_pending, s_halt_message, s_pending_callback_read
  | Params: N/A
  | Returns: N/A
@@ -17,6 +17,12 @@
 #include "main/cdrom_decompress.h"
 
 #include "cdrom_dc.h"
+#include "cd_stream.h"
+#include "cd_stream_kos.h"
+#include "vsync_pacer.h"
+#include "overlays/movie/movie_state.h"
+#include <libcd.h>
+#include <libpress.h>
 #include "map_relocate.h"
 #include "resource_index.h"
 #include "overlay_loader_dc.h"
@@ -604,6 +610,7 @@ s32 cdrom_can_queue_resource(s32 resource_index)
 u32 cdrom_process_state(void)
 {
     flush_pending_callback_read();
+    cd_stream_service(vsync_count());
     return 0;
 }
 
@@ -673,4 +680,145 @@ s32 cdrom_enter_recovery_mode(void)
 s32 cdrom_recover(void)
 {
     return 0;
+}
+
+/*----------------------
+ | cdrom_dc_open_resource
+ | Description: Opens a raw resource's disc file for sector-wise reading.
+ | Author: suinevere
+ | Dependencies: resource_index_find, resource_file_name, resource_folder, cd_open
+ | Globals: N/A
+ | Params: resource_index -- PS1 resource, size_bytes -- receives its byte size
+ | Returns: the open file, or NULL when the resource is not a raw file on this disc
+ ----------------------*/
+FILE *cdrom_dc_open_resource(int resource_index, unsigned *size_bytes)
+{
+    const ResourceEntry *entry = resource_index_find(resource_index);
+    char name[16];
+
+    if (entry == 0 || entry->kind != RESOURCE_KIND_RAW)
+    {
+        return 0;
+    }
+    *size_bytes = (unsigned)entry->size;
+    resource_file_name(entry->index, entry->kind, name);
+    return cd_open(resource_folder(entry->kind), entry->index, name);
+}
+
+/*----------------------
+ | cdrom_dc_read_sectors
+ | Description: Reads count whole sectors of a raw resource starting at sector first.
+ | Author: suinevere
+ | Dependencies: cdrom_dc_open_resource
+ | Globals: N/A
+ | Params: resource_index -- PS1 resource, first -- first sector, count -- sectors, dst -- count * 2048 bytes
+ | Returns: sectors read, or -1 when the resource cannot be opened
+ ----------------------*/
+int cdrom_dc_read_sectors(int resource_index, unsigned first, unsigned count, void *dst)
+{
+    unsigned size;
+    FILE *f = cdrom_dc_open_resource(resource_index, &size);
+    size_t n = 0;
+
+    if (f == 0)
+    {
+        return -1;
+    }
+    if (fseek(f, (long)first * CDROM_DC_SECTOR_BYTES, SEEK_SET) == 0)
+    {
+        n = fread(dst, CDROM_DC_SECTOR_BYTES, count, f);
+    }
+    fclose(f);
+    return (int)n;
+}
+
+/*----------------------
+ | movie_audio_stop
+ | Description: Movie audio's stop, which cdrom_reset calls for a movie with streamed audio where the PS1 calls akao_stop_xa.
+ | Author: suinevere
+ | Dependencies: movie_audio_dc.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void movie_audio_stop(void);
+
+/*----------------------
+ | cdrom_queue_command
+ | Description: Starts a CdlReadS stream of a raw resource, paced at the PS1's double speed and read ahead on a thread; any other command halts naming it.
+ | Author: suinevere
+ | Dependencies: cd_stream_kos_open, cd_stream_start, cd_stream_kos_fetch, vsync_count, cdrom_format_resource_halt, dc_halt, dc_log
+ | Globals: s_halt_message
+ | Params: command -- CdlReadS, resource_id -- PS1 resource, dst_buffer -- unused, callback -- per-sector transfer callback
+ | Returns: 1
+ ----------------------*/
+s32 cdrom_queue_command(u8 command, s32 resource_id, void *dst_buffer, CdCommandCallback callback)
+{
+    unsigned total;
+
+    (void)dst_buffer;
+    if (command != CdlReadS)
+    {
+        snprintf(s_halt_message, sizeof(s_halt_message), "cd: command 0x%02X not supported", command);
+        dc_halt(s_halt_message);
+    }
+    if (!cd_stream_kos_open(resource_id, &total))
+    {
+        dc_halt(cdrom_format_resource_halt(s_halt_message, sizeof(s_halt_message), "cd: stream", resource_id, " not on disc"));
+    }
+    cd_stream_start(total, (CdStreamCallback)callback, vsync_count(), cd_stream_kos_fetch, NULL);
+    dc_log("cd readS %d sectors %u", (int)resource_id, total);
+    return 1;
+}
+
+/*----------------------
+ | cdrom_dc_vsync_tick
+ | Description: Delivers the stream sectors due by now; VSync calls it once per wait.
+ | Author: suinevere
+ | Dependencies: cd_stream_service, vsync_count
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void cdrom_dc_vsync_tick(void)
+{
+    cd_stream_service(vsync_count());
+}
+
+/*----------------------
+ | cdrom_verify_recovery
+ | Description: The PS1 serviced deferred sector data here while the MDEC was busy; Dreamcast delivery is never deferred that way.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void cdrom_verify_recovery(void)
+{
+}
+
+/*----------------------
+ | cdrom_reset
+ | Description: Ends a movie stream as the PS1 does: restores the MDEC and DrawSync callbacks movie_init saved, stops the stream and its reader, and stops AKAO's stream for a movie with streamed audio.
+ | Author: suinevere
+ | Dependencies: DecDCToutCallback, DrawSyncCallback, cd_stream_active, cd_stream_stop, cd_stream_kos_close, cd_stream_delivered, movie_audio_stop, dc_log
+ | Globals: MOVIE_STATE, g_movie_use_cd_audio
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void cdrom_reset(void)
+{
+    MovieState *state = MOVIE_STATE;
+
+    DecDCToutCallback(state->dec_dct_out_callback.handler);
+    DrawSyncCallback(state->draw_sync_callback.handler);
+    cd_stream_stop();
+    cd_stream_kos_close();
+    if (g_movie_use_cd_audio != 0)
+    {
+        movie_audio_stop();
+    }
+    dc_log("cd stream sectors %u frame %u of %u end %u eos %u", cd_stream_delivered(), (unsigned)state->current_frame,
+           (unsigned)state->total_frames, (unsigned)state->end_state, (unsigned)state->end_of_stream);
 }

@@ -1,6 +1,6 @@
 /*----------------------
  | dreamcast.ld
- | Description: KallistiOS v2.1.1's utils/ldscripts/shlelf.xc plus the 10 MB NOLOAD overlay arena at 0x8C400000 and ASSERTs on both of its edges.
+ | Description: KallistiOS v2.1.1's utils/ldscripts/shlelf.xc plus the 9.5 MB NOLOAD overlay arena at 0x8C480000 and ASSERTs on both of its edges.
  |              It also places every section the toolchain emits (DWARF 5, crt1's FDPIC tables, .tm_clone_table) so the main link runs with --orphan-handling=error.
  |              _end, where the KallistiOS heap starts, moves above the arena, so the heap and stack live above 0x8CE00000.
  |              g_overlay_load_base, the PS1 linker symbol field_runtime.c's g_overlay_load_address points at, is the arena base.
@@ -222,11 +222,11 @@ SECTIONS
   . = ALIGN(32 / 8);
   . = ALIGN(32 / 8);
   _lom_program_end = .;
-  ASSERT(_lom_program_end <= 0x8C400000, "program and its .bss reach the overlay arena at 0x8C400000")
-  .lom_overlays 0x8C400000 (NOLOAD) :
+  ASSERT(_lom_program_end <= 0x8C480000, "program and its .bss reach the overlay arena at 0x8C480000")
+  .lom_overlays 0x8C480000 (NOLOAD) :
   {
     _lom_overlay_arena = .;
-    . += 0xA00000;
+    . += 0x980000;
   }
   _g_overlay_load_base = _lom_overlay_arena;
   ASSERT(. <= 0x8CE00000, "overlay arena passes 0x8CE00000")

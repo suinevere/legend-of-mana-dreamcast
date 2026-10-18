@@ -73,7 +73,37 @@ void dc_log(const char *format, ...)
     (void)format;
 }
 
+/*----------------------
+ | dc_time_us
+ | Description: Host stand-in for the Dreamcast microsecond timer.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: 0
+ ----------------------*/
+unsigned long long dc_time_us(void)
+{
+    return 0;
+}
+
+static int s_probe_scenes;
+
 void frame_probe_scene(void)
+{
+    s_probe_scenes++;
+}
+
+/*----------------------
+ | cdrom_dc_vsync_tick
+ | Description: Host stand-in for the CD stream delivery VSync asks for.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void cdrom_dc_vsync_tick(void)
 {
 }
 
@@ -129,9 +159,11 @@ static float s_strip_min_x, s_strip_max_x, s_strip_min_y, s_strip_max_y;
 static float s_last_strip_min_x, s_last_strip_max_x, s_last_strip_min_y, s_last_strip_max_y;
 static int s_strip_has_vertex;
 
+static const DcSurfaceTexture *s_last_header_tex;
+
 static void fake_header(const DcSurfaceTexture *tex, const BlendPass *pass)
 {
-    (void)tex;
+    s_last_header_tex = tex;
     if (s_headers < 8)
     {
         s_header_log[s_headers] = *pass;
@@ -172,7 +204,29 @@ static void fake_vertex(float x, float y, float u, float v, uint32_t argb, int l
     }
 }
 
-static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_vertex, fake_scene_shown };
+/*----------------------
+ | s_frame_texture / s_frame_textures / s_frame_size / fake_frame_texture
+ | Description: Records each RGB24 frame texture load and hands back one fixed surface.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_frame_texture, s_frame_textures, s_frame_size
+ | Params: pixels -- RGB565 rows, width, height -- frame size
+ | Returns: the fixed surface
+ ----------------------*/
+static DcSurfaceTexture s_frame_texture = { (void *)0x1000, TEX_FMT_RGB565_FRAME, -1 };
+static int s_frame_textures;
+static unsigned s_frame_size[2];
+
+static const DcSurfaceTexture *fake_frame_texture(const uint16_t *pixels, unsigned width, unsigned height)
+{
+    (void)pixels;
+    s_frame_textures++;
+    s_frame_size[0] = width;
+    s_frame_size[1] = height;
+    return &s_frame_texture;
+}
+
+static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_vertex, fake_scene_shown, fake_frame_texture };
 
 static void *fake_alloc(unsigned bytes)
 {
@@ -467,12 +521,41 @@ static void test_frame_rect_promotes_lazily_once_the_flip_is_shown(void)
     s_scene_shown_result = 0;
 }
 
+/*----------------------
+ | test_rgb24_frame_is_one_opaque_full_screen_scene
+ | Description: An RGB24 frame loads its texture once and draws one full-screen strip with it in a scene of its own, counted by the probe.
+ | Author: suinevere
+ | Dependencies: pvr_submit_rgb24, reset
+ | Globals: s_frame_textures, s_frame_size, s_last_header_tex, s_finishes, s_strips_in_last_scene, s_last_strip_*, s_probe_scenes
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_rgb24_frame_is_one_opaque_full_screen_scene(void)
+{
+    static uint16_t pixels[512 * 256];
+    int probes;
+
+    reset();
+    s_frame_textures = 0;
+    probes = s_probe_scenes;
+    pvr_submit_rgb24(pixels, 320, 240);
+    CHECK(s_frame_textures == 1);
+    CHECK(s_frame_size[0] == 320 && s_frame_size[1] == 240);
+    CHECK(s_last_header_tex == &s_frame_texture);
+    CHECK(s_finishes == 1);
+    CHECK(s_strips_in_last_scene == 1);
+    CHECK(s_last_strip_min_x == 0.0f && s_last_strip_max_x == 640.0f);
+    CHECK(s_last_strip_min_y == 0.0f && s_last_strip_max_y == 480.0f);
+    CHECK(s_probe_scenes == probes + 1);
+}
+
 int main(void)
 {
     texture_cache_init(&s_texture_ops);
     palette_bank_init(&s_palette_ops);
     pvr_submit_set_backend(&s_fake);
     test_vsync1_does_not_split_the_scene();
+    test_rgb24_frame_is_one_opaque_full_screen_scene();
     test_negative_vsync_does_not_flip();
     test_clear_only_frame_shows_its_background();
     test_isbg_only_frame_shows_its_background();

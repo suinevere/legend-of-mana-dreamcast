@@ -48,6 +48,22 @@ unsigned vsync_count(void)
     return s_fake_vblanks;
 }
 
+/*----------------------
+ | s_stream_ticks / cdrom_dc_vsync_tick
+ | Description: Counts the CD stream deliveries VSync asks for, standing in for cdrom_dc.c.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_stream_ticks
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_stream_ticks;
+
+void cdrom_dc_vsync_tick(void)
+{
+    s_stream_ticks++;
+}
+
 int vsync_wait(int mode, VsyncClock clock)
 {
     (void)clock;
@@ -65,6 +81,20 @@ int vsync_wait(int mode, VsyncClock clock)
 void dc_log(const char *format, ...)
 {
     (void)format;
+}
+
+/*----------------------
+ | dc_time_us
+ | Description: Host stand-in for the Dreamcast microsecond timer.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: 0
+ ----------------------*/
+unsigned long long dc_time_us(void)
+{
+    return 0;
 }
 
 static int s_scene_has_prims_stub;
@@ -111,6 +141,27 @@ void pvr_submit_rect(int x, int y, int w, int h, uint16_t ps1_colour)
 int pvr_submit_scene_has_prims(void)
 {
     return s_scene_has_prims_stub;
+}
+
+/*----------------------
+ | s_rgb24_calls / s_rgb24_size / s_rgb24_first / pvr_submit_rgb24
+ | Description: Records each RGB24 frame libgpu presents: how many, their size, and their first pixel.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_rgb24_calls, s_rgb24_size, s_rgb24_first
+ | Params: pixels -- RGB565 rows at a 512-pixel pitch, width, height -- frame size
+ | Returns: N/A
+ ----------------------*/
+static int s_rgb24_calls;
+static unsigned s_rgb24_size[2];
+static uint16_t s_rgb24_first;
+
+void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height)
+{
+    s_rgb24_calls++;
+    s_rgb24_size[0] = width;
+    s_rgb24_size[1] = height;
+    s_rgb24_first = pixels[0];
 }
 
 static int s_frame_rect_valid;
@@ -191,6 +242,105 @@ void dc_halt(const char *message)
 }
 
 #define CHECK(cond) do { if (!(cond)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
+
+/*----------------------
+ | test_vsync_ticks_the_cd_stream
+ | Description: Every waiting or polling VSync delivers due stream sectors; a counter read (VSync(-1)) does not.
+ | Author: suinevere
+ | Dependencies: VSync, cdrom_dc_vsync_tick
+ | Globals: s_stream_ticks
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_vsync_ticks_the_cd_stream(void)
+{
+    s_stream_ticks = 0;
+    VSync(0);
+    VSync(1);
+    VSync(-1);
+    CHECK(s_stream_ticks == 2);
+}
+
+/*----------------------
+ | test_put_disp_env_rgb24_presents_frame
+ | Description: A 24-bit display environment presents its VRAM area as one RGB565 frame instead of flipping a drawn scene.
+ | Author: suinevere
+ | Dependencies: SetDefDispEnv, PutDispEnv, LoadImage, pvr_submit_rgb24
+ | Globals: s_rgb24_calls, s_rgb24_size, s_rgb24_first
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_put_disp_env_rgb24_presents_frame(void)
+{
+    static u_long red[2];
+    RECT r = {0, 240, 2, 1};
+    DISPENV env;
+
+    red[0] = 0x000000F8;
+    LoadImage(&r, red);
+    reset_calls();
+    s_rgb24_calls = 0;
+    SetDefDispEnv(&env, 0, 240, 320, 240);
+    env.isrgb24 = 1;
+    PutDispEnv(&env);
+    CHECK(s_rgb24_calls == 1);
+    CHECK(s_rgb24_size[0] == 320 && s_rgb24_size[1] == 240);
+    CHECK(s_rgb24_first == 0xF800);
+    CHECK(s_flips == 0);
+}
+
+/*----------------------
+ | s_draw_sync_calls / on_draw_sync / test_draw_sync_callback_fires_after_draw
+ | Description: An installed DrawSync callback runs once a DrawOTag finishes, and installing another returns the previous one.
+ | Author: suinevere
+ | Dependencies: DrawSyncCallback, DrawOTag, gpu_decode_set_base
+ | Globals: s_draw_sync_calls
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_draw_sync_calls;
+
+static void on_draw_sync(void)
+{
+    s_draw_sync_calls++;
+}
+
+static void test_draw_sync_callback_fires_after_draw(void)
+{
+    u_long chain[1];
+
+    gpu_decode_set_base((uintptr_t)chain);
+    setlen(&chain[0], 0);
+    setaddr(&chain[0], GPU_TAG_END);
+    s_draw_sync_calls = 0;
+    DrawSyncCallback(on_draw_sync);
+    DrawOTag(&chain[0]);
+    CHECK(s_draw_sync_calls == 1);
+    CHECK(DrawSyncCallback(0) == (u_long)(uintptr_t)on_draw_sync);
+    DrawOTag(&chain[0]);
+    CHECK(s_draw_sync_calls == 1);
+    gpu_decode_set_base(0);
+}
+
+/*----------------------
+ | test_break_draw_and_load_image2
+ | Description: BreakDraw interrupts nothing, and LoadImage2 writes the mirror like LoadImage.
+ | Author: suinevere
+ | Dependencies: BreakDraw, LoadImage2, vram_mirror_at
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_break_draw_and_load_image2(void)
+{
+    RECT r = {512, 0, 16, 16};
+    static u_long px[16 * 16 / 2];
+
+    CHECK(BreakDraw() == 0);
+    memset(px, 0x5A, sizeof(px));
+    CHECK(LoadImage2(&r, px) == 0);
+    CHECK(*vram_mirror_at(512, 0) == 0x5A5A);
+}
 
 static void test_load_store_round_trip(void)
 {
@@ -853,6 +1003,10 @@ int main(void)
 {
     fill_frame_pixels();
     test_load_store_round_trip();
+    test_vsync_ticks_the_cd_stream();
+    test_put_disp_env_rgb24_presents_frame();
+    test_draw_sync_callback_fires_after_draw();
+    test_break_draw_and_load_image2();
     test_load_store_wraps_x();
     test_reloading_identical_pixels_keeps_the_generation();
     test_move_image_copies();

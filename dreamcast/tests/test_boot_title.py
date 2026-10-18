@@ -33,7 +33,7 @@ def test_reaches_title_and_draws():
     image = os.path.join(DC, "lom.cdi")
     if not os.path.exists(image):
         pytest.skip("lom.cdi not built")
-    code, lines = flycast_run.run_flycast(image, seconds=60, until=None)
+    code, lines = flycast_run.run_flycast(image, seconds=200, until=None)
     assert not any("LOM HALT:" in line for line in lines), "\n".join(lines[-40:])
     title = game_state_title()
     seen_title = False

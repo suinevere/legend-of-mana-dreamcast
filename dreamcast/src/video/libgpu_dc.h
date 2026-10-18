@@ -23,5 +23,6 @@ typedef void (*DcVsyncHook)(void);
 
 unsigned dc_frame_primitives(void);
 void dc_set_vsync_hook(DcVsyncHook hook);
+unsigned long long vsync_wait_us(void);
 
 #endif

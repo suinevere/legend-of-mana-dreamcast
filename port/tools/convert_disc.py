@@ -174,14 +174,14 @@ PACKED_RESOURCES = {wmap_layout.LAYOUT_FIRST, wmap_resources.LAYOUT_IMAGE_FIRST}
 
 #----------------------
 # | SKIPPED_RESOURCES
-# | Description: Overlays of states that are not ported (MOVIE); cdrom_stream ignores them so the state's stub reports the halt. CLOAD is an overlay_rules overlay now, skipped on Saturn through SATURN_UNLINKED_OVERLAYS.
+# | Description: Resources skipped on every target besides the unlinked overlays; none since MOVIE became an overlay_rules overlay, skipped on Saturn through SATURN_UNLINKED_OVERLAYS like CLOAD.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-SKIPPED_RESOURCES = [11]
+SKIPPED_RESOURCES = []
 
 #----------------------
 # | SKIPPED_SOUND_RESOURCES

@@ -810,6 +810,8 @@ OVERLAYS = {
                    [], convert_dreamcast_only, SECONDARY_BASE, None),
     10: OverlaySpec("gover", 0x80140000, [(0x80140704, 0x80140704)], "gover_symbol_addrs.txt",
                    [], convert_dreamcast_only, SECONDARY_BASE, None),
+    11: OverlaySpec("movie", 0x80140000, [(0x80141914, 0x80141914)], "movie_symbol_addrs.txt",
+                   [], convert_dreamcast_only, SECONDARY_BASE, None),
     9: OverlaySpec("golem", 0x80140000, [(0x8014287C, 0x8014C28C)], "golem_symbol_addrs.txt",
                    [], convert_dreamcast_only, SECONDARY_BASE, None),
     14: OverlaySpec("wsel", 0x8004FC70, [(0x80052608, 0x800CA8E4)], "wsel_symbol_addrs.txt",

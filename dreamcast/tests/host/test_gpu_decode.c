@@ -40,6 +40,26 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
     (void)state;
 }
 
+/*----------------------
+ | pvr_submit_rgb24 / cdrom_dc_vsync_tick
+ | Description: Host stand-ins for the RGB24 present and the CD stream delivery libgpu_dc.c calls.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: pixels, width, height -- ignored
+ | Returns: N/A
+ ----------------------*/
+void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height)
+{
+    (void)pixels;
+    (void)width;
+    (void)height;
+}
+
+void cdrom_dc_vsync_tick(void)
+{
+}
+
 void pvr_submit_flip(void)
 {
 }
@@ -93,6 +113,20 @@ void dc_log(const char *format, ...)
     va_start(args, format);
     vsnprintf(s_last_log, sizeof(s_last_log), format, args);
     va_end(args);
+}
+
+/*----------------------
+ | dc_time_us
+ | Description: Host stand-in for the Dreamcast microsecond timer.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: 0
+ ----------------------*/
+unsigned long long dc_time_us(void)
+{
+    return 0;
 }
 
 static void reset_recorder(void)

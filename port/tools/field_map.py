@@ -672,3 +672,71 @@ class _MapConverter:
 #----------------------
 def convert_map(data, load_base=SATURN_MAP_BASE):
     return _MapConverter(bytes(data), load_base).convert()
+
+
+#----------------------
+# | _AnimCensus
+# | Description: Walks a map like _MapConverter but only records each animation definition, of any kind and in any list, without converting or checking coverage.
+# | Author: suinevere
+# | Dependencies: _MapConverter, ANIM_KIND_MASK
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+class _AnimCensus(_MapConverter):
+    #----------------------
+    # | __init__
+    # | Description: Starts an empty list of definitions.
+    # | Author: suinevere
+    # | Dependencies: _MapConverter.__init__
+    # | Globals: SATURN_MAP_BASE
+    # | Params: data -- PS1 map bytes
+    # | Returns: N/A
+    #----------------------
+    def __init__(self, data):
+        _MapConverter.__init__(self, data, SATURN_MAP_BASE)
+        self.anims = []
+
+    #----------------------
+    # | convert_anim_defs
+    # | Description: Records (offset, list, kind, byte 1 of the head, flags) for each definition in one animation list.
+    # | Author: suinevere
+    # | Dependencies: convert_struct, ANIM_KIND_MASK
+    # | Globals: N/A
+    # | Params: pos -- file offset of the first FieldAnimDef or None, group -- animation list index 0-3
+    # | Returns: N/A
+    #----------------------
+    def convert_anim_defs(self, pos, group):
+        while pos is not None:
+            fields = self.convert_struct("anim_def", pos)
+            if fields is None:
+                return
+            self.anims.append((pos, group, fields[0x04] & ANIM_KIND_MASK, self.data[pos + 1], fields[0x04]))
+            pos = fields[0x08]
+
+    #----------------------
+    # | check_coverage
+    # | Description: A census reads only what it needs, so nothing is checked.
+    # | Author: suinevere
+    # | Dependencies: N/A
+    # | Globals: N/A
+    # | Params: texel_end, trailer_sizes -- ignored
+    # | Returns: N/A
+    #----------------------
+    def check_coverage(self, texel_end, trailer_sizes):
+        pass
+
+
+#----------------------
+# | anim_defs
+# | Description: Lists every animation definition in a PS1 map, movies included.
+# | Author: suinevere
+# | Dependencies: _AnimCensus
+# | Globals: N/A
+# | Params: data -- PS1 map bytes
+# | Returns: list of (offset, list, kind, head byte 1, flags)
+#----------------------
+def anim_defs(data):
+    census = _AnimCensus(bytes(data))
+    census.convert()
+    return census.anims

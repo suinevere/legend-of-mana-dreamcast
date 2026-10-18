@@ -52,7 +52,7 @@ EXTRA_CFLAGS ?=
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PAD_SCRIPT_SOURCES = src/input/pad_script.c src/input/pad_dc_script_map.c src/system/watch.c src/sound/sound_test_dc.c
+PAD_SCRIPT_SOURCES = src/input/pad_script.c src/input/pad_dc_script_map.c src/system/watch.c src/sound/sound_test_dc.c src/movie/movie_probe_dc.c
 
 #----------------------
 # | SOURCES
@@ -241,7 +241,7 @@ DECOMP_GNAME = ../src/overlays/gname/gname.c
 DECOMP_MENU = ../src/overlays/menu/menu.c ../src/overlays/menu/menu_screens.c ../src/overlays/menu/menu_lists.c ../src/overlays/menu/menu_actions.c ../src/overlays/menu/menu_card.c
 
 #----------------------
-# | DECOMP_SHOP / DECOMP_GOLEM / DECOMP_ZUKAN / DECOMP_GOVER / DECOMP_ADDHERO / DECOMP_NIKI / DECOMP_CLOAD / DECOMP_CARDA / DECOMP_GOSUB
+# | DECOMP_SHOP / DECOMP_GOLEM / DECOMP_ZUKAN / DECOMP_GOVER / DECOMP_MOVIE / DECOMP_ADDHERO / DECOMP_NIKI / DECOMP_CLOAD / DECOMP_CARDA / DECOMP_GOSUB
 # | Description: The decomp files each secondary overlay compiles; their PS1 overlay headers are replaced by the generated vectors.
 # | Author: suinevere
 # | Dependencies: src/overlays/shop, src/overlays/golem, src/overlays/zukan
@@ -253,6 +253,7 @@ DECOMP_SHOP = ../src/overlays/shop/shop.c ../src/overlays/shop/shop_render.c ../
 DECOMP_GOLEM = ../src/overlays/golem/golem.c
 DECOMP_ZUKAN = ../src/overlays/zukan/zukan.c ../src/overlays/zukan/zukan_category.c
 DECOMP_GOVER = ../src/overlays/gover/gover.c
+DECOMP_MOVIE = ../src/overlays/movie/movie.c ../src/overlays/movie/movie_stream.c
 DECOMP_ADDHERO = ../src/overlays/addhero/addhero.c ../src/overlays/addhero/addhero_card.c ../src/overlays/addhero/addhero_glyph.c ../src/overlays/addhero/addhero_widgets.c
 DECOMP_NIKI = ../src/overlays/niki/niki.c ../src/overlays/niki/niki_io.c
 DECOMP_CLOAD = ../src/overlays/cload/cload.c ../src/overlays/cload/cload_card.c ../src/overlays/cload/cload_glyph.c ../src/overlays/cload/cload_widgets.c
@@ -316,6 +317,7 @@ SHOP_OBJS = build/ovl/shop_vectors.o $(call DECOMP_OBJ,$(DECOMP_SHOP))
 GOLEM_OBJS = build/ovl/golem_vectors.o $(call DECOMP_OBJ,$(DECOMP_GOLEM))
 ZUKAN_OBJS = build/ovl/zukan_vectors.o $(call DECOMP_OBJ,$(DECOMP_ZUKAN)) build/overlays/zukan_run_dc.o
 GOVER_OBJS = build/ovl/gover_vectors.o $(call DECOMP_OBJ,$(DECOMP_GOVER))
+MOVIE_OBJS = build/ovl/movie_vectors.o $(call DECOMP_OBJ,$(DECOMP_MOVIE))
 ADDHERO_OBJS = build/ovl/addhero_vectors.o $(call DECOMP_OBJ,$(DECOMP_ADDHERO))
 NIKI_OBJS = build/ovl/niki_vectors.o $(call DECOMP_OBJ,$(DECOMP_NIKI))
 CLOAD_OBJS = build/ovl/cload_vectors.o $(call DECOMP_OBJ,$(DECOMP_CLOAD))
@@ -337,7 +339,7 @@ ifneq (,$(findstring LOM_PAD_SCRIPT,$(EXTRA_CFLAGS)))
 FIELD_OBJS += $(FIELD_TEST_OBJS)
 endif
 WMAP_OBJS = build/ovl/wmap_vectors.o $(call DECOMP_OBJ,$(DECOMP_WMAP)) build/ovl/wmap_function_tables.o build/overlays/wmap_controller_ports.o
-OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_OBJS) $(WMAP_OBJS) $(MENU_OBJS) $(SHOP_OBJS) $(GOLEM_OBJS) $(ZUKAN_OBJS) $(GOSUB_OBJS) $(CARDA_OBJS) $(CLOAD_OBJS) $(NIKI_OBJS) $(ADDHERO_OBJS) $(GOVER_OBJS)
+OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_OBJS) $(WMAP_OBJS) $(MENU_OBJS) $(SHOP_OBJS) $(GOLEM_OBJS) $(ZUKAN_OBJS) $(GOSUB_OBJS) $(CARDA_OBJS) $(CLOAD_OBJS) $(NIKI_OBJS) $(ADDHERO_OBJS) $(GOVER_OBJS) $(MOVIE_OBJS)
 
 #----------------------
 # | OVERLAY_NAMES / OVERLAY_GROUP_*
@@ -348,7 +350,7 @@ OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_NAMES = checkps title gname wsel field wmap menu shop golem zukan gosub carda cload niki addhero gover
+OVERLAY_NAMES = checkps title gname wsel field wmap menu shop golem zukan gosub carda cload niki addhero gover movie
 OVERLAY_GROUP_checkps = $(CHECKPS_OBJS)
 OVERLAY_GROUP_title = $(TITLE_OBJS)
 OVERLAY_GROUP_gname = $(GNAME_OBJS)
@@ -360,6 +362,7 @@ OVERLAY_GROUP_shop = $(SHOP_OBJS)
 OVERLAY_GROUP_golem = $(GOLEM_OBJS)
 OVERLAY_GROUP_zukan = $(ZUKAN_OBJS)
 OVERLAY_GROUP_gover = $(GOVER_OBJS)
+OVERLAY_GROUP_movie = $(MOVIE_OBJS)
 OVERLAY_GROUP_addhero = $(ADDHERO_OBJS)
 OVERLAY_GROUP_niki = $(NIKI_OBJS)
 OVERLAY_GROUP_cload = $(CLOAD_OBJS)
@@ -375,8 +378,8 @@ OVERLAY_GROUP_gosub = $(GOSUB_OBJS)
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_SYMBOLS = gen/checkps_symbols.ld gen/title_symbols.ld gen/gname_symbols.ld gen/wsel_symbols.ld gen/field_symbols.ld gen/wmap_symbols.ld gen/menu_symbols.ld gen/shop_symbols.ld gen/golem_symbols.ld gen/zukan_symbols.ld gen/gosub_symbols.ld gen/carda_symbols.ld gen/cload_symbols.ld gen/niki_symbols.ld gen/addhero_symbols.ld gen/gover_symbols.ld
-OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/OVL05C.BIN $(OBJDIR)/ovl/OVL14C.BIN $(OBJDIR)/ovl/OVL02C.BIN $(OBJDIR)/ovl/OVL03C.BIN $(OBJDIR)/ovl/OVL06C.BIN $(OBJDIR)/ovl/OVL07C.BIN $(OBJDIR)/ovl/OVL09C.BIN $(OBJDIR)/ovl/OVL08C.BIN $(OBJDIR)/ovl/OVL13C.BIN $(OBJDIR)/ovl/OVL12C.BIN $(OBJDIR)/ovl/OVL16C.BIN $(OBJDIR)/ovl/OVL17C.BIN $(OBJDIR)/ovl/OVL18C.BIN $(OBJDIR)/ovl/OVL10C.BIN
+OVERLAY_SYMBOLS = gen/checkps_symbols.ld gen/title_symbols.ld gen/gname_symbols.ld gen/wsel_symbols.ld gen/field_symbols.ld gen/wmap_symbols.ld gen/menu_symbols.ld gen/shop_symbols.ld gen/golem_symbols.ld gen/zukan_symbols.ld gen/gosub_symbols.ld gen/carda_symbols.ld gen/cload_symbols.ld gen/niki_symbols.ld gen/addhero_symbols.ld gen/gover_symbols.ld gen/movie_symbols.ld
+OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/OVL05C.BIN $(OBJDIR)/ovl/OVL14C.BIN $(OBJDIR)/ovl/OVL02C.BIN $(OBJDIR)/ovl/OVL03C.BIN $(OBJDIR)/ovl/OVL06C.BIN $(OBJDIR)/ovl/OVL07C.BIN $(OBJDIR)/ovl/OVL09C.BIN $(OBJDIR)/ovl/OVL08C.BIN $(OBJDIR)/ovl/OVL13C.BIN $(OBJDIR)/ovl/OVL12C.BIN $(OBJDIR)/ovl/OVL16C.BIN $(OBJDIR)/ovl/OVL17C.BIN $(OBJDIR)/ovl/OVL18C.BIN $(OBJDIR)/ovl/OVL10C.BIN $(OBJDIR)/ovl/OVL11C.BIN
 
 #----------------------
 # | CFLAGS
@@ -551,6 +554,40 @@ $(OBJDIR)/card/card_vmu.o $(OBJDIR)/card/card_store_kos.o: DECOMP_STD += -std=c1
 build/decomp/overlays/checkps/kanji.o: DECOMP_STD += -D_POSIX_C_SOURCE=200809L
 
 #----------------------
+# | $(OBJDIR)/movie/%.o / $(OBJDIR)/cd/cd_stream.o / $(OBJDIR)/cd/cd_stream_kos.o / $(OBJDIR)/video/vram_mirror.o
+# | Description: The movie codec, sector stream and VRAM mirror use <string.h>; the same _POSIX_C_SOURCE fix as kanji.o hides the legacy newlib bcopy from the Psy-Q one in lom_prefix.h.
+# | Author: suinevere
+# | Dependencies: src/movie/*.c, src/cd/cd_stream.c, src/cd/cd_stream_kos.c, src/video/vram_mirror.c, ../port/psyq/lom_prefix.h
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/movie/%.o $(OBJDIR)/cd/cd_stream.o $(OBJDIR)/cd/cd_stream_kos.o $(OBJDIR)/video/vram_mirror.o: DECOMP_STD += -D_POSIX_C_SOURCE=200809L
+
+#----------------------
+# | $(OBJDIR)/movie/mdec.o / $(OBJDIR)/movie/str_vlc.o
+# | Description: The software STR decoder at -O3: the decode probe measured 49 ms a frame at -O2 and 38 ms at -O3, against 66.7 ms per movie frame.
+# | Author: suinevere
+# | Dependencies: src/movie/mdec.c, src/movie/str_vlc.c
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/movie/mdec.o $(OBJDIR)/movie/str_vlc.o: DECOMP_STD += -O3
+
+#----------------------
+# | $(call DECOMP_OBJ,$(DECOMP_MOVIE))
+# | Description: MOVIE's AKAO ring-stream calls go to movie_audio_dc.c, which plays the ring through the AICA stream channel; AKAO's own ring refills on SPU IRQs the Dreamcast does not raise.
+# | Author: suinevere
+# | Dependencies: src/movie/movie_audio_dc.c, ../src/overlays/movie/movie.c
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(call DECOMP_OBJ,$(DECOMP_MOVIE)): DECOMP_STD += -Dakao_start_xa_stream=movie_audio_start -Dakao_xa_advance_frame=movie_audio_advance \
+	-Dakao_xa_get_position=movie_audio_position -Dakao_set_xa_volume=movie_audio_volume
+
+#----------------------
 # | build/decomp/overlays/field/actors/field_command_history.o / build/decomp/overlays/field/runtime/field_character_name_flags.o
 # | Description: Both include <strings.h> directly, same legacy-bcopy clash as kanji.o; same fix.
 # | Author: suinevere
@@ -606,7 +643,7 @@ $(call DECOMP_OBJ,$(DECOMP_GOSUB)): DECOMP_STD += -fgnu89-inline
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-$(call DECOMP_OBJ,$(DECOMP_GOLEM)) $(call DECOMP_OBJ,$(DECOMP_ZUKAN)) $(call DECOMP_OBJ,$(DECOMP_GOSUB)) $(call DECOMP_OBJ,$(DECOMP_CARDA)) $(call DECOMP_OBJ,$(DECOMP_CLOAD)) $(call DECOMP_OBJ,$(DECOMP_NIKI)) $(call DECOMP_OBJ,$(DECOMP_ADDHERO)) $(call DECOMP_OBJ,$(DECOMP_GOVER)): DECOMP_STD += -D_POSIX_C_SOURCE=200809L
+$(call DECOMP_OBJ,$(DECOMP_GOLEM)) $(call DECOMP_OBJ,$(DECOMP_ZUKAN)) $(call DECOMP_OBJ,$(DECOMP_GOSUB)) $(call DECOMP_OBJ,$(DECOMP_CARDA)) $(call DECOMP_OBJ,$(DECOMP_CLOAD)) $(call DECOMP_OBJ,$(DECOMP_NIKI)) $(call DECOMP_OBJ,$(DECOMP_ADDHERO)) $(call DECOMP_OBJ,$(DECOMP_GOVER)) $(call DECOMP_OBJ,$(DECOMP_MOVIE)): DECOMP_STD += -D_POSIX_C_SOURCE=200809L
 
 #----------------------
 # | build/decomp/overlays/field/actors/field_actor_hud_effects.o
@@ -803,6 +840,10 @@ $(OBJDIR)/ovl/OVL10C.BIN: $(TARGET) $(GOVER_OBJS) gen/gover.ld gen/gover_pending
 	@mkdir -p $(dir $@)
 	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link gover $(TARGET) $(OBJDIR)/ovl $@ $(GOVER_OBJS) --links field
 
+$(OBJDIR)/ovl/OVL11C.BIN: $(TARGET) $(MOVIE_OBJS) gen/movie.ld gen/movie_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
+	@mkdir -p $(dir $@)
+	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link movie $(TARGET) $(OBJDIR)/ovl $@ $(MOVIE_OBJS) --links field
+
 $(OBJDIR)/ovl/OVL18C.BIN: $(TARGET) $(ADDHERO_OBJS) gen/addhero.ld gen/addhero_pending.ld $(OBJDIR)/ovl/OVL02C.BIN
 	@mkdir -p $(dir $@)
 	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link addhero $(TARGET) $(OBJDIR)/ovl $@ $(ADDHERO_OBJS) --links field
@@ -882,14 +923,14 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 
 #----------------------
 # | PADSEL_IMAGES / lom_<script>_test.cdi
-# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: lom_card_save_test.cdi, lom_card_load_test.cdi and lom_sound_sweep_test.cdi.
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the card save and load discs, the sound sweep disc and the movie probe and intro discs and the FIELD movie disc.
 # | Author: suinevere
 # | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = card_save card_load sound_sweep
+PADSEL_SCRIPTS = card_save card_load sound_sweep movie_probe movie_intro field_movie
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*
@@ -934,7 +975,7 @@ pending: $(PRE_BUILD_STAMP) $(MAIN_OBJS) $(OVERLAY_OBJS) $(KOS_CDROM_PATCH_OBJS)
 	$(PYTHON) ../port/tools/gen_pending.py --nm sh-elf-nm --overlay dreamcast \
 		--objects $(MAIN_OBJS) \
 		$(foreach o,$(OVERLAY_NAMES),--overlay-group $(OVERLAY_GROUP_$(o)) gen/$(o)_symbols.ld) \
-		--group-links gname:field menu:field shop:field golem:field zukan:field gosub:field carda:field cload:field niki:field addhero:field gover:field \
+		--group-links gname:field menu:field shop:field golem:field zukan:field gosub:field carda:field cload:field niki:field addhero:field gover:field movie:field \
 		--symbols $(wildcard ../config/us/symbols/*.txt) \
 		--defined $(PENDING_DEFINED) --alias-defined gen/overlay_entries.ld \
 		--out-c gen/dc_pending.c --out-ld gen/dc_pending.ld --group-out-dir gen

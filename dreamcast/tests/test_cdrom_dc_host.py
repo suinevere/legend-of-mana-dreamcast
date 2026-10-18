@@ -2,7 +2,7 @@
 # | test_cdrom_dc_host.py
 # | Description: Writes a temp-directory disc fixture (RESINDEX.BIN plus RES/<XX> subfolders), then builds and runs the host C test for cdrom_dc.c against it with the host gcc.
 # | Author: suinevere
-# | Dependencies: tests/host/test_cdrom_dc.c, src/cd/cdrom_dc.c, src/cd/map_relocate.c, ../port/boot/resource_index.c
+# | Dependencies: tests/host/test_cdrom_dc.c, src/cd/cdrom_dc.c, src/cd/cd_stream.c, src/cd/map_relocate.c, ../port/boot/resource_index.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -74,6 +74,8 @@ def test_cdrom_dc_messages_host_suite():
     cmd = [cc, "-std=gnu11", "-Wall", "-Wextra",
            "-DLOM_CD_ROOT=\"%s\"" % cd_root,
            "-I", os.path.join(REPO, "include"),
+           "-idirafter", os.path.join(REPO, "include", "sdk"),
+           "-I", os.path.join(REPO, "port", "system"),
            "-I", boot,
            "-I", cd,
            "-I", system,
@@ -81,6 +83,7 @@ def test_cdrom_dc_messages_host_suite():
            "-o", exe,
            os.path.join(DC, "tests", "host", "test_cdrom_dc.c"),
            os.path.join(cd, "cdrom_dc.c"),
+           os.path.join(cd, "cd_stream.c"),
            os.path.join(cd, "map_relocate.c"),
            os.path.join(PORT_BOOT, "resource_index.c")]
     subprocess.run(cmd, check=True, cwd=REPO)

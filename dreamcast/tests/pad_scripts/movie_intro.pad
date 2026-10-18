@@ -1,0 +1,10 @@
+# Intro movie: plays about 30 s, captures a frame, skips with Start, reaches the title.
+# The movie polls the pad once per frame (4 vblanks), so waits during it count frames, not vblanks.
+movies
+wait state 8
+wait 450
+capture movie-intro
+press START 6
+wait state 2
+wait 60
+capture title-after-movie

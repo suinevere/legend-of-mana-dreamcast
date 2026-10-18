@@ -129,4 +129,26 @@ extern void (*g_dc_field_open)(int target);
  ----------------------*/
 extern void (*g_dc_field_gameover)(void);
 
+/*----------------------
+ | g_dc_movie_probe
+ | Description: The test image's decode-speed probe, defined by movie_probe_dc.c; NULL where that file is not linked.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_dc_movie_probe
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+extern void (*g_dc_movie_probe)(void);
+
+/*----------------------
+ | g_dc_field_movie
+ | Description: Test-only pad step hook that starts the current scene's first movie animation; set by field_watch_install, NULL until FIELD loads.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_dc_field_movie
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+extern void (*g_dc_field_movie)(void);
+
 #endif

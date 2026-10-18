@@ -115,4 +115,15 @@ int pvr_submit_scene_has_prims(void);
  ----------------------*/
 int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y);
 
+/*----------------------
+ | pvr_submit_rgb24
+ | Description: Shows a 24-bit display area as one opaque full-screen textured quad in its own scene, counted by the frame probe like any flip.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: pixels -- RGB565 rows at a 512-pixel pitch, width, height -- frame size in pixels, at most 512x256
+ | Returns: N/A
+ ----------------------*/
+void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height);
+
 #endif

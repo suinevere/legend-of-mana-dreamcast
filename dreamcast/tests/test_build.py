@@ -157,3 +157,17 @@ def test_touching_splat_ext_module_reruns_disc_converter():
 
     _, _, rebuild_output = build.stdout.partition(SECOND_BUILD_MARKER)
     assert CONVERTER_START_LINE in rebuild_output, rebuild_output[-4000:]
+
+
+MOVIE_LINKED_NAMES = ["movie_play", "movie_init", "movie_update", "movie_service_video_ops", "DecDCTvlc2", "DecDCTin",
+                      "DecDCTout", "CdGetSector", "cdrom_reset", "cdrom_queue_command", "DrawSyncCallback", "BreakDraw",
+                      "LoadImage2", "akao_start_xa_stream", "g_field_movie_frame_width", "g_field_movie_frame_height"]
+
+
+def test_movie_names_are_not_pending_trap_aliases():
+    pending = os.path.join(DC, "gen", "dc_pending.ld")
+    if not os.path.exists(pending):
+        pytest.skip("dreamcast/gen not generated")
+    with open(pending) as f:
+        aliased = {line.split(" = ")[0].strip().lstrip("_") for line in f if "= _lom_trap_buffer" in line}
+    assert not aliased & set(MOVIE_LINKED_NAMES), sorted(aliased & set(MOVIE_LINKED_NAMES))

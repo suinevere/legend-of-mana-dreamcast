@@ -45,14 +45,14 @@
 
 /*----------------------
  | LOM_SECONDARY_OVERLAY_SIZE
- | Description: Bytes in lom_secondary_overlay: the PS1 secondary region up to the end of WSEL's two 0x80CC-byte render buffers at +0x30000.
+ | Description: Bytes in lom_secondary_overlay: the PS1 secondary region up to the end of MOVIE's full-screen buffer arena at +0x66A00, past WSEL's render buffers at +0x30000.
  | Author: suinevere
  | Dependencies: main_globals_dc.c, common/render_context.h, overlays/wsel/wsel.h
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define LOM_SECONDARY_OVERLAY_SIZE 0x401A0
+#define LOM_SECONDARY_OVERLAY_SIZE 0x66A00
 
 /*----------------------
  | SECONDARY_OVERLAY_ADDRESS / SECONDARY_OVERLAY_AT

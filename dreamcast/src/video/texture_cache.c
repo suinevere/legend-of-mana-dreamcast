@@ -11,6 +11,7 @@
 #include "palette_bank.h"
 #include "vram_mirror.h"
 #include "gpu_decode.h"
+#include "dc_system.h"
 
 /*----------------------
  | TEXTURE_PAGE_SIZE
@@ -70,6 +71,9 @@ typedef struct
     void *texture;
     uint32_t page_gen;
     uint32_t clut_gen;
+    void *spare;
+    uint32_t spare_gen;
+    uint8_t spare_valid;
     unsigned last_frame;
     int16_t tpage_x;
     int16_t tpage_y;
@@ -136,6 +140,19 @@ static unsigned s_expansions;
  | Returns: N/A
  ----------------------*/
 static unsigned s_skips;
+
+/*----------------------
+ | s_builds / s_build_us
+ | Description: Texture entries converted from the VRAM mirror, first builds and rebuilds after a page or CLUT write alike, the microseconds spent converting them, and the microseconds spent uploading them.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_builds;
+static unsigned long long s_build_us;
+static unsigned long long s_upload_us;
 
 /*----------------------
  | s_flush_pending
@@ -381,50 +398,267 @@ static unsigned entry_bytes(int kind, int depth)
 }
 
 /*----------------------
- | build_texture
- | Description: Builds a twiddled texture for an entry in s_scratch: packed indices for a paletted page, ARGB1555 for 15bpp or an expansion through its CLUT.
+ | s_twiddle_u / s_twiddle_v / s_twiddle_ready
+ | Description: The column and row halves of texture_twiddle_index, whose OR is the twiddled index, filled on first use.
  | Author: suinevere
- | Dependencies: page_texel, texture_twiddle_index, ps1_to_argb1555, argb8888_to_1555, palette_convert, vram_mirror_at, entry_bytes
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static uint16_t s_twiddle_u[TEXTURE_PAGE_SIZE];
+static uint16_t s_twiddle_v[TEXTURE_PAGE_SIZE];
+static int s_twiddle_ready;
+
+/*----------------------
+ | twiddle_tables
+ | Description: Fills s_twiddle_u and s_twiddle_v once.
+ | Author: suinevere
+ | Dependencies: spread_bits
+ | Globals: s_twiddle_u, s_twiddle_v, s_twiddle_ready
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void twiddle_tables(void)
+{
+    unsigned i;
+
+    if (s_twiddle_ready)
+    {
+        return;
+    }
+    for (i = 0; i < TEXTURE_PAGE_SIZE; i++)
+    {
+        s_twiddle_u[i] = (uint16_t)(spread_bits(i) << 1);
+        s_twiddle_v[i] = (uint16_t)spread_bits(i);
+    }
+    s_twiddle_ready = 1;
+}
+
+/*----------------------
+ | page_row
+ | Description: Row v of a page as consecutive VRAM words: straight from the mirror when the row does not wrap, else gathered into tmp.
+ | Author: suinevere
+ | Dependencies: vram_mirror_at
+ | Globals: N/A
+ | Params: tpage_x, tpage_y -- page origin, v -- row, words -- page width in words, tmp -- room for words values
+ | Returns: pointer to the row's words
+ ----------------------*/
+static const uint16_t *page_row(int tpage_x, int tpage_y, int v, int words, uint16_t *tmp)
+{
+    const uint16_t *first = vram_mirror_at(tpage_x, tpage_y + v);
+    int w;
+
+    if (vram_mirror_at(tpage_x + words - 1, tpage_y + v) == first + words - 1)
+    {
+        return first;
+    }
+    for (w = 0; w < words; w++)
+    {
+        tmp[w] = *vram_mirror_at(tpage_x + w, tpage_y + v);
+    }
+    return tmp;
+}
+
+/*----------------------
+ | entry_colours
+ | Description: Converts an expansion entry's CLUT to ARGB1555 once, so each texel is a table lookup.
+ | Author: suinevere
+ | Dependencies: argb8888_to_1555, palette_convert, vram_mirror_at
+ | Globals: N/A
+ | Params: e -- entry, colours -- 256 outputs, 16 used for 4bpp
+ | Returns: N/A
+ ----------------------*/
+static void entry_colours(const TextureEntry *e, uint16_t *colours)
+{
+    int count = e->depth == DC_DEPTH_4 ? 16 : 256;
+    int i;
+
+    if (e->kind != ENTRY_EXPANSION)
+    {
+        return;
+    }
+    for (i = 0; i < count; i++)
+    {
+        colours[i] = argb8888_to_1555(palette_convert(*vram_mirror_at(e->clut_x + i, e->clut_y), e->variant));
+    }
+}
+
+/*----------------------
+ | build_region
+ | Description: Writes texels u0..u1-1 of rows v0..v1-1 into s_scratch at their twiddled places: packed indices for a paletted page, ARGB1555 for 15bpp or an expansion.
+ | Author: suinevere
+ | Dependencies: twiddle_tables, page_row, page_words_wide, ps1_to_argb1555
+ | Globals: s_scratch, s_twiddle_u, s_twiddle_v
+ | Params: e -- entry, u0, u1, v0, v1 -- texel bounds, colours -- entry_colours output for an expansion
+ | Returns: N/A
+ ----------------------*/
+static void build_region(const TextureEntry *e, int u0, int u1, int v0, int v1, const uint16_t *colours)
+{
+    uint8_t *bytes = (uint8_t *)s_scratch;
+    uint16_t tmp[TEXTURE_PAGE_SIZE];
+    int words = page_words_wide(e->depth);
+    int expand = e->kind == ENTRY_EXPANSION;
+    int u;
+    int v;
+
+    twiddle_tables();
+    for (v = v0; v < v1; v++)
+    {
+        const uint16_t *row = page_row(e->tpage_x, e->tpage_y, v, words, tmp);
+        unsigned tv = s_twiddle_v[v];
+
+        if (e->depth == DC_DEPTH_15)
+        {
+            for (u = u0; u < u1; u++)
+            {
+                s_scratch[s_twiddle_u[u] | tv] = ps1_to_argb1555(row[u]);
+            }
+        }
+        else if (e->depth == DC_DEPTH_8)
+        {
+            for (u = u0; u < u1; u++)
+            {
+                unsigned index = (row[u >> 1] >> ((u & 1) * 8)) & 0xFFu;
+                unsigned t = s_twiddle_u[u] | tv;
+
+                if (expand)
+                {
+                    s_scratch[t] = colours[index];
+                }
+                else
+                {
+                    bytes[t] = (uint8_t)index;
+                }
+            }
+        }
+        else
+        {
+            for (u = u0; u < u1; u++)
+            {
+                unsigned index = (row[u >> 2] >> ((u & 3) * 4)) & 0xFu;
+                unsigned t = s_twiddle_u[u] | tv;
+
+                if (expand)
+                {
+                    s_scratch[t] = colours[index];
+                }
+                else if (t & 1u)
+                {
+                    bytes[t >> 1] = (uint8_t)((bytes[t >> 1] & 0x0Fu) | (index << 4));
+                }
+                else
+                {
+                    bytes[t >> 1] = (uint8_t)((bytes[t >> 1] & 0xF0u) | index);
+                }
+            }
+        }
+    }
+}
+
+/*----------------------
+ | build_texture
+ | Description: Builds a whole entry's twiddled texture in s_scratch.
+ | Author: suinevere
+ | Dependencies: entry_colours, build_region, entry_bytes
  | Globals: s_scratch
  | Params: e -- entry to build
  | Returns: bytes built
  ----------------------*/
 static unsigned build_texture(const TextureEntry *e)
 {
-    uint8_t *bytes = (uint8_t *)s_scratch;
-    int u;
-    int v;
+    uint16_t colours[256];
 
-    for (v = 0; v < TEXTURE_PAGE_SIZE; v++)
+    entry_colours(e, colours);
+    build_region(e, 0, TEXTURE_PAGE_SIZE, 0, TEXTURE_PAGE_SIZE, colours);
+    return entry_bytes(e->kind, e->depth);
+}
+
+/*----------------------
+ | DIRTY_BLOCK_WORDS / DIRTY_BLOCK_ROWS / SQUARE_TEXELS
+ | Description: The VRAM mirror's generation block (VRAM_BLOCK_WIDTH by VRAM_BLOCK_HEIGHT words), and the side of the texel square whose twiddled texels are one contiguous run.
+ | Author: suinevere
+ | Dependencies: vram_mirror.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define DIRTY_BLOCK_WORDS 64
+#define DIRTY_BLOCK_ROWS 16
+#define SQUARE_TEXELS 16
+
+/*----------------------
+ | copy_texture
+ | Description: Copies built bytes into texture memory, through the backend's waiting upload when a submitted scene may still read the target, else through its write.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_texture_ops
+ | Params: dst -- texture memory, src -- bytes, bytes -- count, settle -- nonzero when a submitted scene may read dst
+ | Returns: N/A
+ ----------------------*/
+static void copy_texture(void *dst, const void *src, unsigned bytes, int settle)
+{
+    if (!settle && s_texture_ops->write != 0)
     {
-        for (u = 0; u < TEXTURE_PAGE_SIZE; u++)
-        {
-            uint32_t t = texture_twiddle_index((unsigned)u, (unsigned)v);
-            uint16_t texel = page_texel(e->tpage_x, e->tpage_y, e->depth, u, v);
+        s_texture_ops->write(dst, src, bytes);
+    }
+    else if (s_texture_ops->upload != 0)
+    {
+        s_texture_ops->upload(dst, src, bytes);
+    }
+}
 
-            if (e->kind == ENTRY_EXPANSION)
+/*----------------------
+ | rebuild_dirty
+ | Description: Rebuilds only the texel squares under mirror blocks written after generation since, and copies each square's run into target.
+ | Author: suinevere
+ | Dependencies: entry_colours, build_region, page_words_wide, vram_mirror_generation, twiddle_tables, copy_texture, dc_time_us
+ | Globals: s_scratch, s_twiddle_u, s_twiddle_v, s_build_us, s_upload_us
+ | Params: e -- entry whose CLUT is unchanged, target -- texture memory holding the page as of since, since -- its generation, settle -- as copy_texture
+ | Returns: N/A
+ ----------------------*/
+static void rebuild_dirty(const TextureEntry *e, void *target, uint32_t since, int settle)
+{
+    uint16_t colours[256];
+    int words = page_words_wide(e->depth);
+    int texels_per_word = TEXTURE_PAGE_SIZE / words;
+    int wide = e->kind == ENTRY_EXPANSION || e->depth == DC_DEPTH_15;
+    unsigned square_bytes = SQUARE_TEXELS * SQUARE_TEXELS;
+    int bx;
+    int by;
+
+    square_bytes = wide ? square_bytes * 2u : (e->depth == DC_DEPTH_8 ? square_bytes : square_bytes / 2u);
+    twiddle_tables();
+    entry_colours(e, colours);
+    for (by = 0; by < TEXTURE_PAGE_SIZE / DIRTY_BLOCK_ROWS; by++)
+    {
+        for (bx = 0; bx < (words + DIRTY_BLOCK_WORDS - 1) / DIRTY_BLOCK_WORDS; bx++)
+        {
+            int u0 = bx * DIRTY_BLOCK_WORDS * texels_per_word;
+            int u1 = u0 + DIRTY_BLOCK_WORDS * texels_per_word;
+            int v0 = by * DIRTY_BLOCK_ROWS;
+            unsigned long long t0;
+            int u;
+
+            if (vram_mirror_generation(e->tpage_x + bx * DIRTY_BLOCK_WORDS, e->tpage_y + v0, DIRTY_BLOCK_WORDS, DIRTY_BLOCK_ROWS) <= since)
             {
-                s_scratch[t] = argb8888_to_1555(palette_convert(*vram_mirror_at(e->clut_x + texel, e->clut_y), e->variant));
+                continue;
             }
-            else if (e->depth == DC_DEPTH_15)
+            u1 = u1 > TEXTURE_PAGE_SIZE ? TEXTURE_PAGE_SIZE : u1;
+            t0 = dc_time_us();
+            build_region(e, u0, u1, v0, v0 + DIRTY_BLOCK_ROWS, colours);
+            s_build_us += dc_time_us() - t0;
+            t0 = dc_time_us();
+            for (u = u0; u < u1; u += SQUARE_TEXELS)
             {
-                s_scratch[t] = ps1_to_argb1555(texel);
+                unsigned base = s_twiddle_u[u] | s_twiddle_v[v0];
+                unsigned offset = wide ? base * 2u : (e->depth == DC_DEPTH_8 ? base : base / 2u);
+
+                copy_texture((uint8_t *)target + offset, (uint8_t *)s_scratch + offset, square_bytes, settle);
             }
-            else if (e->depth == DC_DEPTH_8)
-            {
-                bytes[t] = (uint8_t)texel;
-            }
-            else if (t & 1u)
-            {
-                bytes[t >> 1] = (uint8_t)((bytes[t >> 1] & 0x0Fu) | (texel << 4));
-            }
-            else
-            {
-                bytes[t >> 1] = (uint8_t)((bytes[t >> 1] & 0xF0u) | texel);
-            }
+            s_upload_us += dc_time_us() - t0;
         }
     }
-    return entry_bytes(e->kind, e->depth);
 }
 
 /*----------------------
@@ -564,25 +798,80 @@ static TextureEntry *find_or_create(int kind, int tpage_x, int tpage_y, int dept
     free_entry->variant = (uint8_t)variant;
     free_entry->built = 0;
     free_entry->used = 0;
+    free_entry->spare = 0;
+    free_entry->spare_valid = 0;
     return free_entry;
 }
 
 /*----------------------
- | ensure_built
- | Description: Rebuilds and uploads a new or stale entry; a stale entry frame already used moves to fresh memory, leaving the old bytes for earlier primitives.
+ | update_through_spare
+ | Description: Brings a built entry up to page_gen without waiting on the screen: the changed squares go into its spare buffer, last read two scenes back, which then swaps in; a spare that is new or outdated by a whole rebuild is built whole, and with no memory for one the squares are rewritten in place after the wait.
  | Author: suinevere
- | Dependencies: build_texture, entry_bytes, make_room
- | Globals: s_texture_ops, s_scratch, s_flushes, s_flush_pending
+ | Dependencies: rebuild_dirty, build_texture, copy_texture, entry_bytes, dc_time_us
+ | Globals: s_texture_ops, s_scratch, s_builds, s_build_us, s_upload_us
+ | Params: e -- built entry, not yet used this frame, with an unchanged CLUT; page_gen -- current page generation
+ | Returns: 1
+ ----------------------*/
+static int update_through_spare(TextureEntry *e, uint32_t page_gen)
+{
+    void *previous = e->texture;
+    unsigned long long t0;
+    unsigned bytes;
+
+    if (e->spare == 0)
+    {
+        e->spare = s_texture_ops->alloc(entry_bytes(e->kind, e->depth));
+        if (e->spare == 0)
+        {
+            rebuild_dirty(e, e->texture, e->page_gen, 1);
+            e->page_gen = page_gen;
+            return 1;
+        }
+    }
+    if (!e->spare_valid)
+    {
+        t0 = dc_time_us();
+        bytes = build_texture(e);
+        s_builds++;
+        s_build_us += dc_time_us() - t0;
+        t0 = dc_time_us();
+        copy_texture(e->spare, s_scratch, bytes, 0);
+        s_upload_us += dc_time_us() - t0;
+    }
+    else
+    {
+        rebuild_dirty(e, e->spare, e->spare_gen, 0);
+    }
+    e->texture = e->spare;
+    e->spare = previous;
+    e->spare_gen = e->page_gen;
+    e->spare_valid = 1;
+    e->page_gen = page_gen;
+    return 1;
+}
+
+/*----------------------
+ | ensure_built
+ | Description: Builds a new entry into its fresh memory; a stale entry not used yet this frame with an unchanged CLUT updates through its spare buffer, and any other stale entry is rebuilt whole, into fresh memory when used this frame so earlier primitives keep the old bytes.
+ | Author: suinevere
+ | Dependencies: build_texture, update_through_spare, copy_texture, entry_bytes, make_room, dc_time_us
+ | Globals: s_texture_ops, s_scratch, s_flushes, s_flush_pending, s_builds, s_build_us, s_upload_us
  | Params: e -- entry, page_gen -- current page generation, clut_gen -- current CLUT generation, 0 for pages, frame -- current frame
  | Returns: 1 if rebuilt, 0 if already current, -1 if fresh memory was needed and not available
  ----------------------*/
 static int ensure_built(TextureEntry *e, uint32_t page_gen, uint32_t clut_gen, unsigned frame)
 {
     unsigned bytes;
+    unsigned long long t0;
+    int in_place = e->built;
 
     if (e->built && e->page_gen == page_gen && e->clut_gen == clut_gen)
     {
         return 0;
+    }
+    if (e->built && e->clut_gen == clut_gen && !(e->used && e->last_frame == frame))
+    {
+        return update_through_spare(e, page_gen);
     }
     if (e->built && e->used && e->last_frame == frame)
     {
@@ -594,15 +883,19 @@ static int ensure_built(TextureEntry *e, uint32_t page_gen, uint32_t clut_gen, u
             return -1;
         }
         e->texture = texture;
+        in_place = 0;
     }
+    t0 = dc_time_us();
     bytes = build_texture(e);
-    if (s_texture_ops->upload != 0)
-    {
-        s_texture_ops->upload(e->texture, s_scratch, bytes);
-    }
+    s_builds++;
+    s_build_us += dc_time_us() - t0;
+    t0 = dc_time_us();
+    copy_texture(e->texture, s_scratch, bytes, in_place);
+    s_upload_us += dc_time_us() - t0;
     e->page_gen = page_gen;
     e->clut_gen = clut_gen;
     e->built = 1;
+    e->spare_valid = 0;
     return 1;
 }
 
@@ -807,6 +1100,48 @@ unsigned texture_cache_expansions(void)
 unsigned texture_cache_skips(void)
 {
     return s_skips;
+}
+
+/*----------------------
+ | texture_cache_builds
+ | Description: Texture entries converted since start-up.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_builds
+ | Params: N/A
+ | Returns: the count
+ ----------------------*/
+unsigned texture_cache_builds(void)
+{
+    return s_builds;
+}
+
+/*----------------------
+ | texture_cache_build_us
+ | Description: Microseconds spent converting texture entries since start-up.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_build_us
+ | Params: N/A
+ | Returns: the total
+ ----------------------*/
+unsigned long long texture_cache_build_us(void)
+{
+    return s_build_us;
+}
+
+/*----------------------
+ | texture_cache_upload_us
+ | Description: Microseconds spent uploading texture entries since start-up, waits for the previous scene included.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_upload_us
+ | Params: N/A
+ | Returns: the total
+ ----------------------*/
+unsigned long long texture_cache_upload_us(void)
+{
+    return s_upload_us;
 }
 
 /*----------------------

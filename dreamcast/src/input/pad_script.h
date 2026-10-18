@@ -167,6 +167,17 @@
 #define PAD_OP_SFXSET 13
 
 /*----------------------
+ | PAD_OP_PROBE_MOVIE
+ | Description: Test-only step op: times software STR decoding of the intro through g_dc_movie_probe, then advances.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_PROBE_MOVIE 14
+
+/*----------------------
  | sound_test_tone / sound_test_longvoice / sound_test_music / sound_test_music_off / sound_test_sfxset / sound_test_poll
  | Description: The test image's sound checks: start a stream-channel tone, a streamed long voice or a music resource's song, stop the song, upload an effect resource's banks, and feed or end them once per vblank.
  | Author: suinevere
@@ -181,6 +192,39 @@ void sound_test_music(int resource);
 void sound_test_music_off(void);
 void sound_test_sfxset(int resource);
 void sound_test_poll(void);
+
+/*----------------------
+ | PAD_OP_MOVIES
+ | Description: Test-only step op: stops holding Start through the intro movie, so the intro plays, then advances.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_MOVIES 15
+
+/*----------------------
+ | PAD_OP_FIELD_MOVIE
+ | Description: Test-only step op: starts the current scene's first movie animation through g_dc_field_movie, then advances.
+ | Author: suinevere
+ | Dependencies: g_dc_field_movie
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_FIELD_MOVIE 16
+
+/*----------------------
+ | PAD_SCRIPT_INTRO_MOVIE_STATE
+ | Description: The game state that plays the intro movie (GAME_STATE_INTRO_MOVIE), during which a script holds Start unless a movies step has run.
+ | Author: suinevere
+ | Dependencies: include/main/game_state.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_SCRIPT_INTRO_MOVIE_STATE 8
 
 /*----------------------
  | PAD_SCRIPT_BTN_L2

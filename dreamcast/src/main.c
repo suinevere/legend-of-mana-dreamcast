@@ -28,7 +28,7 @@ void main_game_loop(void);
 
 #ifdef LOM_PAD_SCRIPT
 /*----------------------
- | g_dc_watch_poll / g_dc_field_scene_jump / g_dc_field_battle / g_dc_field_open / g_dc_field_gameover
+ | g_dc_watch_poll / g_dc_field_scene_jump / g_dc_field_battle / g_dc_field_open / g_dc_field_gameover / g_dc_field_movie
  | Description: Test-image-only pad-script hooks declared in watch.h; NULL until field_watch_install sets them.
  | Author: suinevere
  | Dependencies: watch.h
@@ -41,6 +41,7 @@ void (*g_dc_field_scene_jump)(int scene, int spawn) = NULL;
 void (*g_dc_field_battle)(void) = NULL;
 void (*g_dc_field_open)(int target) = NULL;
 void (*g_dc_field_gameover)(void) = NULL;
+void (*g_dc_field_movie)(void) = NULL;
 #endif
 
 /*----------------------

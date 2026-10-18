@@ -1,6 +1,6 @@
 /*----------------------
  | test_cdrom_dc.c
- | Description: Host tests for cdrom_dc.c's stdio resource reads, queued-read callback ordering, the fanned-out RES/<XX> subfolder path, raw WMAP layout cells, stream decompression of raw PS1 resources, and resource-naming halts, run against a real temp-directory disc fixture written by test_cdrom_dc_host.py.
+ | Description: Host tests for cdrom_dc.c's stdio resource reads, paced CdlReadS streams, queued-read callback ordering, the fanned-out RES/<XX> subfolder path, raw WMAP layout cells, stream decompression of raw PS1 resources, and resource-naming halts, run against a real temp-directory disc fixture written by test_cdrom_dc_host.py.
  | Author: suinevere
  | Dependencies: cdrom_dc.c, resource_index.c
  | Globals: N/A
@@ -15,6 +15,7 @@
 #define INCLUDE_ASM_H
 #include "main/cdrom.h"
 #include "resource_index.h"
+#include <libcd.h>
 
 s32 cdrom_make_resident(s32 resource_index);
 
@@ -50,6 +51,120 @@ void cdrom_decompress_buffer(u8 *source, u8 *destination)
 {
     s_decompress_calls++;
     memcpy(destination, source + 1, 4);
+}
+
+/*----------------------
+ | vsync_count / cd_stream_kos_open / cd_stream_kos_fetch / cd_stream_kos_close
+ | Description: Host stand-ins for the vblank counter and the KallistiOS read-ahead: a three-sector stream whose sectors carry their number in byte 0.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_vblank, s_stream_sector, s_kos_closed
+ | Params: see cd_stream_kos.h
+ | Returns: see cd_stream_kos.h
+ ----------------------*/
+static unsigned s_vblank;
+static unsigned char s_stream_sector[2048];
+static int s_kos_closed;
+
+unsigned vsync_count(void)
+{
+    return s_vblank;
+}
+
+int cd_stream_kos_open(int resource_index, unsigned *total_sectors)
+{
+    (void)resource_index;
+    *total_sectors = 3;
+    return 1;
+}
+
+const unsigned char *cd_stream_kos_fetch(void *ctx, unsigned sector)
+{
+    (void)ctx;
+    s_stream_sector[0] = (unsigned char)sector;
+    return s_stream_sector;
+}
+
+void cd_stream_kos_close(void)
+{
+    s_kos_closed = 1;
+}
+
+/*----------------------
+ | DecDCToutCallback / DrawSyncCallback / g_movie_use_cd_audio / movie_audio_stop
+ | Description: Host stand-ins for the calls cdrom_reset makes.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: func -- ignored
+ | Returns: 0
+ ----------------------*/
+int DecDCToutCallback(void (*func)())
+{
+    (void)func;
+    return 0;
+}
+
+u_long DrawSyncCallback(void (*func)(void))
+{
+    (void)func;
+    return 0;
+}
+
+u8 g_movie_use_cd_audio;
+
+void movie_audio_stop(void)
+{
+}
+
+/*----------------------
+ | s_stream_sectors_seen / stream_callback
+ | Description: Counts sectors a CdlReadS stream delivers, reading each one's header the way MOVIE's sector callback does.
+ | Author: suinevere
+ | Dependencies: CdGetSector
+ | Globals: s_stream_sectors_seen
+ | Params: bytes_transferred, bytes_remaining -- ignored
+ | Returns: (u8*)1 to keep reading
+ ----------------------*/
+static int s_stream_sectors_seen;
+
+int CdGetSector(void *dst, int words);
+
+static u8 *stream_callback(s32 bytes_transferred, u32 bytes_remaining)
+{
+    u32 header[8];
+
+    (void)bytes_transferred;
+    (void)bytes_remaining;
+    if (CdGetSector(header, 8) == 1 && (header[0] & 0xFF) == (u32)s_stream_sectors_seen)
+    {
+        s_stream_sectors_seen++;
+    }
+    return (u8 *)1;
+}
+
+/*----------------------
+ | test_readS_stream_delivers_paced_sectors_through_process_state
+ | Description: A CdlReadS stream delivers nothing at its start vblank, then its due sectors in order through cdrom_process_state, ending after the last.
+ | Author: suinevere
+ | Dependencies: cdrom_queue_command, cdrom_process_state, stream_callback
+ | Globals: s_vblank, s_stream_sectors_seen
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_readS_stream_delivers_paced_sectors_through_process_state(void)
+{
+    s_vblank = 100;
+    s_stream_sectors_seen = 0;
+    CHECK(cdrom_queue_command(CdlReadS, 5, NULL, stream_callback) == 1);
+    cdrom_process_state();
+    CHECK(s_stream_sectors_seen == 0);
+    s_vblank = 101;
+    cdrom_process_state();
+    CHECK(s_stream_sectors_seen == 2);
+    s_vblank = 110;
+    cdrom_process_state();
+    CHECK(s_stream_sectors_seen == 3);
 }
 
 static unsigned char s_cb_dst[8];
@@ -257,6 +372,7 @@ int main(void)
     test_queue_read_reads_a_wmap_layout_cell_raw();
     test_stream_decompresses_a_raw_ps1_resource();
     test_resident_stream_copies_from_memory_after_its_file_is_gone();
+    test_readS_stream_delivers_paced_sectors_through_process_state();
     if (failures == 0)
     {
         printf("OK\n");

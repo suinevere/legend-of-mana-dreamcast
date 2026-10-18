@@ -47,6 +47,30 @@ _Static_assert(0x20000 + 2 * sizeof(RenderContext) <= LOM_SECONDARY_OVERLAY_SIZE
 _Static_assert(0x30000 + 2 * sizeof(WselRenderBuffer) <= LOM_SECONDARY_OVERLAY_SIZE, "secondary overlay too small for WSEL's render buffers");
 
 /*----------------------
+ | movie_standard_arena_fits
+ | Description: Compile-time check that MOVIE's full-screen buffers (video ring, audio ring, VLC table, two decode buffers, two output slices) from +0x7000 end inside lom_secondary_overlay.
+ | Author: suinevere
+ | Dependencies: LOM_SECONDARY_OVERLAY_SIZE, src/overlays/movie/movie.c StandardMovieBuffers
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+_Static_assert(0x7000 + 50 * 32 + 50 * 2016 + 16 * 2048 + 69632 + 2 * 81920 + 2 * 11520 <= LOM_SECONDARY_OVERLAY_SIZE,
+               "the standard movie arena ends past lom_secondary_overlay");
+
+/*----------------------
+ | movie_alternate_arena_fits
+ | Description: Compile-time check that MOVIE's FIELD-movie buffers (video ring, audio ring, two decode buffers) from +0x7000 end inside lom_secondary_overlay.
+ | Author: suinevere
+ | Dependencies: LOM_SECONDARY_OVERLAY_SIZE, src/overlays/movie/movie.c AlternateMovieBuffers
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+_Static_assert(0x7000 + 30 * 32 + 30 * 2016 + 16 * 2048 + 2 * 69632 <= LOM_SECONDARY_OVERLAY_SIZE,
+               "the alternate movie arena ends past lom_secondary_overlay");
+
+/*----------------------
  | get_overlay_load_base
  | Description: The PS1 overlay load base; on the Dreamcast, the start of the overlay arena.
  | Author: suinevere

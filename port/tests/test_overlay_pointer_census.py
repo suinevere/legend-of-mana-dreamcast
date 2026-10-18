@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(PORT, "tools"))
 
 import overlay_pointer_census as census_mod  # noqa: E402
 
-CENSUSED = ["menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover"]
+CENSUSED = ["menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover", "movie"]
 
 
 def require_raw(name):

@@ -167,6 +167,20 @@ static void dr_suspend(void)
 }
 
 /*----------------------
+ | FRAME_TEXTURE_WIDTH / FRAME_TEXTURE_HEIGHT / s_frame_texture / s_frame_surface
+ | Description: The non-twiddled RGB565 texture a 24-bit display frame is shown from, allocated on first use and again after texture memory is reset, and its lookup result.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FRAME_TEXTURE_WIDTH 512
+#define FRAME_TEXTURE_HEIGHT 256
+static pvr_ptr_t s_frame_texture;
+static DcSurfaceTexture s_frame_surface;
+
+/*----------------------
  | texture_alloc
  | Description: TextureOps.alloc backed by the PowerVR texture allocator.
  | Author: suinevere
@@ -182,34 +196,104 @@ static void *texture_alloc(unsigned bytes)
 
 /*----------------------
  | texture_free_all
- | Description: TextureOps.free_all: forgets every texture allocation at once, after the previous scene stops reading them.
+ | Description: TextureOps.free_all: forgets every texture allocation at once, the frame texture included, after the previous scene stops reading them.
  | Author: suinevere
  | Dependencies: settle_previous_scene, pvr_mem_reset
- | Globals: N/A
+ | Globals: s_frame_texture
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 static void texture_free_all(void)
 {
     settle_previous_scene();
+    s_frame_texture = 0;
     pvr_mem_reset();
 }
 
 /*----------------------
- | texture_upload
- | Description: TextureOps.upload: copies a built texture into texture memory through the store queues.
- | Releases the direct-rendering store-queue lock first, because pvr_txr_load takes the same non-recursive sq_lock and would deadlock.
+ | DIRECT_UPLOAD_MAX_BYTES
+ | Description: Largest upload copied with CPU word writes instead of the store queues, sized for a dirty 16x16 ARGB1555 square.
  | Author: suinevere
- | Dependencies: settle_previous_scene, dr_suspend, pvr_txr_load
+ | Dependencies: N/A
  | Globals: N/A
- | Params: dst -- texture memory, src -- built texture, bytes -- size
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define DIRECT_UPLOAD_MAX_BYTES 512u
+
+/*----------------------
+ | texture_write
+ | Description: TextureOps.write: copies into texture memory no submitted scene reads, through the store queues, or for a run of at most DIRECT_UPLOAD_MAX_BYTES with plain word writes that leave direct rendering open.
+ | Releases the direct-rendering store-queue lock before a store-queue copy, because pvr_txr_load takes the same non-recursive sq_lock and would deadlock.
+ | Author: suinevere
+ | Dependencies: dr_suspend, pvr_txr_load
+ | Globals: N/A
+ | Params: dst -- texture memory, src -- bytes, bytes -- count, a multiple of 32
+ | Returns: N/A
+ ----------------------*/
+static void texture_write(void *dst, const void *src, unsigned bytes)
+{
+    if (bytes <= DIRECT_UPLOAD_MAX_BYTES)
+    {
+        volatile uint32_t *out = (volatile uint32_t *)dst;
+        const uint32_t *in = (const uint32_t *)src;
+        unsigned i;
+
+        for (i = 0; i < bytes / 4u; i++)
+        {
+            out[i] = in[i];
+        }
+        return;
+    }
+    dr_suspend();
+    pvr_txr_load((void *)src, (pvr_ptr_t)dst, bytes);
+}
+
+/*----------------------
+ | texture_upload
+ | Description: TextureOps.upload: waits until the previous scene stops reading texture memory, then copies as texture_write does.
+ | Author: suinevere
+ | Dependencies: settle_previous_scene, texture_write
+ | Globals: N/A
+ | Params: dst -- texture memory, src -- bytes, bytes -- count
  | Returns: N/A
  ----------------------*/
 static void texture_upload(void *dst, const void *src, unsigned bytes)
 {
     settle_previous_scene();
-    dr_suspend();
-    pvr_txr_load((void *)src, (pvr_ptr_t)dst, bytes);
+    texture_write(dst, src, bytes);
+}
+
+/*----------------------
+ | kos_frame_texture
+ | Description: PvrBackend.frame_texture: loads a 24-bit display frame into its own texture, flushing the texture cache once if texture memory is full.
+ | Author: suinevere
+ | Dependencies: pvr_mem_malloc, texture_cache_flush_now, texture_upload
+ | Globals: s_frame_texture, s_frame_surface
+ | Params: pixels -- RGB565 rows at a 512-pixel pitch, width -- unused, height -- rows to load
+ | Returns: the frame surface, or NULL when no texture memory is free
+ ----------------------*/
+static const DcSurfaceTexture *kos_frame_texture(const uint16_t *pixels, unsigned width, unsigned height)
+{
+    (void)width;
+    if (s_frame_texture == 0)
+    {
+        s_frame_texture = pvr_mem_malloc(FRAME_TEXTURE_WIDTH * FRAME_TEXTURE_HEIGHT * 2);
+        if (s_frame_texture == 0)
+        {
+            texture_cache_flush_now();
+            s_frame_texture = pvr_mem_malloc(FRAME_TEXTURE_WIDTH * FRAME_TEXTURE_HEIGHT * 2);
+        }
+        if (s_frame_texture == 0)
+        {
+            return 0;
+        }
+    }
+    texture_upload(s_frame_texture, pixels, FRAME_TEXTURE_WIDTH * 2 * height);
+    s_frame_surface.texture = s_frame_texture;
+    s_frame_surface.format = TEX_FMT_RGB565_FRAME;
+    s_frame_surface.palette_slot = -1;
+    return &s_frame_surface;
 }
 
 /*----------------------
@@ -231,12 +315,12 @@ static void palette_set_entry(unsigned index, uint32_t argb8888)
  | s_texture_ops
  | Description: Texture memory backend handed to texture_cache_init.
  | Author: suinevere
- | Dependencies: texture_alloc, texture_free_all, texture_upload
+ | Dependencies: texture_alloc, texture_free_all, texture_upload, texture_write
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static const TextureOps s_texture_ops = { texture_alloc, texture_free_all, texture_upload };
+static const TextureOps s_texture_ops = { texture_alloc, texture_free_all, texture_upload, texture_write };
 
 /*----------------------
  | s_palette_ops
@@ -395,6 +479,10 @@ static int texture_format(const DcSurfaceTexture *tex)
     {
         return PVR_TXRFMT_PAL8BPP | PVR_TXRFMT_TWIDDLED | PVR_TXRFMT_8BPP_PAL(tex->palette_slot >> 4);
     }
+    if (tex->format == TEX_FMT_RGB565_FRAME)
+    {
+        return PVR_TXRFMT_RGB565 | PVR_TXRFMT_NONTWIDDLED;
+    }
     return PVR_TXRFMT_ARGB1555 | PVR_TXRFMT_TWIDDLED;
 }
 
@@ -417,8 +505,10 @@ static void kos_header(const DcSurfaceTexture *tex, const BlendPass *pass)
 
     if (tex != 0)
     {
-        pvr_poly_cxt_txr(&cxt, PVR_LIST_TR_POLY, texture_format(tex), PVR_TEXTURE_SIZE, PVR_TEXTURE_SIZE,
-                         (pvr_ptr_t)tex->texture, PVR_FILTER_NONE);
+        int frame = tex->format == TEX_FMT_RGB565_FRAME;
+
+        pvr_poly_cxt_txr(&cxt, PVR_LIST_TR_POLY, texture_format(tex), frame ? FRAME_TEXTURE_WIDTH : PVR_TEXTURE_SIZE,
+                         frame ? FRAME_TEXTURE_HEIGHT : PVR_TEXTURE_SIZE, (pvr_ptr_t)tex->texture, PVR_FILTER_NONE);
         cxt.txr.env = PVR_TXRENV_MODULATEALPHA;
     }
     else
@@ -475,7 +565,7 @@ static void kos_vertex(float x, float y, float u, float v, uint32_t argb, int la
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex, kos_scene_shown };
+static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex, kos_scene_shown, kos_frame_texture };
 
 /*----------------------
  | pvr_backend_frame_pixels

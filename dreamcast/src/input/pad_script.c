@@ -104,6 +104,18 @@ static int s_releasing;
  ----------------------*/
 static uint16_t s_buttons;
 
+/*----------------------
+ | s_movies_on / s_game_state
+ | Description: Whether a movies step has run since the script started, and the game state of the last poll.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_movies_on;
+static int s_game_state;
+
 #ifdef LOM_HOST_TEST
 /*----------------------
  | s_printer
@@ -221,15 +233,17 @@ void pad_script_start(const PadScriptStep *steps, unsigned count)
     s_count = count;
     s_index = 0;
     s_buttons = 0;
+    s_movies_on = 0;
+    s_game_state = -1;
     enter_step();
 }
 
 /*----------------------
  | pad_script_poll
- | Description: Feeds the test tone, then advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, calls the scene-jump or battle hook once, starts a tone, long voice or song, stops the song, or uploads an effect set.
+ | Description: Feeds the test tone, then advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, calls a test-only hook once, starts a tone, long voice or song, stops the song, or uploads an effect set.
  | Author: suinevere
- | Dependencies: advance, log_capture, mash_stopped, sound_test_poll, sound_test_tone, sound_test_longvoice, sound_test_music, sound_test_music_off, sound_test_sfxset, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
- | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
+ | Dependencies: advance, log_capture, mash_stopped, sound_test_poll, sound_test_tone, sound_test_longvoice, sound_test_music, sound_test_music_off, sound_test_sfxset, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover, g_dc_movie_probe, g_dc_field_movie
+ | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover, g_dc_movie_probe, g_dc_field_movie
  | Params: vblank -- current vblank count (unused), game_state -- current g_game_state
  | Returns: N/A
  ----------------------*/
@@ -238,6 +252,7 @@ void pad_script_poll(unsigned vblank, int game_state)
     const PadScriptStep *step;
 
     (void)vblank;
+    s_game_state = game_state;
     sound_test_poll();
     if (s_index >= s_count)
     {
@@ -355,6 +370,27 @@ void pad_script_poll(unsigned vblank, int game_state)
         }
         advance();
         break;
+    case PAD_OP_PROBE_MOVIE:
+        s_buttons = 0;
+        if (g_dc_movie_probe != 0)
+        {
+            g_dc_movie_probe();
+        }
+        advance();
+        break;
+    case PAD_OP_FIELD_MOVIE:
+        s_buttons = 0;
+        if (g_dc_field_movie != 0)
+        {
+            g_dc_field_movie();
+        }
+        advance();
+        break;
+    case PAD_OP_MOVIES:
+        s_buttons = 0;
+        s_movies_on = 1;
+        advance();
+        break;
     case PAD_OP_OPEN:
         s_buttons = 0;
         advance();
@@ -374,15 +410,19 @@ void pad_script_poll(unsigned vblank, int game_state)
 
 /*----------------------
  | pad_script_buttons
- | Description: Returns the PS1 active-high button mask the script is holding this vblank.
+ | Description: Returns the buttons the current step holds this vblank, plus Start through the intro movie until a movies step has run, so the game's own held-button check skips the intro.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_buttons
+ | Globals: s_buttons, s_movies_on, s_game_state
  | Params: N/A
  | Returns: PAD_SCRIPT_BTN_* bits held this vblank, 0 when not pressing or done
  ----------------------*/
 uint16_t pad_script_buttons(void)
 {
+    if (!s_movies_on && s_game_state == PAD_SCRIPT_INTRO_MOVIE_STATE)
+    {
+        return (uint16_t)(s_buttons | PAD_SCRIPT_BTN_START);
+    }
     return s_buttons;
 }
 

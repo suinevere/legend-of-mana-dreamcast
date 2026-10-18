@@ -35,7 +35,7 @@ static void test_wait_state_holds_then_advances(void)
     pad_script_start(steps, 2);
     for (i = 0; i < 5; i++)
     {
-        pad_script_poll((unsigned)i, 8);
+        pad_script_poll((unsigned)i, 7);
         CHECK(pad_script_buttons() == 0);
         CHECK(!pad_script_done());
     }
@@ -204,8 +204,16 @@ void (*g_dc_field_scene_jump)(int scene, int spawn);
 void (*g_dc_field_battle)(void);
 void (*g_dc_field_open)(int target);
 void (*g_dc_field_gameover)(void);
+void (*g_dc_movie_probe)(void);
+void (*g_dc_field_movie)(void);
 
 static int s_gameovers;
+static int s_field_movies;
+
+static void record_field_movie(void)
+{
+    s_field_movies++;
+}
 static int s_tone_hz;
 static int s_tone_seconds;
 static int s_sound_polls;
@@ -323,6 +331,20 @@ static void test_open_calls_its_hook_once_and_advances(void)
     g_dc_field_open = 0;
 }
 
+static void test_field_movie_calls_its_hook_once_and_advances(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_FIELD_MOVIE, 0, 0, "", 0 },
+    };
+
+    g_dc_field_movie = record_field_movie;
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 0);
+    CHECK(s_field_movies == 1);
+    CHECK(pad_script_done());
+    g_dc_field_movie = 0;
+}
+
 static void test_gameover_calls_its_hook_once_and_advances(void)
 {
     PadScriptStep steps[] = {
@@ -386,10 +408,63 @@ static void test_music_ops_call_their_hooks_and_advance(void)
     CHECK(pad_script_done());
 }
 
+/*----------------------
+ | test_intro_movie_holds_start_until_a_movies_step
+ | Description: While the intro movie state (8) runs and no movies step has run, the script holds Start so the game skips the intro; other states never get it.
+ | Author: suinevere
+ | Dependencies: pad_script_start, pad_script_poll, pad_script_buttons
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_intro_movie_holds_start_until_a_movies_step(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_WAIT, 10, 0, "", 0 },
+    };
+
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 8);
+    CHECK((pad_script_buttons() & PAD_SCRIPT_BTN_START) != 0);
+    test_field_movie_calls_its_hook_once_and_advances();
+    pad_script_poll(1, 2);
+    CHECK(pad_script_buttons() == 0);
+}
+
+/*----------------------
+ | test_movies_step_lets_the_intro_play
+ | Description: After a movies step, the intro movie state gets no held Start, and a restarted script holds it again.
+ | Author: suinevere
+ | Dependencies: pad_script_start, pad_script_poll, pad_script_buttons
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_movies_step_lets_the_intro_play(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_MOVIES, 0, 0, "", 0 },
+        { PAD_OP_WAIT, 10, 0, "", 0 },
+    };
+    PadScriptStep plain[] = {
+        { PAD_OP_WAIT, 10, 0, "", 0 },
+    };
+
+    pad_script_start(steps, 2);
+    pad_script_poll(0, 8);
+    pad_script_poll(1, 8);
+    CHECK(pad_script_buttons() == 0);
+    pad_script_start(plain, 1);
+    pad_script_poll(0, 8);
+    CHECK((pad_script_buttons() & PAD_SCRIPT_BTN_START) != 0);
+}
+
 int main(void)
 {
     pad_script_set_printer(record_capture);
     test_wait_state_holds_then_advances();
+    test_intro_movie_holds_start_until_a_movies_step();
+    test_movies_step_lets_the_intro_play();
     test_press_holds_then_releases();
     test_wait_lasts_exact_vblanks();
     test_capture_prints_exactly_once();

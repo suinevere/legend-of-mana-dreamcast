@@ -1,0 +1,59 @@
+# FIELD movies: the new-game path to Home, then an embedded movie (scene 114, movie 0) and a full-screen one (scene 766, movie 2) from port/tools/field_movie_census.py, each started by a fieldmovie step.
+wait state 2
+wait 600
+press DOWN 6
+wait 30
+press CROSS 6
+wait state 7
+wait 240
+mash CIRCLE 30 state 2
+wait 600
+press UP 6
+wait 30
+press CROSS 6
+wait 240
+press CROSS 6
+wait 180
+press CROSS 6
+wait state 3
+wait 300
+press CROSS 6
+wait state 5
+wait 180
+press CROSS 6
+wait 120
+press CROSS 6
+wait 120
+press CROSS 6
+wait 120
+mash CROSS 40 state 1
+wait 10
+wait 215
+wait 45
+wait 180
+press CROSS 6
+wait 30
+press CROSS 6
+wait 300
+wait 150
+wait 120
+wait 140
+mash CROSS 40 marker field scene 857
+mash CROSS 40 marker field map 18
+wait 240
+press DOWN 120
+press LEFT 120
+scene 114 0
+wait 600
+fieldmovie
+wait 60
+capture field-movie-playing
+wait 840
+capture field-movie-still
+scene 766 0
+wait 600
+fieldmovie
+wait 150
+capture field-movie-playing-full-screen
+wait 1350
+capture field-movie-full-screen

@@ -163,6 +163,7 @@ OVERLAYS = [
     Overlay("golem", 9, "secondary", ["golem_run"], False, True, ["field"]),
     Overlay("zukan", 8, "secondary", ["zukan_run"], False, True, ["field"]),
     Overlay("gover", 10, "secondary", ["gover_show_screen"], False, True, ["field"]),
+    Overlay("movie", 11, "secondary", ["movie_play", "movie_init", "movie_update", "movie_service_video_ops"], False, True, ["field"]),
     Overlay("addhero", 18, "secondary", ["addhero_init", "addhero_state_step"], False, True, ["field"]),
     Overlay("niki", 17, "secondary", ["niki_init", "niki_update_frame"], False, True, ["field"]),
     Overlay("cload", 16, "secondary", ["cload_main"], False, True, ["field"]),

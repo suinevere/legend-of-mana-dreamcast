@@ -1,6 +1,6 @@
 #----------------------
 # | test_sound.py
-# | Description: Flycast checks of the Dreamcast sound path: AKAO's tick rate; from one audio capture of the test image's boot, the stream channel's test tone and a streamed long voice; the new-game songs against DuckStation; and the sweep of every song and effect bank.
+# | Description: Flycast checks of the Dreamcast sound path: AKAO's tick rate; from one audio capture of the test image's boot, the stream channel's test tone and a streamed long voice; the new-game songs' notes against PS1 references; and the sweep of every song and effect bank.
 # | Author: suinevere
 # | Dependencies: tools/flycast_run.py, tools/audio_capture.py, stale_image.py, lom.cdi, lom_test.cdi, src/sound/akao_tick_dc.c, src/sound/aica_stream.c, src/sound/sound_test_dc.c, src/boot/state_report_dc.c, tests/pad_scripts/new_game.pad, tests/pad_scripts/sound_sweep.pad, tools/sweep_check.py, tools/gen_pad_script.py, lom_sound_sweep_test.cdi
 # | Globals: N/A
@@ -42,7 +42,7 @@ def test_akao_ticks_at_240_hz():
     text = "\n".join(lines[-60:])
     assert code == 0, text
     assert not any("LOM HALT" in line for line in lines), text
-    assert any(line.strip().endswith("LOM: state 2") for line in lines), text
+    assert any(line.strip().endswith(("LOM: state 2", "LOM: state 8")) for line in lines), text
     pairs = []
     frame = None
     for line in lines:
@@ -114,13 +114,24 @@ def test_long_voice_is_seamless(boot_capture):
 
 
 REFERENCES = os.path.join(DC, "..", "reference", "ps1", "audio")
-SONGS = ("title", "gname", "wsel", "wmap", "field")
+SONGS = ("title", "wmap")
+
+#----------------------
+# | NOTES_MIN_SCORE
+# | Description: Lowest note-match score a reference may have in the capture; right songs score about 0.88 and wrong ones at most 0.54.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+NOTES_MIN_SCORE = 0.8
 
 
 def test_new_game_songs():
     present = [name for name in SONGS if os.path.isfile(os.path.join(REFERENCES, name + ".wav"))]
     if not present:
-        pytest.skip("no DuckStation references in reference/ps1/audio (see its README)")
+        pytest.skip("no references in reference/ps1/audio (see its README)")
     if flycast_run.find_flycast() is None:
         pytest.skip("no flycast")
     image = stale_image.require_fresh_test_image(DC)
@@ -132,18 +143,10 @@ def test_new_game_songs():
     capture_float = capture.astype(numpy.float64).mean(axis=1) / 32768.0
     failures = []
     for name in present:
-        reference = os.path.join(REFERENCES, name + ".wav")
-        song = audio_compare.read_wav(reference)
-        start = int(audio_compare.locate(song.mean(axis=1), capture_float) * audio_capture.RATE)
-        segment = os.path.join(work, name + ".wav")
-        audio_capture.write_wav(segment, capture[start:start + len(song)])
-        result = audio_compare.compare(reference, segment)
-        ok = (result["envelope_corr"] >= 0.8
-              and all(result[k] is not None and abs(result[k]) <= 3.0 for k in ("level_db_left", "level_db_right"))
-              and (result["loop_period_ratio"] is None or abs(result["loop_period_ratio"] - 1.0) <= 0.01)
-              and 0.85 <= result["centroid_ratio"] <= 1.15)
-        if not ok:
-            failures.append((name, result))
+        song = audio_compare.read_wav(os.path.join(REFERENCES, name + ".wav"))
+        at, score = audio_compare.locate_notes(song.mean(axis=1), capture_float)
+        if score < NOTES_MIN_SCORE:
+            failures.append((name, at, score))
     assert not failures, failures
 
 

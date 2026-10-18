@@ -54,4 +54,15 @@ void dc_log(const char *format, ...);
  ----------------------*/
 void dc_halt(const char *message) __attribute__((noreturn));
 
+/*----------------------
+ | dc_time_us
+ | Description: Microseconds since boot from the KallistiOS timer, for decode timing.
+ | Author: suinevere
+ | Dependencies: timer_us_gettime64
+ | Globals: N/A
+ | Params: N/A
+ | Returns: microseconds
+ ----------------------*/
+unsigned long long dc_time_us(void);
+
 #endif

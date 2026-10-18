@@ -14,6 +14,7 @@
 #include <dc/video.h>
 #include <kos/dbglog.h>
 #include <kos/thread.h>
+#include <arch/timer.h>
 #include "dc_system.h"
 
 /*----------------------
@@ -87,4 +88,18 @@ void dc_halt(const char *message)
     for (;;) {
         thd_sleep(1000);
     }
+}
+
+/*----------------------
+ | dc_time_us
+ | Description: Microseconds since boot from the KallistiOS timer, for decode timing.
+ | Author: suinevere
+ | Dependencies: timer_us_gettime64
+ | Globals: N/A
+ | Params: N/A
+ | Returns: microseconds
+ ----------------------*/
+unsigned long long dc_time_us(void)
+{
+    return timer_us_gettime64();
 }

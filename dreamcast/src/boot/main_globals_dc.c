@@ -80,7 +80,7 @@ u8 lom_collision_lists[0x200] __attribute__((aligned(32)));
 
 /*----------------------
  | lom_secondary_overlay
- | Description: SECONDARY_OVERLAY_ADDRESS's storage, sized so main.c's GNAME_RENDER_ADDRESS (+0x20000) and WSEL_RENDER_ADDRESS (+0x30000) hold their render buffers.
+ | Description: SECONDARY_OVERLAY_ADDRESS's storage, sized so main.c's GNAME_RENDER_ADDRESS (+0x20000) and WSEL_RENDER_ADDRESS (+0x30000) hold their render buffers and MOVIE's full-screen arena fits.
  | Author: suinevere
  | Dependencies: lom_platform_memory.h, src/main/main.c (GNAME_RENDER_ADDRESS, WSEL_RENDER_ADDRESS)
  | Globals: N/A
@@ -88,6 +88,20 @@ u8 lom_collision_lists[0x200] __attribute__((aligned(32)));
  | Returns: N/A
  ----------------------*/
 u8 lom_secondary_overlay[LOM_SECONDARY_OVERLAY_SIZE] __attribute__((aligned(32)));
+
+/*----------------------
+ | g_field_movie_frame_width / g_field_movie_frame_height
+ | Description: FIELD's PS1 0x80140000/0x80140002 halfwords: the size header of the movie still FIELD reads into FIELD_MOVIE_BUFFER, which is lom_secondary_overlay here.
+ | Author: suinevere
+ | Dependencies: lom_secondary_overlay, src/overlays/field/actors/field_animation.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+__asm__(".global _g_field_movie_frame_width\n"
+        ".set _g_field_movie_frame_width, _lom_secondary_overlay\n"
+        ".global _g_field_movie_frame_height\n"
+        ".set _g_field_movie_frame_height, _lom_secondary_overlay + 2\n");
 
 /*----------------------
  | lom_primary_upper

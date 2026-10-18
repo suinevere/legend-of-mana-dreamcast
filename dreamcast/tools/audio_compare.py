@@ -169,6 +169,70 @@ def centroid(mono):
 
 
 #----------------------
+# | CHROMA_HOP_SECONDS / CHROMA_WINDOW
+# | Description: Time between chroma frames, and the FFT size each frame takes.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+CHROMA_HOP_SECONDS = 0.1
+CHROMA_WINDOW = 8192
+
+
+#----------------------
+# | chroma
+# | Description: Pitch-class profile of each frame (80 Hz to 3.5 kHz), unit length with the frame mean removed; silent frames are zero.
+# | Author: suinevere
+# | Dependencies: CHROMA_HOP_SECONDS, CHROMA_WINDOW, RATE, numpy
+# | Globals: N/A
+# | Params: mono -- 1-D float array
+# | Returns: (12, frames) float array
+#----------------------
+def chroma(mono):
+    hop = int(RATE * CHROMA_HOP_SECONDS)
+    count = max(0, (len(mono) - CHROMA_WINDOW) // hop + 1)
+    freqs = numpy.fft.rfftfreq(CHROMA_WINDOW, 1.0 / RATE)
+    keep = (freqs > 80) & (freqs < 3500)
+    pitch = numpy.round(12 * numpy.log2(freqs[keep] / 440.0)).astype(int) % 12
+    window = numpy.hanning(CHROMA_WINDOW)
+    out = numpy.zeros((12, count))
+    for i in range(count):
+        mag = numpy.abs(numpy.fft.rfft(mono[i * hop:i * hop + CHROMA_WINDOW] * window))[keep]
+        out[:, i] = numpy.bincount(pitch, weights=mag, minlength=12)
+    energy = out.sum(axis=0)
+    out = numpy.log1p(out * 100)
+    out -= out.mean(axis=0, keepdims=True)
+    out /= numpy.linalg.norm(out, axis=0, keepdims=True) + 1e-12
+    out[:, energy < max(energy.max() if count else 0, 1e-9) * 1e-3] = 0
+    return out
+
+
+#----------------------
+# | locate_notes
+# | Description: Where a song's notes best match inside a capture, by mean chroma similarity over the song's sounding frames; independent of level and timbre.
+# | Author: suinevere
+# | Dependencies: chroma, CHROMA_HOP_SECONDS, numpy
+# | Globals: N/A
+# | Params: song / capture -- 1-D float arrays
+# | Returns: (seconds into the capture, score -1..1)
+#----------------------
+def locate_notes(song, capture):
+    a, b = chroma(song), chroma(capture)
+    sounding = numpy.flatnonzero(numpy.abs(a).sum(axis=0) > 0)
+    span = b.shape[1] - a.shape[1] + 1
+    if span <= 0 or len(sounding) == 0:
+        return 0.0, -1.0
+    scores = numpy.zeros(span)
+    for k in sounding:
+        scores += (a[:, k:k + 1] * b[:, k:k + span]).sum(axis=0)
+    scores /= len(sounding)
+    best = int(numpy.argmax(scores))
+    return best * CHROMA_HOP_SECONDS, float(scores[best])
+
+
+#----------------------
 # | locate
 # | Description: Where a song starts inside a longer capture: the offset with the highest normalized correlation of their loudness envelopes.
 # | Author: suinevere

@@ -10,6 +10,8 @@
 #include "dc_system.h"
 #include "main/main.h"
 #include "overlays/field/internal/field_records.h"
+#include "overlays/field/internal/field_scene_internal.h"
+#include "overlays/movie/movie_state.h"
 #include "overlays/shop/shop.h"
 
 /*----------------------
@@ -46,8 +48,8 @@ extern s32 g_field_text_window0_flags;
 extern FieldRuntimeContext *g_field_runtime;
 
 /*----------------------
- | field_script_op_85 / field_battle_start
- | Description: FIELD's door scene change and battle start, redeclared here since their prototypes live in FIELD's .c files.
+ | field_script_op_85 / field_battle_start / field_control_animation / field_begin_scene_fade_out
+ | Description: FIELD's door scene change, battle start and animation control, redeclared here since their prototypes live in FIELD's .c files or clash with this file's.
  | Author: suinevere
  | Dependencies: field_script_ops.c, field_actor_lifecycle.c
  | Globals: N/A
@@ -56,6 +58,8 @@ extern FieldRuntimeContext *g_field_runtime;
  ----------------------*/
 void field_script_op_85(s32 scene_id, s32 object_id, s32 audio, s32 spawn_id);
 void field_battle_start(s32 group);
+void field_control_animation(s32 list_kind, s32 index, s32 keyframe, s32 op);
+void field_begin_scene_fade_out(void);
 
 /*----------------------
  | field openers / g_field_modal_state / g_field_gover_load_countdown / D_800F19AC
@@ -113,6 +117,40 @@ extern u8 D_800F19AC[];
 #define FIELD_TRIGGER_SCRIPT_BIT 0x8000
 
 /*----------------------
+ | FIELD_MOVIE_STEP_STREAM_STATE
+ | Description: The movie handler step in FieldAnim::flags.b.state once movie_init has run (FIELD_MOVIE_STEP_STREAM in field_animation.c), after which MovieState::end_state is the movie's own.
+ | Author: suinevere
+ | Dependencies: src/overlays/field/actors/field_animation.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FIELD_MOVIE_STEP_STREAM_STATE 2
+
+/*----------------------
+ | FIELD_WATCH_TILE_ANIMS / FIELD_WATCH_ANIM_RESTART
+ | Description: FIELD_LIST_TILE_ANIMS and FIELD_ANIM_OP_RESTART, restated since field_calls.h clashes with this file's own FIELD prototypes.
+ | Author: suinevere
+ | Dependencies: src/overlays/field/internal/field_calls.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FIELD_WATCH_TILE_ANIMS 0
+#define FIELD_WATCH_ANIM_RESTART 2
+
+/*----------------------
+ | FIELD_WATCH_EMBEDDED_MOVIES
+ | Description: Movie numbers below this play inside the map (FIELD_SCENE_MOVIE_COUNT); the rest are full-screen and start from the scene fade-out.
+ | Author: suinevere
+ | Dependencies: src/overlays/field/actors/field_animation.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FIELD_WATCH_EMBEDDED_MOVIES 2
+
+/*----------------------
  | s_scene_id / s_map_id / s_dialog0 / s_battle / s_door / s_modal / s_open / s_gover
  | Description: Shadow int32 copies field_watch_poll refreshes each vblank, since watch_poll wants fixed-width addresses and battle is a bitfield.
  | Author: suinevere
@@ -125,6 +163,7 @@ static int32_t s_scene_id;
 static int32_t s_map_id;
 static int32_t s_dialog0;
 static int32_t s_battle;
+static int32_t s_movie_end = -1;
 static int32_t s_door;
 static int32_t s_modal;
 static int32_t s_open;
@@ -167,14 +206,14 @@ static const char *const FIELD_OPEN_NAMES[] = { "shop", "golem", "zukan", "gosub
 
 /*----------------------
  | s_field_watch_entries
- | Description: The eight watched values field_watch_install hands to watch_init; modal is FIELD's modal-overlay state, open is 1 while an open step's opener runs, gover is 1 once a game over starts loading; door is the scene a requested transition targets, or -1.
+ | Description: The nine watched values field_watch_install hands to watch_init; movie_end is MovieState::end_state for a fieldmovie step's movie, -1 before one streams; modal is FIELD's modal-overlay state, open is 1 while an open step's opener runs, gover is 1 once a game over starts loading; door is the scene a requested transition targets, or -1.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: s_scene_id, s_map_id, s_dialog0, s_battle
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static WatchEntry s_field_watch_entries[8] = {
+static WatchEntry s_field_watch_entries[9] = {
     { "scene", &s_scene_id, 0, 0 },
     { "map", &s_map_id, 0, 0 },
     { "dialog0", &s_dialog0, 0, 0 },
@@ -183,6 +222,7 @@ static WatchEntry s_field_watch_entries[8] = {
     { "modal", &s_modal, 0, 0 },
     { "open", &s_open, 0, 0 },
     { "gover", &s_gover, 0, 0 },
+    { "movie_end", &s_movie_end, 0, 0 },
 };
 
 /*----------------------
@@ -266,10 +306,44 @@ static void field_open(int target)
 }
 
 /*----------------------
+ | s_movie_anim / s_movie_scene
+ | Description: The tile animation a fieldmovie step started and the scene it belongs to, so a later scene change drops it.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static FieldAnim *s_movie_anim;
+static FieldScene *s_movie_scene;
+
+/*----------------------
+ | field_movie_watch
+ | Description: Refreshes s_movie_end from MovieState::end_state while the fieldmovie step's animation is past movie_init, keeping its last value afterwards.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_movie_anim, s_movie_scene, s_movie_end, g_field_scene
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void field_movie_watch(void)
+{
+    if (s_movie_anim == NULL || s_movie_scene != g_field_scene.scene)
+    {
+        s_movie_anim = NULL;
+        return;
+    }
+    if (s_movie_anim->flags.b.state == FIELD_MOVIE_STEP_STREAM_STATE)
+    {
+        s_movie_end = (int32_t)MOVIE_STATE->end_state;
+    }
+}
+
+/*----------------------
  | field_watch_poll
  | Description: Refreshes the shadow copies from live FIELD state and runs one watch_poll pass.
  | Author: suinevere
- | Dependencies: watch_poll
+ | Dependencies: watch_poll, field_movie_watch, field_run_open_request
  | Globals: s_scene_id, s_map_id, s_dialog0, s_battle, g_field_scene_id, g_field_map_id, g_field_text_window0_flags, g_field_runtime
  | Params: N/A
  | Returns: N/A
@@ -284,6 +358,7 @@ static void field_watch_poll(void)
     s_modal = (int32_t)g_field_modal_state;
     s_open = s_opening;
     s_gover = g_field_gover_load_countdown != 0;
+    field_movie_watch();
     watch_poll();
     field_run_open_request();
 }
@@ -357,22 +432,61 @@ static void field_gameover(void)
 }
 
 /*----------------------
+ | field_movie
+ | Description: Test-only pad step: restarts the current scene's first embedded movie animation as a scene script's op does, or for a full-screen one fades the scene out as the script's fade op does, after which FIELD starts tile animation 0.
+ | Author: suinevere
+ | Dependencies: field_control_animation, field_begin_scene_fade_out, dc_log
+ | Globals: s_movie_anim, s_movie_scene, s_movie_end, g_field_scene
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void field_movie(void)
+{
+    FieldAnim *anim;
+    s32 index;
+
+    index = 0;
+    for (anim = g_field_scene.scene->anims; anim != NULL; anim = anim->next)
+    {
+        if ((anim->def->flags.b.kind_flags & FIELD_ANIM_KIND_MASK) == FIELD_TILE_ANIM_MOVIE)
+        {
+            dc_log("fieldmovie anim %d movie %d", (int)index, (int)anim->def->head.b.unk1);
+            s_movie_anim = anim;
+            s_movie_scene = g_field_scene.scene;
+            s_movie_end = -1;
+            if (anim->def->head.b.unk1 < FIELD_WATCH_EMBEDDED_MOVIES)
+            {
+                field_control_animation(FIELD_WATCH_TILE_ANIMS, index, 0, FIELD_WATCH_ANIM_RESTART);
+            }
+            else
+            {
+                field_begin_scene_fade_out();
+            }
+            return;
+        }
+        index++;
+    }
+    dc_log("fieldmovie: no movie animation");
+}
+
+/*----------------------
  | field_watch_install
  | Description: Registers FIELD's scene, map, dialog0, battle and door state with the watcher and sets main's watch-poll, scene-jump and battle hooks; test image only.
  | Author: suinevere
  | Dependencies: watch_init
- | Globals: s_field_watch_entries, g_dc_watch_poll, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover
+ | Globals: s_field_watch_entries, g_dc_watch_poll, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover, g_dc_field_movie
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void field_watch_install(void)
 {
-    watch_init(s_field_watch_entries, 8, field_watch_print);
+    watch_init(s_field_watch_entries, 9, field_watch_print);
     g_dc_watch_poll = field_watch_poll;
     g_dc_field_scene_jump = field_scene_jump;
     g_dc_field_battle = field_battle;
     g_dc_field_open = field_open;
     g_dc_field_gameover = field_gameover;
+    g_dc_field_movie = field_movie;
 }
 
 #endif

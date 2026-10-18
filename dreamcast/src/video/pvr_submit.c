@@ -553,6 +553,50 @@ void pvr_submit_rect(int x, int y, int w, int h, uint16_t ps1_colour)
 }
 
 /*----------------------
+ | RGB24_TEXTURE_WIDTH / RGB24_TEXTURE_HEIGHT
+ | Description: Size of the texture a 24-bit display frame is loaded into, for its texel coordinates.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define RGB24_TEXTURE_WIDTH 512.0f
+#define RGB24_TEXTURE_HEIGHT 256.0f
+
+/*----------------------
+ | pvr_submit_rgb24
+ | Description: Closes any open scene, loads the frame into its texture, and shows it as one opaque full-screen quad in a scene of its own.
+ | Author: suinevere
+ | Dependencies: pvr_submit_flip, PvrBackend.frame_texture, open_scene, send_header, PvrBackend.vertex
+ | Globals: s_backend, s_scene_has_prims
+ | Params: pixels -- RGB565 rows at a 512-pixel pitch, width, height -- frame size in pixels
+ | Returns: N/A
+ ----------------------*/
+void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height)
+{
+    BlendPass pass = { BL_SRCALPHA, BL_INVSRCALPHA, 255, PAL_OPAQUE, 0 };
+    const DcSurfaceTexture *tex;
+    float u = (float)width / RGB24_TEXTURE_WIDTH;
+    float v = (float)height / RGB24_TEXTURE_HEIGHT;
+
+    pvr_submit_flip();
+    tex = s_backend->frame_texture(pixels, width, height);
+    if (tex == 0)
+    {
+        return;
+    }
+    open_scene();
+    send_header(tex, &pass);
+    s_backend->vertex(0.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFFFFu, 0);
+    s_backend->vertex(640.0f, 0.0f, u, 0.0f, 0xFFFFFFFFu, 0);
+    s_backend->vertex(0.0f, 480.0f, 0.0f, v, 0xFFFFFFFFu, 0);
+    s_backend->vertex(640.0f, 480.0f, u, v, 0xFFFFFFFFu, 1);
+    s_scene_has_prims = 1;
+    pvr_submit_flip();
+}
+
+/*----------------------
  | pvr_submit_scene_has_prims
  | Description: Reports whether the open scene has had a triangle strip sent since it opened.
  | Author: suinevere

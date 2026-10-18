@@ -166,6 +166,60 @@ def test_gen_pad_script_tables_every_script_by_name():
     assert "static const unsigned pad_script_script_count = 2;" in header
 
 
+def test_gen_pad_script_probe_movie_compiles_to_its_op():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "probe.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("probe movie" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_PROBE_MOVIE, 0, 0, "", 0 },' in header
+
+
+def test_gen_pad_script_probe_rejects_unknown_target():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "probe.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("wait 1" + chr(10) + "probe nothing" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "line 2" in result.stderr
+
+
+def test_gen_pad_script_movies_compiles_to_its_op():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "movies.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("movies" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_MOVIES, 0, 0, "", 0 },' in header
+
+
+def test_gen_pad_script_fieldmovie_compiles_to_its_op():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "fieldmovie.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("fieldmovie" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_FIELD_MOVIE, 0, 0, "", 0 },' in header
+
+
 def test_gen_pad_script_tone_compiles_to_its_op():
     out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
     script_path = os.path.join(out_dir, "tone.pad")

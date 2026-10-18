@@ -19,7 +19,7 @@ REPO = os.path.dirname(DC)
 PORT_PSYQ = os.path.join(REPO, "port", "psyq")
 PORT_SYSTEM = os.path.join(REPO, "port", "system")
 UNITS = ["pvr_submit.c", "libgpu_dc.c", "gpu_decode.c", "gpu_census.c", "clip.c", "blend.c", "palette_bank.c",
-         "texture_cache.c", "vram_mirror.c", "frame_readback.c"]
+         "texture_cache.c", "vram_mirror.c", "frame_readback.c", "rgb24_display.c"]
 
 
 def test_pvr_submit_host():
@@ -31,7 +31,7 @@ def test_pvr_submit_host():
     video = os.path.join(src, "video")
     subprocess.run([cc, "-std=gnu11", "-fno-builtin", "-Wno-builtin-declaration-mismatch", "-Wall", "-Wextra",
                     "-I", PORT_PSYQ, "-I", PORT_SYSTEM,
-                    "-I", video, "-I", os.path.join(src, "system"), "-I", os.path.join(src, "boot"),
+                    "-I", video, "-I", os.path.join(src, "system"), "-I", os.path.join(src, "boot"), "-I", os.path.join(src, "cd"),
                     "-isystem", os.path.join(REPO, "include"), "-isystem", os.path.join(REPO, "include", "sdk"),
                     "-include", os.path.join(PORT_PSYQ, "lom_prefix.h"), "-DVERSION_US", "-DLOM_DREAMCAST",
                     "-DLOM_HOST_TEST", "-o", exe,

@@ -93,8 +93,8 @@ def linked():
 
 def test_lom_elf_places_the_arena_and_starts_the_heap_above_it(linked):
     _, main, _, _ = linked
-    assert main["_lom_overlay_arena"] == 0x8C400000
-    assert main["_lom_program_end"] <= 0x8C400000
+    assert main["_lom_overlay_arena"] == 0x8C480000
+    assert main["_lom_program_end"] <= 0x8C480000
     assert main["_end"] == 0x8CE00000
     assert main["_run_checkps"] == 0x8C800000
     assert main["_run_title"] == 0x8C880000

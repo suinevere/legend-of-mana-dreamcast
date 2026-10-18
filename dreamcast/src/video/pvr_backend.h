@@ -19,6 +19,7 @@
  | PvrBackend
  | Description: Starts and finishes a scene, sets the background, and writes a polygon header or one strip vertex in screen pixels with page-normalised texel coordinates.
  | scene_begin returns 0 when the previous flip is not yet confirmed, leaving a pending texture flush for later; scene_shown checks the same without waiting.
+ | frame_texture loads the RGB565 rows (512-pixel pitch) of a 24-bit display frame into a texture of its own and returns it, or NULL when texture memory has no room.
  | Author: suinevere
  | Dependencies: DcSurfaceTexture, BlendPass
  | Globals: N/A
@@ -33,6 +34,7 @@ typedef struct
     void (*header)(const DcSurfaceTexture *tex, const BlendPass *pass);
     void (*vertex)(float x, float y, float u, float v, uint32_t argb, int last);
     int (*scene_shown)(unsigned scenes_closed);
+    const DcSurfaceTexture *(*frame_texture)(const uint16_t *pixels, unsigned width, unsigned height);
 } PvrBackend;
 
 /*----------------------

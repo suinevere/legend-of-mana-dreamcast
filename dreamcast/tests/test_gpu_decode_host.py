@@ -28,7 +28,7 @@ def test_gpu_decode_host():
     src = os.path.join(DC, "src")
     subprocess.run([cc, "-std=gnu11", "-fno-builtin", "-Wno-builtin-declaration-mismatch", "-Wall", "-Wextra",
                     "-I", PORT_PSYQ, "-I", PORT_SYSTEM,
-                    "-I", os.path.join(src, "video"), "-I", os.path.join(src, "system"), "-I", os.path.join(src, "boot"),
+                    "-I", os.path.join(src, "video"), "-I", os.path.join(src, "system"), "-I", os.path.join(src, "boot"), "-I", os.path.join(src, "cd"),
                     "-isystem", os.path.join(REPO, "include"), "-isystem", os.path.join(REPO, "include", "sdk"),
                     "-include", os.path.join(PORT_PSYQ, "lom_prefix.h"), "-DVERSION_US", "-DLOM_DREAMCAST", "-DLOM_HOST_TEST",
                     "-o", exe,
@@ -39,6 +39,7 @@ def test_gpu_decode_host():
                     os.path.join(src, "video", "vram_mirror.c"),
                     os.path.join(src, "video", "frame_readback.c"),
                     os.path.join(src, "video", "ot_walk.c"),
+                    os.path.join(src, "video", "rgb24_display.c"),
                     os.path.join(PORT_SYSTEM, "vsync_pacer.c")], check=True)
     result = subprocess.run([exe], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout
