@@ -1,0 +1,2 @@
+# Hook test: the frame wait.
+02003E48 rrl_func_02003E48 regs

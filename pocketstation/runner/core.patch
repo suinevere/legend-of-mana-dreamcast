@@ -1,0 +1,427 @@
+diff --git a/bus.cc b/bus.cc
+index c45488a..286be23 100644
+--- a/bus.cc
++++ b/bus.cc
+@@ -36,6 +36,7 @@ void Bus::reset() {
+ 
+     rtc.reset();              // deterministic fallback values...
+     seedRtcFromHostClock();   // ...then overwrite with the real host wall-clock time.
++    if (rtcFixed) setRtcValue(rtcFixedDate, rtcFixedTime);
+     rtcMode = 0;
+ 
+     flash.enabledBanks = 0; // Disable all FLASH banks
+@@ -55,6 +56,8 @@ void Bus::reset() {
+     rtcCountdown = armClockHz() / 8192;
+     rtcEdgeCount = 0;
+     halted = false;                       // power-on: CPU clock running.
++    idleTime = false;
++    irqGate = true;
+ }
+ 
+ // ---- RTC time-of-day -----------------------------------------------------------------------------
+@@ -125,7 +128,10 @@ void Bus::tickTimers() {
+     // every asserted source, ENABLE only gates delivery).
+     static constexpr int kLines[3] = {7, 8, 13};
+     for (int i = 0; i < 3; i++) {
+-        if (timers[i].tick()) irqLatch |= 1u << kLines[i];
++        if (timers[i].tick()) {
++            irqLatch |= 1u << kLines[i];
++            ++deviceEvents;
++        }
+     }
+ }
+ 
+@@ -200,6 +206,7 @@ u32 Bus::read32Slow(u32 addr) {
+         case IO::RTC_TIME: return rtc.getTime();
+         case IO::RTC_DATE: return rtc.getDate();
+         case IO::LCD_MODE: return lcd.mode.raw;
++        case 0x0D000020: return lcdReg20;
+         case IO::DAC_CTRL: return dacCtrl;
+         case IO::F_BANK_FLG: return flash.enabledBanks;
+         case IO::IOP_DATA: return iopData;
+@@ -208,11 +215,10 @@ u32 Bus::read32Slow(u32 addr) {
+         case IO::CLK_MODE: {
+             // Only turn on the "ready" bit after 4 reads.
+             // Some games rely on reading 0 from the "ready" bit
+-            static int tries = 0;
+-            if (tries++ == 4) {
++            if (clkReadTries++ == 4) {
+                 clkMode |= 0x10;
+-            } else if (tries == 10) {
+-                tries = 0;
++            } else if (clkReadTries == 10) {
++                clkReadTries = 0;
+                 clkMode &= ~0x10;
+             }
+ 
+@@ -312,6 +318,9 @@ void Bus::write32Slow(u32 addr, u32 val) {
+                 lcd.mode.raw = val;
+                 break;
+ 
++            case 0x0D000020:
++                lcdReg20 = val;
++                break;
+             case IO::LCD_CAL:
+                 lcd.calibrationValue = val & 0xFFFF;
+                 break;
+@@ -455,9 +464,8 @@ void Bus::write32Slow(u32 addr, u32 val) {
+ 
+             case IO::RTC_ADJUST: {
+                 printf("Wrote to stubbed RTC_ADJUST\n");
+-                static bool skip = false;
+-                if (skip) {
+-                    skip = false;
++                if (rtcAdjustSkip) {
++                    rtcAdjustSkip = false;
+                     return;
+                 }
+ 
+@@ -502,7 +510,7 @@ void Bus::write32Slow(u32 addr, u32 val) {
+                         Helpers::panic("Editing field %d via RTC_ADJUST\n", field);
+                 }
+ 
+-                skip = true;
++                rtcAdjustSkip = true;
+                 break;
+             }
+ 
+diff --git a/bus.h b/bus.h
+index 3c0a679..c22c133 100644
+--- a/bus.h
++++ b/bus.h
+@@ -134,6 +134,7 @@ public:
+                 return;
+             default: {  // 3: armed, the data phase. A halfword lands in the target sector.
+                 const u32 off = addr - kFlashBase;
++                if (off + 1 < kFlashSize && flashUndo) flashUndo->push_back({off, *reinterpret_cast<u16*>(&flash.data[off])});
+                 if (off + 1 < kFlashSize) *reinterpret_cast<u16*>(&flash.data[off]) = val;
+                 return;
+             }
+@@ -328,6 +329,7 @@ public:
+     void tickRtc() {
+         if (--rtcCountdown == 0) {
+             rtcCountdown = rtcHalfPeriod();
++            ++deviceEvents;
+             if (irqFlags & (1u << 9)) {
+                 irqFlags &= ~(1u << 9);  // falling edge: drop the level only (leave the latch).
+             } else {
+@@ -372,6 +374,91 @@ public:
+     }
+ 
+     void reset();
++    // lom-decomp runner: a fixed RTC applied at reset in place of the host clock, and readback.
++    u32 lcdReg20 = 0;
++    bool idleTime = false;     // lom-decomp: devices advance only through advanceToEvent().
++    bool irqGate = true;       // lom-decomp: interrupts are dispatched only while open.
++    u64 deviceEvents = 0;      // lom-decomp: timer underflows plus RTC edges since power-on.
++    void advanceToEvent() {
++        const u64 start = deviceEvents;
++        while (deviceEvents == start) {
++            tickRtc();
++            tickTimers();
++        }
++    }
++    std::vector<u32> deviceWords() {
++        auto& b = *this;
++        std::vector<u32> w = {b.irqMask, b.irqFlags, b.irqLatch};
++        for (const auto& t : b.timers) w.insert(w.end(), {t.mode, t.counter, t.reload, t.prescale});
++        w.insert(w.end(), {b.clkMode, u32(b.clkReadTries), b.rtcMode, b.rtcCountdown,
++                           b.rtcTimeValue(), b.rtcDateValue(),
++                           b.iopData, b.iopCtrl, b.dacCtrl, b.lcd.mode.raw, b.lcd.calibrationValue, b.lcdReg20,
++                           u32(b.rtcAdjustSkip)});
++        return w;
++    }
++    int clkReadTries = 0;      // was a function-local static in read32Slow(CLK_MODE); now part of the state.
++    bool rtcAdjustSkip = false;  // was a function-local static in write32Slow(RTC_ADJUST).
++    std::vector<std::pair<u32, u16>>* flashUndo = nullptr;  // when set, every programmed halfword's old value.
++    struct State {
++        std::array<u8, 2 * KB> wram;
++        u32 irqMask, irqFlags, irqLatch;
++        std::array<Timer, 3> timers;
++        u32 iopData, iopCtrl, dacCtrl, clkMode, rtcMode;
++        RTC rtc;
++        bool halted;
++        u32 rtcCountdown;
++        u64 rtcEdgeCount;
++        u32 enabledBanks;
++        std::array<u32, 16> bankMappings;
++        u32 fWait1, dataCtrl;
++        int progState;
++        Com com;
++        u32 lcdReg20, lcdMode, lcdCal;
++        std::array<u8, 128> vram;
++        int clkReadTries;
++        bool rtcAdjustSkip;
++        bool irqGate;
++        u64 deviceEvents;
++    };
++    State saveState() const {
++        return State{wram, irqMask, irqFlags, irqLatch, timers, iopData, iopCtrl, dacCtrl, clkMode, rtcMode, rtc,
++                     halted, rtcCountdown, rtcEdgeCount, flash.enabledBanks, flash.bankMappings, flash.f_wait1,
++                     flash.dataCtrl, flash.progState, com, lcdReg20, lcd.mode.raw, lcd.calibrationValue, lcd.vram,
++                     clkReadTries, rtcAdjustSkip, irqGate, deviceEvents};
++    }
++    void loadState(const State& s) {
++        wram = s.wram; irqMask = s.irqMask; irqFlags = s.irqFlags; irqLatch = s.irqLatch; timers = s.timers;
++        iopData = s.iopData; iopCtrl = s.iopCtrl; dacCtrl = s.dacCtrl; clkMode = s.clkMode; rtcMode = s.rtcMode;
++        rtc = s.rtc; halted = s.halted; rtcCountdown = s.rtcCountdown; rtcEdgeCount = s.rtcEdgeCount;
++        const bool remap = flash.enabledBanks != s.enabledBanks || flash.bankMappings != s.bankMappings;
++        flash.enabledBanks = s.enabledBanks; flash.bankMappings = s.bankMappings; flash.f_wait1 = s.fWait1;
++        flash.dataCtrl = s.dataCtrl; flash.progState = s.progState; com = s.com; lcdReg20 = s.lcdReg20;
++        lcd.mode.raw = s.lcdMode; lcd.calibrationValue = s.lcdCal; lcd.vram = s.vram;
++        clkReadTries = s.clkReadTries; rtcAdjustSkip = s.rtcAdjustSkip; irqGate = s.irqGate;
++        deviceEvents = s.deviceEvents;
++        if (remap) remapFLASH();
++    }
++    // Software-visible configuration a function may set: masks, timer setups, clock, LCD, sound, IOP, banks.
++    std::vector<u32> ioSignature() const {
++        std::vector<u32> v = {irqMask, dacCtrl, clkMode & 0xF, rtcMode, iopCtrl, iopData, lcd.mode.raw, lcdReg20,
++                              lcd.calibrationValue, flash.enabledBanks, flash.dataCtrl};
++        for (const auto& t : timers) { v.push_back(t.mode); v.push_back(t.reload); }
++        for (u32 b : flash.bankMappings) v.push_back(b);
++        return v;
++    }  // undocumented 0x0D000020; Ring Ring Land writes 0 after setting LCD_MODE.
++    bool rtcFixed = false;
++    u32 rtcFixedDate = 0, rtcFixedTime = 0;
++    u32 rtcTimeValue() { return rtc.getTime(); }
++    u32 rtcDateValue() { return rtc.getDate(); }
++    void setRtcValue(u32 date, u32 time) {
++        rtc.seconds = time & 0xFF;
++        rtc.minutes = (time >> 8) & 0xFF;
++        rtc.hours = (time >> 16) & 0xFF;
++        rtc.dayOfWeek = (time >> 24) & 0xFF;
++        rtc.days = date & 0xFF;
++        rtc.months = (date >> 8) & 0xFF;
++        rtc.years = (date >> 16) & 0xFF;
++    }
+     void requestInterrupt(int bit);
+     // Advance Timer0-2 by one system clock cycle, latching their interrupts on expiry.
+     void tickTimers();
+diff --git a/cpu.cc b/cpu.cc
+index 5252492..2e79079 100644
+--- a/cpu.cc
++++ b/cpu.cc
+@@ -102,6 +102,7 @@ void CPU::pollInterrupts() {
+     // INT_ACK deliberately preserves it, so a level-based dispatch re-enters IRQ-11 every
+     // instruction and starves the GUI (so SWI 05h never sets ComFlags.9 / enables COM). Using the
+     // ack-clearable latch matches the hardware and fixes the storm. (Verified 2026-06-02.)
++    if (!bus.irqGate) return;
+     const auto interrupts = bus.irqLatch & bus.irqMask;
+     if (likely(interrupts == 0)) return;
+ 
+@@ -184,7 +185,7 @@ u32 CPU::step() {
+ 
+     // The timers and the RTC run off the same system clock: advance them by this instruction's
+     // cost. (A CLK_STOP store sets bus.halted mid-instruction; its own cycles still elapse.)
+-    for (u32 i = 0; i < cycles; i++) {
++    for (u32 i = 0; i < cycles && !bus.idleTime; i++) {
+         bus.tickRtc();
+         bus.tickTimers();
+     }
+diff --git a/cpu.h b/cpu.h
+index 7bb3337..ffa15cc 100644
+--- a/cpu.h
++++ b/cpu.h
+@@ -208,6 +208,48 @@ public:
+     // so the gap between two samples proves cheap idle (a handful per wake, not ~4M/second).
+     u64 instructionCount() const { return instructions; }
+ 
++    // ---- lom-decomp runner access: registers, PC/mode and an SWI observer ------------------------
++    u32 regValue(int n) const { return n == 15 ? pcValue() : registers[n]; }
++    void setRegValue(int n, u32 v) { registers[n] = v; }
++    u32 pcValue() const { return registers[15] - (cpsr.thumb ? 4 : 8); }
++    bool thumbState() const { return cpsr.thumb; }
++    u32 cpsrValue() const { return cpsr.raw; }
++    void setFlags(u32 nzcv) { cpsr.raw = (cpsr.raw & 0x0FFFFFFFu) | (nzcv & 0xF0000000u); }
++    void jump(u32 addr, bool thumb) {
++        cpsr.thumb = thumb;
++        registers[15] = thumb ? (addr & ~1u) + 4 : (addr & ~3u) + 8;
++    }
++    struct State {
++        std::array<u32, 16> registers;
++        u32 cpsr, spsr;
++        std::array<u32, 2> r8, r9, r10, r11, r12;
++        std::array<u32, 6> r13, r14;
++        std::array<u32, 5> spsrBanks;
++        u64 instructions;
++    };
++    State saveState() const {
++        State s;
++        s.registers = registers;
++        s.cpsr = cpsr.raw;
++        s.spsr = spsr.raw;
++        s.r8 = r8_banks; s.r9 = r9_banks; s.r10 = r10_banks; s.r11 = r11_banks; s.r12 = r12_banks;
++        s.r13 = r13_banks; s.r14 = r14_banks;
++        for (int i = 0; i < 5; i++) s.spsrBanks[i] = spsr_banks[i].raw;
++        s.instructions = instructions;
++        return s;
++    }
++    void loadState(const State& s) {
++        registers = s.registers;
++        cpsr.raw = s.cpsr;
++        spsr.raw = s.spsr;
++        r8_banks = s.r8; r9_banks = s.r9; r10_banks = s.r10; r11_banks = s.r11; r12_banks = s.r12;
++        r13_banks = s.r13; r14_banks = s.r14;
++        for (int i = 0; i < 5; i++) spsr_banks[i].raw = s.spsrBanks[i];
++        instructions = s.instructions;
++    }
++    void (*swiHook)(void* ctx, u32 number) = nullptr;
++    void* swiHookCtx = nullptr;
++
+     void log() {
+         printf("PC: %08X\n", registers[15]);
+     }
+diff --git a/cpu/arm/branch.inl b/cpu/arm/branch.inl
+index a928e0e..59f8a54 100644
+--- a/cpu/arm/branch.inl
++++ b/cpu/arm/branch.inl
+@@ -29,6 +29,7 @@ void ARM_BX (u32 instruction) {
+ void ARM_SWI (u32 instruction) {
+     if (bus.comTrace) printf("[PSK] SWI %02Xh (arm, PC=%08X)\n", instruction & 0xff, registers[15] - 4);
+ 
++    if (swiHook) swiHook(swiHookCtx, instruction & 0xff);
+     const auto lr = registers[15] - 4;
+     const auto newSPSR = cpsr.raw;
+ 
+diff --git a/cpu/tablegen.inl b/cpu/tablegen.inl
+index a80537e..e463978 100644
+--- a/cpu/tablegen.inl
++++ b/cpu/tablegen.inl
+@@ -243,6 +243,7 @@ constexpr InstructionCallback Thumb_getInstructionHandler() {
+ 
+     else if constexpr (index == 0xB0) return &CPU::Thumb_addToSP;
+     else if constexpr ((index >> 1) == 0b0101000) { return &CPU::Thumb_storeWordWithReg; }
++    else if constexpr ((index >> 1) == 0b0101001) { return &CPU::Thumb_storeHalfWithReg; }
+     else if constexpr ((index >> 1) == 0b0101011) { return &CPU::Thumb_LDRSB; }
+     else if constexpr ((index >> 1) == 0b0101111) { return &CPU::Thumb_LDRSH; }
+     else if constexpr ((index >> 3) == 0b10010) return &CPU::Thumb_SPRelativeStore;
+diff --git a/cpu/thumb/branch.inl b/cpu/thumb/branch.inl
+index 7347bb7..98b4d91 100644
+--- a/cpu/thumb/branch.inl
++++ b/cpu/thumb/branch.inl
+@@ -43,6 +43,7 @@ void Thumb_conditionalBranch (u32 instruction) {
+         if (condition == 0xF) { // Thumb mode SWI
+             if (bus.comTrace) printf("[PSK] SWI %02Xh (thumb, PC=%08X)\n", instruction & 0xff, registers[15] - 2);
+ 
++            if (swiHook) swiHook(swiHookCtx, instruction & 0xff);
+             const auto lr = registers[15] - 2;
+             const auto newSPSR = cpsr.raw;
+ 
+diff --git a/cpu/thumb/loadsStores.inl b/cpu/thumb/loadsStores.inl
+index 5d5678b..e3c8349 100644
+--- a/cpu/thumb/loadsStores.inl
++++ b/cpu/thumb/loadsStores.inl
+@@ -119,6 +119,16 @@ void Thumb_storeWordWithReg(u32 instruction) {
+     registers[15] += 2; // fake pipeline
+ }
+ 
++void Thumb_storeHalfWithReg(u32 instruction) {
++    const auto rdIndex = instruction & 7;
++    const auto rb = registers[(instruction >> 3) & 7];
++    const auto ro = registers[(instruction >> 6) & 7];
++    const auto addr = ro + rb;
++
++    write16(addr & ~1, registers[rdIndex] & 0xFFFF);
++    registers[15] += 2; // fake pipeline
++}
++
+ void Thumb_LDRSB(u32 instruction) {
+     const auto rdIndex = instruction & 7;
+     const auto rb = registers[(instruction >> 3) & 7];
+diff --git a/pocketstation.cc b/pocketstation.cc
+index d950aed..72cf464 100644
+--- a/pocketstation.cc
++++ b/pocketstation.cc
+@@ -45,7 +45,10 @@ void PocketStation::runCycles(uint64_t armCycles) {
+     // Each step costs one or more system clock cycles; the overshoot of the last instruction
+     // past the budget is carried into the next call so the long-run rate stays exact.
+     uint64_t done = m_cycleCarry;
+-    while (done < armCycles) done += m_cpu.step();
++    while (done < armCycles) {
++        if (m_stepHook && m_stepHook(m_stepHookCtx)) continue;
++        done += m_cpu.step();
++    }
+     m_cycleCarry = done - armCycles;
+ }
+ 
+diff --git a/pocketstation.h b/pocketstation.h
+index 1da1f94..bb329f3 100644
+--- a/pocketstation.h
++++ b/pocketstation.h
+@@ -101,6 +101,65 @@ class PocketStation {
+     uint32_t peekIrqMask() const { return m_bus.irqMask; }
+     uint32_t peekIntInput() const { return m_bus.irqFlags; }
+ 
++    // ---- lom-decomp runner access ------------------------------------------------------------
++    uint32_t reg(int n) const { return m_cpu.regValue(n); }
++    void setReg(int n, uint32_t v) { m_cpu.setRegValue(n, v); }
++    uint32_t pc() const { return m_cpu.pcValue(); }
++    bool thumb() const { return m_cpu.thumbState(); }
++    uint32_t cpsr() const { return m_cpu.cpsrValue(); }
++    void setPc(uint32_t addr, bool thumb) { m_cpu.jump(addr, thumb); }
++    void setFlags(uint32_t nzcv) { m_cpu.setFlags(nzcv); }
++    // One step through the step hook: 0 cycles when the hook took it, else the instruction's cycles.
++    uint32_t stepOne() { return (m_stepHook && m_stepHook(m_stepHookCtx)) ? 0 : m_cpu.step(); }
++    uint32_t read32(uint32_t a) { return m_cpu.read32(a); }
++    uint16_t read16(uint32_t a) { return m_cpu.read16(a); }
++    uint8_t read8(uint32_t a) { return m_cpu.read8(a); }
++    void write32(uint32_t a, uint32_t v) { m_cpu.write32(a, v); }
++    void write16(uint32_t a, uint16_t v) { m_cpu.write16(a, v); }
++    void write8(uint32_t a, uint8_t v) { m_cpu.write8(a, v); }
++    // Called before every instruction step; returning true means the hook moved the PC itself and
++    // the step is skipped with no cycles charged.
++    void setStepHook(bool (*hook)(void* ctx), void* ctx) { m_stepHook = hook; m_stepHookCtx = ctx; }
++    // Called with the SWI number whenever an SWI is taken (ARM or Thumb).
++    void setSwiHook(void (*hook)(void* ctx, uint32_t number), void* ctx) {
++        m_cpu.swiHook = hook;
++        m_cpu.swiHookCtx = ctx;
++    }
++    // A fixed RTC (BCD, RTC_DATE/RTC_TIME layout) applied now and at every later reset().
++    void setRtc(uint32_t date, uint32_t time) {
++        m_bus.rtcFixed = true;
++        m_bus.rtcFixedDate = date;
++        m_bus.rtcFixedTime = time;
++        m_bus.setRtcValue(date, time);
++    }
++    uint32_t rtcDate() { return m_bus.rtcDateValue(); }
++    struct State {
++        ::CPU::State cpu;
++        ::Bus::State bus;
++        uint64_t cycleCarry;
++        uint32_t buttons;
++    };
++    State saveState() const { return State{m_cpu.saveState(), m_bus.saveState(), m_cycleCarry, m_buttons}; }
++    void loadState(const State& s) {
++        m_cpu.loadState(s.cpu);
++        m_bus.loadState(s.bus);
++        m_cycleCarry = s.cycleCarry;
++        m_buttons = s.buttons;
++    }
++    void setFlashUndo(std::vector<std::pair<uint32_t, uint16_t>>* log) { m_bus.flashUndo = log; }
++    std::vector<uint32_t> ioSignature() const { return m_bus.ioSignature(); }
++    uint32_t stepRaw() { return m_cpu.step(); }
++    uint32_t rtcTime() { return m_bus.rtcTimeValue(); }
++    // Idle-time schedule: devices frozen except in advanceToEvent(), interrupts only while the gate is open.
++    void setIdleTime(bool on) { m_bus.idleTime = on; m_bus.irqGate = !on; }
++    bool idleTime() const { return m_bus.idleTime; }
++    void setIrqGate(bool open) { m_bus.irqGate = open; }
++    bool irqGateOpen() const { return m_bus.irqGate; }
++    void advanceToEvent() { m_bus.advanceToEvent(); }
++    uint32_t pendingIrqs() const { return m_bus.irqLatch & m_bus.irqMask & 0x3FDFu; }
++    // Device state for the standalone host, in psk_host_load_devices() order.
++    std::vector<uint32_t> deviceWords() { return m_bus.deviceWords(); }
++
+     // ---- test harness access ----------------------------------------------------------------
+     uint8_t* wramData() { return m_bus.wram.data(); }  // 2 KiB work RAM (kernel state at 0x00-0x1FF).
+     uint8_t* flashDataMutable() { return m_bus.flash.data.data(); }
+@@ -114,7 +173,9 @@ class PocketStation {
+     ::CPU m_cpu;
+ 
+     uint32_t m_buttons = 0;  // latched button mask, reflected into INT bits 0..4 per frame.
+-    uint64_t m_cycleCarry = 0;  // cycles the last runCycles() step overran its budget by.
++    uint64_t m_cycleCarry = 0;
++    bool (*m_stepHook)(void* ctx) = nullptr;
++    void* m_stepHookCtx = nullptr;  // cycles the last runCycles() step overran its budget by.
+ };
+ 
+ }  // namespace PocketStation

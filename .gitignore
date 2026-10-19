@@ -57,3 +57,6 @@ entities.json
 # DuckStation audio dumps for test_sound.py stay local
 reference/ps1/audio/*.wav
 reference/ps1/audio/*.mp4
+
+# PocketStation build output: listings, card images and traces derived from the disc
+pocketstation/build/

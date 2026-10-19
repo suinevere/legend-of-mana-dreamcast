@@ -1,0 +1,4 @@
+# The PocketStation tree is built inside Linux; core.patch must apply to an LF checkout of the core.
+* text=auto eol=lf
+*.card binary
+*.pktr binary
