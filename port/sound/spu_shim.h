@@ -71,6 +71,50 @@ void spu_voice_flush(void);
  ----------------------*/
 unsigned spu_shim_key_stats_take(unsigned *loudest_tl);
 
+/*----------------------
+ | spu_shim_set_noise_clock
+ | Description: Stores the SPU noise clock SpuSetNoiseClock set and marks it changed for the next flush.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: clock -- SpuSetNoiseClock's low 6 bits
+ | Returns: N/A
+ ----------------------*/
+void spu_shim_set_noise_clock(unsigned clock);
+
+/*----------------------
+ | spu_shim_noise_clock
+ | Description: The SPU noise clock last set by SpuSetNoiseClock, or 0 before any call.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: the clock
+ ----------------------*/
+unsigned spu_shim_noise_clock(void);
+
+/*----------------------
+ | spu_shim_noise_clock_take
+ | Description: Reads and resets whether the noise clock changed since the last call.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: clock -- receives the clock, only when returning 1
+ | Returns: 1 once per change, else 0
+ ----------------------*/
+int spu_shim_noise_clock_take(unsigned *clock);
+
+/*----------------------
+ | spu_voice_flush_reset
+ | Description: Forgets every voice's cached DSP send, the reverb and noise bitmap copies, and the noise clock change flag; call from SpuInit alongside spu_shadow_reset and spu_sample_map_reset.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void spu_voice_flush_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

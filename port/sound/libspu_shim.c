@@ -2,11 +2,12 @@
  | libspu_shim.c
  | Description: The Psy-Q libspu calls AKAO and boot make, on the shared SPU shim: uploads decode through the sample map, envelope reads come from the backend, and unsupported features log once.
  | Author: suinevere
- | Dependencies: libspu.h, spu_shim.h, spu_shadow.h, spu_sample_map.h, spu_long_voice.h, string.h
+ | Dependencies: libspu.h, spu_shim.h, spu_shadow.h, spu_sample_map.h, spu_long_voice.h, stdio.h, string.h
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#include <stdio.h>
 #include <string.h>
 
 #include <libspu.h>
@@ -32,8 +33,8 @@ static SpuIRQCallbackProc s_irq_callback;
 static long s_reverb_mode;
 
 /*----------------------
- | s_logged_read / s_logged_reverb_on / s_logged_noise_clock
- | Description: Unsupported calls already reported.
+ | s_logged_read / s_logged_reverb_mode / s_logged_upload_limit
+ | Description: Unsupported calls, and conditions worth one log line, already reported.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -41,8 +42,8 @@ static long s_reverb_mode;
  | Returns: N/A
  ----------------------*/
 static int s_logged_read;
-static int s_logged_reverb_on;
-static int s_logged_noise_clock;
+static int s_logged_reverb_mode;
+static int s_logged_upload_limit;
 
 /*----------------------
  | log_once
@@ -63,10 +64,10 @@ static void log_once(int *flag, const char *message)
 
 /*----------------------
  | upload_sink
- | Description: Passes decoded PCM to the backend.
+ | Description: Passes decoded PCM to the backend, clipping or dropping anything at or past the reverb ring and logging that once.
  | Author: suinevere
- | Dependencies: spu_shim_backend
- | Globals: N/A
+ | Dependencies: spu_shim_backend, log_once, SPU_PCM_LIMIT
+ | Globals: s_logged_upload_limit
  | Params: aica_offset -- AICA byte offset, pcm -- frames, bytes -- byte count, ctx -- unused
  | Returns: N/A
  ----------------------*/
@@ -75,6 +76,16 @@ static void upload_sink(unsigned aica_offset, const short *pcm, unsigned bytes, 
     const SpuBackend *backend = spu_shim_backend();
 
     (void)ctx;
+    if (aica_offset >= SPU_PCM_LIMIT)
+    {
+        log_once(&s_logged_upload_limit, "spu: upload past 0x1A8000 dropped");
+        return;
+    }
+    if (aica_offset + bytes > SPU_PCM_LIMIT)
+    {
+        bytes = SPU_PCM_LIMIT - aica_offset;
+        log_once(&s_logged_upload_limit, "spu: upload past 0x1A8000 dropped");
+    }
     if (backend != NULL)
         backend->upload(aica_offset, pcm, bytes);
 }
@@ -96,9 +107,9 @@ static void finish_transfer(void)
 
 /*----------------------
  | SpuInit / SpuStart
- | Description: Clear the register shadow and the sample map the first time either is called.
+ | Description: Clear the register shadow, the sample map and the voice flush's caches the first time either is called.
  | Author: suinevere
- | Dependencies: spu_shadow_reset, spu_sample_map_reset
+ | Dependencies: spu_shadow_reset, spu_sample_map_reset, spu_voice_flush_reset
  | Globals: s_started
  | Params: N/A
  | Returns: N/A
@@ -110,6 +121,7 @@ void SpuInit(void)
     s_started = 1;
     spu_shadow_reset();
     spu_sample_map_reset();
+    spu_voice_flush_reset();
 }
 
 void SpuStart(void)
@@ -227,38 +239,52 @@ SpuIRQCallbackProc SpuSetIRQCallback(SpuIRQCallbackProc func)
 
 /*----------------------
  | SpuSetReverb / SpuSetNoiseClock
- | Description: Reverb and noise are D8; turning either on logs once.
+ | Description: Enables or disables the backend's reverb; stores the SPU noise clock's low 6 bits for the voice flush to pitch noise voices with.
  | Author: suinevere
- | Dependencies: log_once
- | Globals: s_logged_reverb_on, s_logged_noise_clock
+ | Dependencies: spu_shim_backend, spu_shim_set_noise_clock
+ | Globals: N/A
  | Params: as libspu.h
  | Returns: the argument
  ----------------------*/
 long SpuSetReverb(long on_off)
 {
-    if (on_off)
-        log_once(&s_logged_reverb_on, "spu: reverb on");
+    const SpuBackend *backend = spu_shim_backend();
+
+    if (backend != NULL && backend->reverb_enable != NULL)
+        backend->reverb_enable(on_off != 0);
     return on_off;
 }
 
 long SpuSetNoiseClock(long n_clock)
 {
-    log_once(&s_logged_noise_clock, "spu: noise clock");
+    spu_shim_set_noise_clock((unsigned)n_clock & 0x3Fu);
     return n_clock;
 }
 
 /*----------------------
  | SpuSetReverbModeType / SpuGetReverbModeType / SpuSetReverbModeDepth / SpuClearReverbWorkArea
- | Description: Keep the reverb mode AKAO sets so it reads back; depth and work area do nothing until D8.
+ | Description: Keep the reverb mode AKAO sets so it reads back, clearing the backend's work area on request and warning once if the mode is not Studio Large; depth and a bare clear pass straight to the backend.
  | Author: suinevere
- | Dependencies: N/A
- | Globals: s_reverb_mode
+ | Dependencies: spu_shim_backend, spu_shim_log
+ | Globals: s_reverb_mode, s_logged_reverb_mode
  | Params: as libspu.h
  | Returns: as libspu.h
  ----------------------*/
 long SpuSetReverbModeType(long mode)
 {
-    s_reverb_mode = mode;
+    const SpuBackend *backend = spu_shim_backend();
+
+    s_reverb_mode = mode & ~SPU_REV_MODE_CLEAR_WA;
+    if ((mode & SPU_REV_MODE_CLEAR_WA) && backend != NULL && backend->reverb_clear != NULL)
+        backend->reverb_clear();
+    if (s_reverb_mode != 0 && s_reverb_mode != 4 && !s_logged_reverb_mode)
+    {
+        char line[64];
+
+        s_logged_reverb_mode = 1;
+        snprintf(line, sizeof(line), "spu: reverb mode %ld kept as studio large", s_reverb_mode);
+        spu_shim_log(line);
+    }
     return 0;
 }
 
@@ -269,13 +295,19 @@ void SpuGetReverbModeType(long *mode)
 
 void SpuSetReverbModeDepth(short depth_left, short depth_right)
 {
-    (void)depth_left;
-    (void)depth_right;
+    const SpuBackend *backend = spu_shim_backend();
+
+    if (backend != NULL && backend->reverb_depth != NULL)
+        backend->reverb_depth(depth_left, depth_right);
 }
 
 long SpuClearReverbWorkArea(long mode)
 {
+    const SpuBackend *backend = spu_shim_backend();
+
     (void)mode;
+    if (backend != NULL && backend->reverb_clear != NULL)
+        backend->reverb_clear();
     return 0;
 }
 

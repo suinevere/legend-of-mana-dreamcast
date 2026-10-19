@@ -68,7 +68,7 @@ static unsigned ring_offset(int side, unsigned position)
 
 /*----------------------
  | key_side
- | Description: Keys one stream channel on looping over its ring at the stream's pitch, panned hard to its side.
+ | Description: Keys one stream channel on looping over its ring at the stream's pitch, panned hard to its side; no DSP send and 16-bit PCM.
  | Author: suinevere
  | Dependencies: aica_backend, aica_pitch_word, ring_offset
  | Globals: s_tl
@@ -91,6 +91,9 @@ static void key_side(int side, unsigned rate_hz)
     setup.dipan = (unsigned char)(side == 0 ? STREAM_PAN_LEFT : STREAM_PAN_RIGHT);
     setup.eg10 = STREAM_EG10;
     setup.eg14 = STREAM_EG14;
+    setup.isel = 0;
+    setup.imxl = 0;
+    setup.pcm8 = 0;
     aica_backend.key_on(side == 0 ? AICA_STREAM_LEFT_CHANNEL : AICA_STREAM_RIGHT_CHANNEL, &setup);
 }
 

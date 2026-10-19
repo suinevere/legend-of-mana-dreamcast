@@ -16,7 +16,7 @@ import pytest
 
 DC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 REPO = os.path.dirname(DC)
-SOURCES = ("spu_voice_flush.c", "libspu_shim.c", "spu_long_voice.c", "spu_sample_map.c", "aica_convert.c", "spu_shadow.c")
+SOURCES = ("spu_voice_flush.c", "libspu_shim.c", "spu_long_voice.c", "spu_sample_map.c", "spu_noise.c", "aica_convert.c", "spu_shadow.c")
 
 
 def test_spu_voice_flush_host_suite():

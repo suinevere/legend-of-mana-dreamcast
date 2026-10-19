@@ -1,8 +1,8 @@
 /*----------------------
  | test_spu_voice_flush.c
- | Description: Host tests for spu_voice_flush.c and libspu_shim.c: AKAO-style SPU register writes become the right backend calls, uploads decode, and envelope reads report real levels.
+ | Description: Host tests for spu_voice_flush.c and libspu_shim.c: AKAO-style SPU register writes become the right backend calls, uploads decode and clip, envelope reads report real levels, noise voices play the noise table, and reverb sends, mode and depth reach the backend.
  | Author: suinevere
- | Dependencies: spu_voice_flush.c, libspu_shim.c, spu_long_voice.c, spu_sample_map.c, aica_convert.c, spu_shadow.c, include/main/audio/spu_registers.h, include/sdk/libspu.h
+ | Dependencies: spu_voice_flush.c, libspu_shim.c, spu_long_voice.c, spu_sample_map.c, spu_noise.c, aica_convert.c, spu_shadow.c, include/main/audio/spu_registers.h, include/sdk/libspu.h
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -19,15 +19,17 @@ typedef unsigned char u8;
 #include "main/audio/spu_registers.h"
 #include <libspu.h>
 
+#include "aica_convert.h"
 #include "spu_backend.h"
 #include "spu_long_voice.h"
+#include "spu_noise.h"
 #include "spu_shim.h"
 
 static int failures;
 
 #define CHECK(cond) do { if (!(cond)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
 
-enum { OP_UPLOAD, OP_KEY_ON, OP_KEY_OFF, OP_PITCH, OP_LEVEL, OP_ENVELOPE, OP_CD };
+enum { OP_UPLOAD, OP_KEY_ON, OP_KEY_OFF, OP_PITCH, OP_LEVEL, OP_ENVELOPE, OP_CD, OP_SET_SEND, OP_REVERB_ENABLE, OP_REVERB_DEPTH, OP_REVERB_CLEAR };
 
 typedef struct Event
 {
@@ -44,6 +46,7 @@ static char s_logs[32][96];
 static int s_log_count;
 static int s_levels[SPU_VOICE_COUNT];
 static unsigned s_pos[SPU_VOICE_COUNT];
+static int s_samples[SPU_VOICE_COUNT];
 static int s_callbacks;
 static unsigned char s_adpcm[3000 * 16];
 
@@ -111,8 +114,34 @@ static void fake_log(const char *message)
         snprintf(s_logs[s_log_count++], sizeof(s_logs[0]), "%s", message);
 }
 
+static void fake_set_send(int voice, unsigned char isel, unsigned char imxl)
+{
+    record(OP_SET_SEND, voice, isel, imxl, NULL);
+}
+
+static void fake_reverb_enable(int on)
+{
+    record(OP_REVERB_ENABLE, -1, (unsigned)on, 0, NULL);
+}
+
+static void fake_reverb_depth(int left, int right)
+{
+    record(OP_REVERB_DEPTH, -1, (unsigned)left, (unsigned)right, NULL);
+}
+
+static void fake_reverb_clear(void)
+{
+    record(OP_REVERB_CLEAR, -1, 0, 0, NULL);
+}
+
+static int fake_sample(int voice)
+{
+    return s_samples[voice];
+}
+
 static const SpuBackend k_backend = {fake_upload, fake_key_on, fake_key_off, fake_pitch, fake_level, fake_envelope_words,
-                                     fake_envelope, fake_position, fake_cd, fake_log};
+                                     fake_envelope, fake_position, fake_cd, fake_log, fake_set_send, fake_reverb_enable,
+                                     fake_reverb_depth, fake_reverb_clear, fake_sample};
 
 static void transfer_done(void)
 {
@@ -180,6 +209,42 @@ static void key_off(int v)
         SPU_KEY_OFF_LOW = (u16)(1u << v);
     else
         SPU_KEY_OFF_HIGH = (u16)(1u << (v - 16));
+}
+
+static void set_noise(int v, int on)
+{
+    if (v < 16)
+    {
+        if (on)
+            SPU_NOISE_LOW = (u16)(SPU_NOISE_LOW | (1u << v));
+        else
+            SPU_NOISE_LOW = (u16)(SPU_NOISE_LOW & ~(unsigned)(1u << v));
+    }
+    else
+    {
+        if (on)
+            SPU_NOISE_HIGH = (u16)(SPU_NOISE_HIGH | (1u << (v - 16)));
+        else
+            SPU_NOISE_HIGH = (u16)(SPU_NOISE_HIGH & ~(unsigned)(1u << (v - 16)));
+    }
+}
+
+static void set_pitch_mod(int v, int on)
+{
+    if (v < 16)
+    {
+        if (on)
+            SPU_PITCH_MOD_LOW = (u16)(SPU_PITCH_MOD_LOW | (1u << v));
+        else
+            SPU_PITCH_MOD_LOW = (u16)(SPU_PITCH_MOD_LOW & ~(unsigned)(1u << v));
+    }
+    else
+    {
+        if (on)
+            SPU_PITCH_MOD_HIGH = (u16)(SPU_PITCH_MOD_HIGH | (1u << (v - 16)));
+        else
+            SPU_PITCH_MOD_HIGH = (u16)(SPU_PITCH_MOD_HIGH & ~(unsigned)(1u << (v - 16)));
+    }
 }
 
 static void test_nothing_written(void)
@@ -252,13 +317,197 @@ static void test_unwritten_start(void)
     CHECK(count_logs("spu: key-on at unwritten") == 1);
 }
 
-static void test_noise_logged_once(void)
+static void test_noise_key_on(void)
 {
-    SPU_NOISE_LOW = 1;
+    int i;
+
+    CHECK(SpuSetNoiseClock(0) == 0);
+    set_voice(13, 0x1010, 0x3FFF, 0x3FFF);
+    set_noise(13, 1);
+    key_on(13);
+    clear_events();
     spu_voice_flush();
-    SPU_NOISE_LOW = 3;
+    CHECK(count_ops(OP_KEY_ON, 13) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_KEY_ON && s_events[i].voice == 13)
+        {
+            CHECK(s_events[i].setup.span.pcm_offset == SPU_NOISE_RAM);
+            CHECK(s_events[i].setup.span.frames == SPU_NOISE_FRAMES);
+            CHECK(s_events[i].setup.span.loop_start == 0);
+            CHECK(s_events[i].setup.span.loops == 1);
+            CHECK(s_events[i].setup.span.streamed == 0);
+            CHECK(s_events[i].setup.pcm8 == 1);
+            CHECK(s_events[i].setup.pitch == aica_pitch_word(spu_noise_pitch(0), 44100));
+        }
+    s_levels[13] = 1234;
+}
+
+static void test_noise_toggle_off_restarts_sample(void)
+{
+    int i;
+    int saw_sample = 0;
+
+    set_noise(13, 0);
     spu_voice_flush();
-    CHECK(count_logs("spu: noise") == 1);
+    CHECK(count_ops(OP_KEY_ON, 13) == 2);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_KEY_ON && s_events[i].voice == 13 && s_events[i].setup.pcm8 == 0)
+        {
+            saw_sample = 1;
+            CHECK(s_events[i].setup.span.frames == 28);
+            CHECK(s_events[i].setup.span.pcm_offset == 0x3838);
+        }
+    CHECK(saw_sample == 1);
+}
+
+static void test_noise_clock_repitches_noise_voices_only(void)
+{
+    int i;
+    unsigned short expect;
+
+    set_voice(14, 0x1010, 0x3FFF, 0x3FFF);
+    set_noise(14, 1);
+    key_on(14);
+    spu_voice_flush();
+    clear_events();
+    CHECK(SpuSetNoiseClock(0x20) == 0x20);
+    spu_voice_flush();
+    expect = aica_pitch_word(spu_noise_pitch(0x20), 44100);
+    CHECK(count_ops(OP_PITCH, -1) == 1);
+    CHECK(count_ops(OP_PITCH, 14) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_PITCH && s_events[i].voice == 14)
+            CHECK(s_events[i].a == expect);
+}
+
+static void test_noise_voice_pitch_write_ignored(void)
+{
+    SPU_VOICE_REG(14, pitch) = 0x1800;
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_PITCH, 14) == 0);
+}
+
+static void test_pitch_modulation(void)
+{
+    int i;
+    unsigned short expect;
+
+    set_voice(5, 0x1010, 0x3FFF, 0x3FFF);
+    spu_voice_flush();
+    s_samples[4] = 0x4000;
+    s_levels[4] = 0x7FFF;
+    set_pitch_mod(5, 1);
+    clear_events();
+    spu_voice_flush();
+    expect = aica_pitch_word(spu_pitch_mod(0x1000, s_samples[4], s_levels[4]), 44100);
+    CHECK(expect == aica_pitch_word(0x17FF, 44100));
+    CHECK(count_ops(OP_PITCH, 5) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_PITCH && s_events[i].voice == 5)
+            CHECK(s_events[i].a == expect);
+
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_PITCH, 5) == 0);
+
+    s_samples[4] = 0x2000;
+    clear_events();
+    spu_voice_flush();
+    expect = aica_pitch_word(spu_pitch_mod(0x1000, s_samples[4], s_levels[4]), 44100);
+    CHECK(count_ops(OP_PITCH, 5) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_PITCH && s_events[i].voice == 5)
+            CHECK(s_events[i].a == expect);
+
+    set_pitch_mod(5, 0);
+    clear_events();
+    spu_voice_flush();
+    expect = aica_pitch_word(0x1000, 44100);
+    CHECK(count_ops(OP_PITCH, 5) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_PITCH && s_events[i].voice == 5)
+            CHECK(s_events[i].a == expect);
+
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_PITCH, 5) == 0);
+
+    set_pitch_mod(0, 1);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_PITCH, 0) == 0);
+    set_pitch_mod(0, 0);
+}
+
+static void test_pitch_modulation_key_on_refreshes(void)
+{
+    int i;
+    unsigned short expect;
+    int saw;
+
+    set_voice(6, 0x1010, 0x3FFF, 0x3FFF);
+    spu_voice_flush();
+    s_samples[5] = 0x4000;
+    s_levels[5] = 0x7FFF;
+    set_pitch_mod(6, 1);
+    clear_events();
+    spu_voice_flush();
+    expect = aica_pitch_word(spu_pitch_mod(0x1000, s_samples[5], s_levels[5]), 44100);
+    CHECK(count_ops(OP_PITCH, 6) == 1);
+
+    key_on(6);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_KEY_ON, 6) == 1);
+    saw = 0;
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_PITCH && s_events[i].voice == 6 && s_events[i].a == expect)
+            saw = 1;
+    CHECK(saw == 1);
+
+    set_pitch_mod(6, 0);
+    clear_events();
+    spu_voice_flush();
+}
+
+static void test_pitch_modulation_noise_toggle_keeps_noise_pitch(void)
+{
+    int i;
+    unsigned short last_pitch = 0;
+    unsigned short noise_pitch_expect;
+    int have_last;
+
+    set_voice(10, 0x1010, 0x3FFF, 0x3FFF);
+    spu_voice_flush();
+    s_samples[9] = 0x4000;
+    s_levels[9] = 0x7FFF;
+    set_pitch_mod(10, 1);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_PITCH, 10) == 1);
+
+    s_levels[10] = 777;
+    CHECK(SpuSetNoiseClock(0x10) == 0x10);
+    set_noise(10, 1);
+    clear_events();
+    spu_voice_flush();
+
+    noise_pitch_expect = aica_pitch_word(spu_noise_pitch(0x10), 44100);
+    have_last = 0;
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].voice == 10 && (s_events[i].op == OP_PITCH || s_events[i].op == OP_KEY_ON))
+        {
+            last_pitch = s_events[i].op == OP_KEY_ON ? s_events[i].setup.pitch : (unsigned short)s_events[i].a;
+            have_last = 1;
+        }
+    CHECK(have_last == 1);
+    CHECK(last_pitch == noise_pitch_expect);
+
+    set_noise(10, 0);
+    set_pitch_mod(10, 0);
+    clear_events();
+    spu_voice_flush();
 }
 
 static void test_envelope_readback(void)
@@ -349,6 +598,125 @@ static void test_streamed_one_shot_ends_silent(void)
     CHECK(e == 0);
 }
 
+static void test_reverb_key_on(void)
+{
+    int i;
+
+    SPU_REVERB_LOW = (u16)(1u << 8);
+    set_voice(8, 0x1010, 0x3FFF, 0x3FFF);
+    key_on(8);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_KEY_ON, 8) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_KEY_ON && s_events[i].voice == 8)
+        {
+            CHECK(s_events[i].setup.isel == 2);
+            CHECK(s_events[i].setup.imxl == 15);
+        }
+}
+
+static void test_reverb_clear_bit(void)
+{
+    SPU_REVERB_LOW = (u16)(SPU_REVERB_LOW & ~(1u << 8));
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_SET_SEND, 8) == 1);
+    CHECK(s_events[0].a == 2 && s_events[0].b == 0);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_SET_SEND, -1) == 0);
+}
+
+static void test_reverb_pan_change(void)
+{
+    int i;
+
+    SPU_REVERB_LOW = (u16)(SPU_REVERB_LOW | (1u << 9));
+    set_voice(9, 0x1010, 0x3FFF, 0x3FFF);
+    key_on(9);
+    spu_voice_flush();
+    clear_events();
+    SPU_VOICE_REG(9, volume_left) = 0x3FFF;
+    SPU_VOICE_REG(9, volume_right) = 0x0400;
+    spu_voice_flush();
+    CHECK(count_ops(OP_SET_SEND, 9) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_SET_SEND && s_events[i].voice == 9)
+            CHECK(s_events[i].a == 0 && s_events[i].b == 15);
+}
+
+static void test_reverb_mode_type(void)
+{
+    long mode;
+
+    clear_events();
+    CHECK(SpuSetReverbModeType(4 | SPU_REV_MODE_CLEAR_WA) == 0);
+    CHECK(count_ops(OP_REVERB_CLEAR, -1) == 1);
+    SpuGetReverbModeType(&mode);
+    CHECK(mode == 4);
+    clear_events();
+    if (mode != 4)
+        SpuSetReverbModeType(4 | SPU_REV_MODE_CLEAR_WA);
+    CHECK(count_ops(OP_REVERB_CLEAR, -1) == 0);
+}
+
+static void test_reverb_mode_other_logs_once(void)
+{
+    clear_events();
+    SpuSetReverbModeType(9);
+    SpuSetReverbModeType(9);
+    CHECK(count_logs("spu: reverb mode") == 1);
+}
+
+static void test_reverb_depth(void)
+{
+    clear_events();
+    SpuSetReverbModeDepth((s16)0x3000, (s16)0x2000);
+    CHECK(count_ops(OP_REVERB_DEPTH, -1) == 1);
+    CHECK(s_events[0].a == 0x3000 && s_events[0].b == 0x2000);
+}
+
+static void test_upload_limit(void)
+{
+    unsigned char blocks[64 * 16];
+    unsigned b;
+    int i;
+
+    for (b = 0; b < 64; b++)
+        one_block(blocks + b * 16, 0x00);
+    clear_events();
+    SpuSetTransferStartAddr(0x78F00);
+    SpuWrite(blocks, sizeof(blocks));
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_UPLOAD)
+            CHECK(s_events[i].a + s_events[i].b <= SPU_PCM_LIMIT);
+    CHECK(count_logs("spu: upload past 0x1A8000 dropped") == 1);
+}
+
+static void test_reset_clears_send_cache(void)
+{
+    int i;
+
+    set_voice(12, 0x1010, 0x3FFF, 0x3FFF);
+    SPU_REVERB_LOW = (u16)(SPU_REVERB_LOW | (1u << 12));
+    key_on(12);
+    spu_voice_flush();
+
+    spu_shadow_reset();
+    spu_sample_map_reset();
+    spu_voice_flush_reset();
+
+    set_voice(12, 0x1010, 0x3FFF, 0x3FFF);
+    SPU_REVERB_LOW = (u16)(1u << 12);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_SET_SEND, 12) == 1);
+    for (i = 0; i < s_event_count; i++)
+        if (s_events[i].op == OP_SET_SEND && s_events[i].voice == 12)
+            CHECK(s_events[i].a == 2 && s_events[i].b == 15);
+}
+
 static void test_no_backend(void)
 {
     short e = -1;
@@ -372,12 +740,26 @@ int main(void)
     test_pitch_only();
     test_off_then_on();
     test_unwritten_start();
-    test_noise_logged_once();
+    test_noise_key_on();
+    test_noise_toggle_off_restarts_sample();
+    test_noise_clock_repitches_noise_voices_only();
+    test_noise_voice_pitch_write_ignored();
+    test_pitch_modulation();
+    test_pitch_modulation_key_on_refreshes();
+    test_pitch_modulation_noise_toggle_keeps_noise_pitch();
     test_envelope_readback();
     test_cd_volume();
     test_sweep_volume();
     test_streamed_key_on();
     test_streamed_one_shot_ends_silent();
+    test_reverb_key_on();
+    test_reverb_clear_bit();
+    test_reverb_pan_change();
+    test_reverb_mode_type();
+    test_reverb_mode_other_logs_once();
+    test_reverb_depth();
+    test_upload_limit();
+    test_reset_clears_send_cache();
     test_no_backend();
     if (failures == 0)
         printf("OK\n");

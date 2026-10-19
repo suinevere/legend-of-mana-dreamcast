@@ -230,6 +230,21 @@ def parse_longvoice(tokens, lineno):
 
 
 #----------------------
+# | parse_effects
+# | Description: Parses "effects" into a test-only step that plays the reverb, noise and pitch-modulation sequence.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "effects", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_EFFECTS"
+#----------------------
+def parse_effects(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: effects takes no arguments" % lineno)
+    return {"op": "PAD_OP_EFFECTS", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | parse_movies
 # | Description: Parses "movies" into a test-only step that stops the script holding Start through the intro, so the intro plays.
 # | Author: suinevere
@@ -357,10 +372,25 @@ def parse_musicoff(tokens, lineno):
 
 
 #----------------------
-# | parse_script
-# | Description: Parses every non-comment, non-blank line of a .pad script into step dicts.
+# | parse_boothold
+# | Description: Parses "boothold" into a step that marks a script as wanting 50 Hz PAL held through pad_script_boot_hold(); callers must reject it off the first line.
 # | Author: suinevere
-# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, parse_tone, parse_longvoice, parse_resource_step, parse_musicoff, parse_probe, parse_movies, parse_fieldmovie, ScriptError
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "boothold", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_BOOTHOLD"
+#----------------------
+def parse_boothold(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: boothold takes no arguments" % lineno)
+    return {"op": "PAD_OP_BOOTHOLD", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
+# | parse_script
+# | Description: Parses every non-comment, non-blank line of a .pad script into step dicts; boothold is only accepted as the first step.
+# | Author: suinevere
+# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, parse_tone, parse_longvoice, parse_effects, parse_resource_step, parse_musicoff, parse_probe, parse_movies, parse_fieldmovie, parse_boothold, ScriptError
 # | Globals: N/A
 # | Params: text -- script file contents
 # | Returns: list of step dicts
@@ -393,6 +423,8 @@ def parse_script(text):
             steps.append(parse_tone(rest, lineno))
         elif verb == "longvoice":
             steps.append(parse_longvoice(rest, lineno))
+        elif verb == "effects":
+            steps.append(parse_effects(rest, lineno))
         elif verb == "music":
             steps.append(parse_resource_step(verb, "PAD_OP_MUSIC", MUSIC_RESOURCES, rest, lineno))
         elif verb == "musicoff":
@@ -405,6 +437,10 @@ def parse_script(text):
             steps.append(parse_movies(rest, lineno))
         elif verb == "fieldmovie":
             steps.append(parse_fieldmovie(rest, lineno))
+        elif verb == "boothold":
+            if steps:
+                raise ScriptError("line %d: boothold must be the first step" % lineno)
+            steps.append(parse_boothold(rest, lineno))
         else:
             raise ScriptError("line %d: unknown verb %r" % (lineno, verb))
     return steps

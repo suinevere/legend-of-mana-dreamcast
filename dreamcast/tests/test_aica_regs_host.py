@@ -1,8 +1,8 @@
 #----------------------
 # | test_aica_regs_host.py
-# | Description: Builds and runs the host C test for the AICA register-word packing with the host gcc.
+# | Description: Builds and runs the host C test for the AICA register-word packing and reverb COEF table with the host gcc.
 # | Author: suinevere
-# | Dependencies: tests/host/test_aica_regs.c, src/sound/aica_regs.c, ../port/sound/spu_backend.h
+# | Dependencies: tests/host/test_aica_regs.c, src/sound/aica_regs.c, src/sound/aica_reverb.c, ../port/sound/spu_backend.h
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -25,7 +25,8 @@ def test_aica_regs_host_suite():
     exe = os.path.join(tempfile.gettempdir(), "lom_aica_regs_test.exe")
     sound = os.path.join(DC, "src", "sound")
     cmd = [cc, "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-I", sound, "-I", os.path.join(REPO, "port", "sound"),
-           "-o", exe, os.path.join(DC, "tests", "host", "test_aica_regs.c"), os.path.join(sound, "aica_regs.c")]
+           "-o", exe, os.path.join(DC, "tests", "host", "test_aica_regs.c"), os.path.join(sound, "aica_regs.c"),
+           os.path.join(sound, "aica_reverb.c")]
     subprocess.run(cmd, check=True)
     result = subprocess.run([exe], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout

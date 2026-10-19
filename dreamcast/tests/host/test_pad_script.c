@@ -218,6 +218,7 @@ static int s_tone_hz;
 static int s_tone_seconds;
 static int s_sound_polls;
 static int s_longvoice_seconds;
+static int s_effects;
 static int s_music_resource;
 static int s_music_offs;
 static int s_sfxset_resource;
@@ -240,6 +241,11 @@ void sound_test_sfxset(int resource)
 void sound_test_longvoice(int seconds)
 {
     s_longvoice_seconds = seconds;
+}
+
+void sound_test_effects(void)
+{
+    s_effects++;
 }
 
 void sound_test_tone(int hz, int seconds)
@@ -389,6 +395,19 @@ static void test_longvoice_starts_and_advances(void)
     CHECK(pad_script_done());
 }
 
+static void test_effects_starts_and_advances(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_EFFECTS, 0, 0, "", 0 },
+    };
+
+    s_effects = 0;
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 0);
+    CHECK(s_effects == 1);
+    CHECK(pad_script_done());
+}
+
 static void test_music_ops_call_their_hooks_and_advance(void)
 {
     PadScriptStep steps[] = {
@@ -459,6 +478,27 @@ static void test_movies_step_lets_the_intro_play(void)
     CHECK((pad_script_buttons() & PAD_SCRIPT_BTN_START) != 0);
 }
 
+/*----------------------
+ | test_boothold_advances_without_pressing
+ | Description: A PAD_OP_BOOTHOLD step holds no buttons and advances at once.
+ | Author: suinevere
+ | Dependencies: pad_script_start, pad_script_poll, pad_script_buttons, pad_script_done
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_boothold_advances_without_pressing(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_BOOTHOLD, 0, 0, "", 0 },
+    };
+
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 0);
+    CHECK(pad_script_buttons() == 0);
+    CHECK(pad_script_done());
+}
+
 int main(void)
 {
     pad_script_set_printer(record_capture);
@@ -478,7 +518,9 @@ int main(void)
     test_gameover_calls_its_hook_once_and_advances();
     test_tone_starts_and_advances_while_polling_sound();
     test_longvoice_starts_and_advances();
+    test_effects_starts_and_advances();
     test_music_ops_call_their_hooks_and_advance();
+    test_boothold_advances_without_pressing();
     if (s_failures == 0)
     {
         printf("OK\n");

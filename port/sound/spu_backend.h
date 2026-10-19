@@ -29,7 +29,7 @@ extern "C" {
 
 /*----------------------
  | SpuVoiceSetup
- | Description: Everything a key-on writes: the sample span, the AICA pitch word, TL and DIPAN, and the two envelope words.
+ | Description: Everything a key-on writes: the sample span, the AICA pitch word, TL and DIPAN, the two envelope words, the DSP send (ISEL/IMXL) and whether the sample is 8-bit PCM.
  | Author: suinevere
  | Dependencies: SpuSampleSpan
  | Globals: N/A
@@ -44,11 +44,14 @@ typedef struct SpuVoiceSetup
     unsigned char dipan;
     unsigned short eg10;
     unsigned short eg14;
+    unsigned char isel;
+    unsigned char imxl;
+    unsigned char pcm8;
 } SpuVoiceSetup;
 
 /*----------------------
  | SpuBackend
- | Description: Sound chip calls: PCM upload, key on and off, live pitch, level and envelope changes, envelope level and play position readback, CD/stream volume, and a log line; any but the first seven may be NULL.
+ | Description: Sound chip calls: PCM upload, key on and off, live pitch, level, envelope and send changes, reverb enable/depth/clear, envelope level and play position and sample readback, CD/stream volume, and a log line; any but the first seven may be NULL.
  | Author: suinevere
  | Dependencies: SpuVoiceSetup
  | Globals: N/A
@@ -67,6 +70,11 @@ typedef struct SpuBackend
     unsigned (*position)(int voice);
     void (*cd_volume)(int left, int right);
     void (*log)(const char *message);
+    void (*set_send)(int voice, unsigned char isel, unsigned char imxl);
+    void (*reverb_enable)(int on);
+    void (*reverb_depth)(int left, int right);
+    void (*reverb_clear)(void);
+    int (*sample)(int voice);
 } SpuBackend;
 
 #ifdef __cplusplus

@@ -1,6 +1,6 @@
 /*----------------------
  | sound_test_dc.c
- | Description: Test-image only: plays a sine on the AICA stream channel for the pad script's tone step, a 1050 Hz sine sample longer than one AICA channel reaches on SPU voice 23 for its longvoice step, and any music resource's song or effect resource's banks for the sweep's music and sfxset steps, driven from the per-vblank pad-script poll.
+ | Description: Test-image only: plays a sine on the AICA stream channel for the pad script's tone step, a 1050 Hz sine sample longer than one AICA channel reaches on SPU voice 23 for its longvoice step, reverb, noise and pitch-modulation cases through the shim for its effects step, and any music resource's song or effect resource's banks for the sweep's music and sfxset steps, driven from the per-vblank pad-script poll.
  | Author: suinevere
  | Dependencies: aica_stream.h, akao_tick_dc.h, pad_script.h, dc_system.h, vsync_pacer.h, libspu.h, main/audio/spu_registers.h, main/audio/akao_cmd.h, main/cdrom.h, math.h
  | Globals: N/A
@@ -104,28 +104,28 @@ void sound_test_tone(int hz, int seconds)
 }
 
 /*----------------------
- | encode_long_sample
- | Description: Encodes the 1050 Hz sine as filter-0, shift-1 ADPCM, flagging block LONG_LOOP_BLOCK as the loop start and the last block as end and repeat.
+ | encode_sine
+ | Description: Encodes a sine of period frames and peak amplitude as filter-0, shift-1 ADPCM, flagging loop_block as the loop start and the last block as end and repeat.
  | Author: suinevere
- | Dependencies: sinf
- | Globals: s_long_adpcm
- | Params: N/A
+ | Dependencies: sinf, lroundf
+ | Globals: N/A
+ | Params: dst -- blocks * 16 bytes, blocks -- ADPCM blocks, period -- whole frames per cycle, amplitude -- peak, loop_block -- loop start block
  | Returns: N/A
  ----------------------*/
-static void encode_long_sample(void)
+static void encode_sine(unsigned char *dst, unsigned blocks, float period, float amplitude, unsigned loop_block)
 {
     unsigned block;
     unsigned i;
 
-    for (block = 0; block < LONG_BLOCKS; block++)
+    for (block = 0; block < blocks; block++)
     {
-        unsigned char *p = s_long_adpcm + block * 16u;
+        unsigned char *p = dst + block * 16u;
 
         p[0] = 0x01;
-        p[1] = (unsigned char)(block == LONG_LOOP_BLOCK ? 0x04 : (block == LONG_BLOCKS - 1u ? 0x03 : 0x00));
+        p[1] = (unsigned char)(block == loop_block ? 0x04 : (block == blocks - 1u ? 0x03 : 0x00));
         for (i = 0; i < 28u; i++)
         {
-            float x = LONG_AMPLITUDE * sinf(6.2831853f * (float)((block * 28u + i) % 42u) / LONG_PERIOD);
+            float x = amplitude * sinf(6.2831853f * (float)((block * 28u + i) % (unsigned)period) / period);
             int nibble = (int)lroundf(x / 2048.0f);
 
             if (nibble > 7)
@@ -141,26 +141,40 @@ static void encode_long_sample(void)
 }
 
 /*----------------------
+ | set_voice
+ | Description: Points an SPU voice at a sample through the register shadow with both volumes at volume, pitch 0x1000 and the long voice's full-sustain ADSR.
+ | Author: suinevere
+ | Dependencies: SPU_VOICE_REG
+ | Globals: N/A
+ | Params: voice -- SPU voice, spu_addr -- sample's SPU byte address, volume -- left and right volume
+ | Returns: N/A
+ ----------------------*/
+static void set_voice(int voice, unsigned spu_addr, u16 volume)
+{
+    SPU_VOICE_REG(voice, volume_left) = volume;
+    SPU_VOICE_REG(voice, volume_right) = volume;
+    SPU_VOICE_REG(voice, pitch) = 0x1000;
+    SPU_VOICE_REG(voice, start_addr) = (u16)(spu_addr / 8u);
+    SPU_VOICE_REG(voice, repeat_addr) = 0;
+    SPU_VOICE_REG(voice, adsr_low) = 0x000F;
+    SPU_VOICE_REG(voice, adsr_high) = 0x0000;
+}
+
+/*----------------------
  | start_long_voice
  | Description: Uploads the long sample with SpuWrite and keys SPU voice 23 on it through the register shadow, the way AKAO keys a voice, for seconds; logs "longvoice start".
  | Author: suinevere
- | Dependencies: encode_long_sample, SpuSetTransferStartAddr, SpuWrite, SPU_VOICE_REG, SPU_KEY_ON_HIGH, dc_log
- | Globals: s_long_left
+ | Dependencies: encode_sine, set_voice, SpuSetTransferStartAddr, SpuWrite, SPU_KEY_ON_HIGH, dc_log
+ | Globals: s_long_adpcm, s_long_left
  | Params: seconds -- length
  | Returns: N/A
  ----------------------*/
 static void start_long_voice(int seconds)
 {
-    encode_long_sample();
+    encode_sine(s_long_adpcm, LONG_BLOCKS, LONG_PERIOD, LONG_AMPLITUDE, LONG_LOOP_BLOCK);
     SpuSetTransferStartAddr(LONG_SPU_ADDR);
     SpuWrite(s_long_adpcm, sizeof(s_long_adpcm));
-    SPU_VOICE_REG(LONG_VOICE, volume_left) = 0x3FFF;
-    SPU_VOICE_REG(LONG_VOICE, volume_right) = 0x3FFF;
-    SPU_VOICE_REG(LONG_VOICE, pitch) = 0x1000;
-    SPU_VOICE_REG(LONG_VOICE, start_addr) = (u16)(LONG_SPU_ADDR / 8u);
-    SPU_VOICE_REG(LONG_VOICE, repeat_addr) = 0;
-    SPU_VOICE_REG(LONG_VOICE, adsr_low) = 0x000F;
-    SPU_VOICE_REG(LONG_VOICE, adsr_high) = 0x0000;
+    set_voice(LONG_VOICE, LONG_SPU_ADDR, 0x3FFF);
     SPU_KEY_ON_HIGH = (u16)(1u << (LONG_VOICE - 16));
     s_long_left = seconds * 60;
     dc_log("longvoice start");
@@ -178,6 +192,251 @@ static void start_long_voice(int seconds)
 void sound_test_longvoice(int seconds)
 {
     s_long_pending = seconds;
+}
+
+/*----------------------
+ | FX_CLICK_ADDR / FX_MOD_ADDR / FX_CARRIER_ADDR
+ | Description: SPU addresses of the effects step's one-block click, its 5 Hz modulator sine and its 1,050 Hz carrier sine, clear of the long voice.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FX_CLICK_ADDR 0x60000u
+#define FX_MOD_ADDR 0x60010u
+#define FX_CARRIER_ADDR 0x61400u
+
+/*----------------------
+ | FX_REVERB_VOICE / FX_NOISE_VOICE / FX_MOD_VOICE / FX_CARRIER_VOICE
+ | Description: SPU voices the effects step plays its reverb click, noise, modulator and pitch-modulated carrier on.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FX_REVERB_VOICE 22
+#define FX_NOISE_VOICE 21
+#define FX_MOD_VOICE 19
+#define FX_CARRIER_VOICE 20
+
+/*----------------------
+ | FX_MOD_BLOCKS / FX_MOD_PERIOD / FX_MOD_AMPLITUDE / FX_CARRIER_BLOCKS / FX_CARRIER_PERIOD / FX_CARRIER_AMPLITUDE
+ | Description: The modulator is one 8,820-frame (5 Hz) cycle in 315 blocks at peak 4,000; the carrier is 14 cycles of 42 frames (1,050 Hz) in 21 blocks at peak 14,000.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FX_MOD_BLOCKS 315u
+#define FX_MOD_PERIOD 8820.0f
+#define FX_MOD_AMPLITUDE 4000.0f
+#define FX_CARRIER_BLOCKS 21u
+#define FX_CARRIER_PERIOD 42.0f
+#define FX_CARRIER_AMPLITUDE 14000.0f
+
+/*----------------------
+ | FX_NOISE_CLOCK / FX_REVERB_DEPTH / FX_VOLUME
+ | Description: Noise clock 0x3F, which plays the noise table at 44.1 kHz; full reverb output depth; and the click and carrier voices' volume.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FX_NOISE_CLOCK 0x3F
+#define FX_REVERB_DEPTH 0x7FFF
+#define FX_VOLUME 0x3FFF
+
+/*----------------------
+ | FxPhase
+ | Description: The effects sequence's phases in play order; FX_NOISE_GAP follows the noise voice's key-off and FX_UNMODULATED holds the carrier with its pitch-modulation bit clear.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef enum
+{
+    FX_IDLE,
+    FX_REVERB_ON,
+    FX_REVERB_OFF,
+    FX_NOISE,
+    FX_NOISE_GAP,
+    FX_PITCHMOD,
+    FX_UNMODULATED,
+    FX_PHASE_COUNT
+} FxPhase;
+
+/*----------------------
+ | s_fx_vblanks
+ | Description: How long each phase holds, in vblanks: 3 s per reverb click, 1 s of noise and 0.3 s after it, 1.5 s modulated and 1 s unmodulated.
+ | Author: suinevere
+ | Dependencies: FxPhase
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const int s_fx_vblanks[FX_PHASE_COUNT] = {0, 180, 180, 60, 18, 90, 60};
+
+/*----------------------
+ | s_fx_click / s_fx_mod / s_fx_carrier / s_fx_phase / s_fx_left / s_fx_pending
+ | Description: The effects step's samples (the click is silence with 28,672 at sample 4, ending without a loop), its current phase, vblanks left in it, and whether a sequence waits for AKAO's tick to run.
+ | Author: suinevere
+ | Dependencies: FX_MOD_BLOCKS, FX_CARRIER_BLOCKS, FxPhase
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned char s_fx_click[16] = {0x00, 0x01, 0x00, 0x00, 0x07};
+static unsigned char s_fx_mod[FX_MOD_BLOCKS * 16u];
+static unsigned char s_fx_carrier[FX_CARRIER_BLOCKS * 16u];
+static FxPhase s_fx_phase;
+static int s_fx_left;
+static int s_fx_pending;
+
+/*----------------------
+ | voice_bit
+ | Description: A voice 16-23's bit in the high halfword of an SPU voice bitmap.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: voice -- SPU voice 16-23
+ | Returns: the bit
+ ----------------------*/
+static u16 voice_bit(int voice)
+{
+    return (u16)(1u << (voice - 16));
+}
+
+/*----------------------
+ | effects_hold
+ | Description: Re-applies the current phase's settings and effect bits, since AKAO's mask and clock updates can overwrite them.
+ | Author: suinevere
+ | Dependencies: voice_bit, SpuSetReverbModeDepth, SpuSetNoiseClock, SPU_REVERB_HIGH, SPU_NOISE_HIGH, SPU_PITCH_MOD_HIGH
+ | Globals: s_fx_phase
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void effects_hold(void)
+{
+    if (s_fx_phase == FX_REVERB_ON || s_fx_phase == FX_REVERB_OFF)
+        SpuSetReverbModeDepth(FX_REVERB_DEPTH, FX_REVERB_DEPTH);
+    if (s_fx_phase == FX_REVERB_ON)
+        SPU_REVERB_HIGH |= voice_bit(FX_REVERB_VOICE);
+    if (s_fx_phase == FX_NOISE || s_fx_phase == FX_NOISE_GAP)
+    {
+        SpuSetNoiseClock(FX_NOISE_CLOCK);
+        SPU_NOISE_HIGH |= voice_bit(FX_NOISE_VOICE);
+    }
+    if (s_fx_phase == FX_PITCHMOD)
+        SPU_PITCH_MOD_HIGH |= voice_bit(FX_CARRIER_VOICE);
+}
+
+/*----------------------
+ | effects_enter
+ | Description: Starts a phase: uploads the samples and keys the click with its reverb bit set, keys it again with the bit clear, keys the noise voice and later off, keys the modulator and carrier, clears the carrier's bit, or keys both off; logs "effects <phase>" and "effects end".
+ | Author: suinevere
+ | Dependencies: effects_hold, set_voice, voice_bit, encode_sine, SpuSetTransferStartAddr, SpuWrite, SPU_KEY_ON_HIGH, SPU_KEY_OFF_HIGH, SPU_REVERB_HIGH, SPU_NOISE_HIGH, SPU_PITCH_MOD_HIGH, dc_log
+ | Globals: s_fx_click, s_fx_mod, s_fx_carrier, s_fx_phase, s_fx_left
+ | Params: phase -- phase to start
+ | Returns: N/A
+ ----------------------*/
+static void effects_enter(FxPhase phase)
+{
+    s_fx_phase = phase;
+    s_fx_left = s_fx_vblanks[phase];
+    switch (phase)
+    {
+    case FX_REVERB_ON:
+        encode_sine(s_fx_mod, FX_MOD_BLOCKS, FX_MOD_PERIOD, FX_MOD_AMPLITUDE, 0);
+        encode_sine(s_fx_carrier, FX_CARRIER_BLOCKS, FX_CARRIER_PERIOD, FX_CARRIER_AMPLITUDE, 0);
+        SpuSetTransferStartAddr(FX_CLICK_ADDR);
+        SpuWrite(s_fx_click, sizeof(s_fx_click));
+        SpuSetTransferStartAddr(FX_MOD_ADDR);
+        SpuWrite(s_fx_mod, sizeof(s_fx_mod));
+        SpuSetTransferStartAddr(FX_CARRIER_ADDR);
+        SpuWrite(s_fx_carrier, sizeof(s_fx_carrier));
+        effects_hold();
+        set_voice(FX_REVERB_VOICE, FX_CLICK_ADDR, FX_VOLUME);
+        SPU_KEY_ON_HIGH = voice_bit(FX_REVERB_VOICE);
+        dc_log("effects reverb-on");
+        break;
+    case FX_REVERB_OFF:
+        SPU_REVERB_HIGH &= (u16)~voice_bit(FX_REVERB_VOICE);
+        effects_hold();
+        set_voice(FX_REVERB_VOICE, FX_CLICK_ADDR, FX_VOLUME);
+        SPU_KEY_ON_HIGH = voice_bit(FX_REVERB_VOICE);
+        dc_log("effects reverb-off");
+        break;
+    case FX_NOISE:
+        effects_hold();
+        set_voice(FX_NOISE_VOICE, FX_CLICK_ADDR, FX_VOLUME);
+        SPU_KEY_ON_HIGH = voice_bit(FX_NOISE_VOICE);
+        dc_log("effects noise");
+        break;
+    case FX_NOISE_GAP:
+        effects_hold();
+        SPU_KEY_OFF_HIGH = voice_bit(FX_NOISE_VOICE);
+        break;
+    case FX_PITCHMOD:
+        SPU_NOISE_HIGH &= (u16)~voice_bit(FX_NOISE_VOICE);
+        effects_hold();
+        set_voice(FX_MOD_VOICE, FX_MOD_ADDR, 0);
+        set_voice(FX_CARRIER_VOICE, FX_CARRIER_ADDR, FX_VOLUME);
+        SPU_KEY_ON_HIGH = (u16)(voice_bit(FX_MOD_VOICE) | voice_bit(FX_CARRIER_VOICE));
+        dc_log("effects pitchmod");
+        break;
+    case FX_UNMODULATED:
+        SPU_PITCH_MOD_HIGH &= (u16)~voice_bit(FX_CARRIER_VOICE);
+        break;
+    case FX_IDLE:
+    default:
+        SPU_KEY_OFF_HIGH = (u16)(voice_bit(FX_MOD_VOICE) | voice_bit(FX_CARRIER_VOICE));
+        dc_log("effects end");
+        break;
+    }
+}
+
+/*----------------------
+ | effects_poll
+ | Description: Once per vblank: starts a requested sequence once AKAO's tick runs, holds the current phase's settings, and moves to the next phase when its time is up.
+ | Author: suinevere
+ | Dependencies: effects_enter, effects_hold, akao_tick_dc_count
+ | Globals: s_fx_phase, s_fx_left, s_fx_pending
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void effects_poll(void)
+{
+    if (s_fx_pending && akao_tick_dc_count() > 0)
+    {
+        s_fx_pending = 0;
+        effects_enter(FX_REVERB_ON);
+        return;
+    }
+    if (s_fx_phase == FX_IDLE)
+        return;
+    effects_hold();
+    if (--s_fx_left == 0)
+        effects_enter(s_fx_phase + 1 < FX_PHASE_COUNT ? (FxPhase)(s_fx_phase + 1) : FX_IDLE);
+}
+
+/*----------------------
+ | sound_test_effects
+ | Description: Asks for the effects sequence; it starts on the first poll after AKAO's tick runs, like the long voice.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_fx_pending
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void sound_test_effects(void)
+{
+    s_fx_pending = 1;
 }
 
 /*----------------------
@@ -315,9 +574,9 @@ void sound_test_sfxset(int resource)
 
 /*----------------------
  | sound_test_poll
- | Description: Once per vblank: starts a requested long voice once AKAO's tick runs, keys it off with "longvoice end" when its time is up, tops the stream up with the next sine frames, and stops it and logs "tone end" once the last frames have played out.
+ | Description: Once per vblank: starts a requested long voice once AKAO's tick runs, keys it off with "longvoice end" when its time is up, runs the effects sequence, tops the stream up with the next sine frames, and stops it and logs "tone end" once the last frames have played out.
  | Author: suinevere
- | Dependencies: start_long_voice, akao_tick_dc_count, SPU_KEY_OFF_HIGH, aica_stream_free, aica_stream_push, aica_stream_stop, sinf, dc_log
+ | Dependencies: start_long_voice, effects_poll, akao_tick_dc_count, SPU_KEY_OFF_HIGH, aica_stream_free, aica_stream_push, aica_stream_stop, sinf, dc_log
  | Globals: s_active, s_phase, s_step, s_left, s_drain, s_long_left, s_long_pending
  | Params: N/A
  | Returns: N/A
@@ -337,6 +596,7 @@ void sound_test_poll(void)
         SPU_KEY_OFF_HIGH = (u16)(1u << (LONG_VOICE - 16));
         dc_log("longvoice end");
     }
+    effects_poll();
     if (!s_active)
         return;
     if (s_left == 0)

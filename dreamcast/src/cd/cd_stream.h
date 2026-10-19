@@ -13,8 +13,8 @@
 #include <stdint.h>
 
 /*----------------------
- | CD_STREAM_SECTOR_BYTES / CD_STREAM_SECTORS_PER_SECOND / CD_STREAM_VBLANKS_PER_SECOND / CD_STREAM_MAX_BURST
- | Description: Sector size, the PS1 drive's double-speed rate, NTSC vblanks per second, and most sectors one service call delivers after a stall.
+ | CD_STREAM_SECTOR_BYTES / CD_STREAM_SECTORS_PER_SECOND / CD_STREAM_MAX_BURST
+ | Description: Sector size, the PS1 drive's double-speed rate, and most sectors one service call delivers after a stall.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -23,7 +23,6 @@
  ----------------------*/
 #define CD_STREAM_SECTOR_BYTES 2048
 #define CD_STREAM_SECTORS_PER_SECOND 150
-#define CD_STREAM_VBLANKS_PER_SECOND 60
 #define CD_STREAM_MAX_BURST 30
 
 /*----------------------
@@ -37,6 +36,17 @@
  ----------------------*/
 typedef const uint8_t *(*CdStreamFetch)(void *ctx, unsigned sector);
 typedef unsigned char *(*CdStreamCallback)(int bytes_transferred, unsigned bytes_remaining);
+
+/*----------------------
+ | cd_stream_set_refresh
+ | Description: Sets the vblank refresh rate (60 or 50) cd_stream_service paces delivery against; defaults to 60 until called.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: hz -- vblanks per second
+ | Returns: N/A
+ ----------------------*/
+void cd_stream_set_refresh(unsigned hz);
 
 /*----------------------
  | cd_stream_start

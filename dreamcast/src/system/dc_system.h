@@ -12,14 +12,25 @@
 
 /*----------------------
  | dc_system_init
- | Description: Sets 640x480 RGB565 video and clears the framebuffer, ready for boot output.
+ | Description: Chooses VGA/NTSC/PAL 640x480 RGB565 video from the cable, region and a held A button (or pad_script_boot_hold under LOM_PAD_SCRIPT), sets it, clears the framebuffer and logs the refresh, ready for boot output.
  | Author: suinevere
- | Dependencies: vid_set_mode, vid_clear
+ | Dependencies: vid_waitvbl, maple_enum_type, maple_dev_status, flashrom_get_region, vid_check_cable, dc_video_choose, vid_set_mode, vid_clear, dc_log, pad_script_boot_hold (LOM_PAD_SCRIPT)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void dc_system_init(void);
+
+/*----------------------
+ | dc_system_video_hz
+ | Description: The refresh rate dc_system_init chose (60 for VGA/NTSC, 50 for PAL).
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: Hz
+ ----------------------*/
+int dc_system_video_hz(void);
 
 /*----------------------
  | dc_print

@@ -251,6 +251,27 @@ static void test_no_reentry(void)
 }
 
 /*----------------------
+ | test_refresh_changes_pacing
+ | Description: At 50 Hz, 2 vblanks deliver 6 sectors (150/50 per vblank); switching back to 60 Hz delivers the usual 5, and the refresh is reset to 60 for later tests.
+ | Author: suinevere
+ | Dependencies: start, cd_stream_service, cd_stream_set_refresh
+ | Globals: s_calls
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_refresh_changes_pacing(void)
+{
+    cd_stream_set_refresh(50);
+    start(40);
+    cd_stream_service(2);
+    CHECK(s_calls == 6);
+    cd_stream_set_refresh(60);
+    start(40);
+    cd_stream_service(2);
+    CHECK(s_calls == 5);
+}
+
+/*----------------------
  | main
  | Description: Runs every cd_stream test and prints ok when all pass.
  | Author: suinevere
@@ -269,6 +290,7 @@ int main(void)
     test_no_current_sector_returns_zero();
     test_fetch_not_ready_waits_without_skipping();
     test_no_reentry();
+    test_refresh_changes_pacing();
     if (!s_fail)
     {
         printf("ok\n");

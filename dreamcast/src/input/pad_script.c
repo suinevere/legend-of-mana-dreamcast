@@ -1,9 +1,9 @@
 /*----------------------
  | pad_script.c
- | Description: Interpreter for a compiled-in pad script: one step runs per vblank, advancing on a wait, a state match, a hold-then-release, a one-shot capture log, a mash's stop check, or a test-only scene jump or battle start.
+ | Description: Interpreter for a compiled-in pad script: one step runs per vblank, advancing on a wait, a state match, a hold-then-release, a one-shot capture log, a mash's stop check, or a test-only scene jump, battle start or boot-hold marker.
  | Author: suinevere
- | Dependencies: pad_script.h, watch.h, dc_system.h (LOM_HOST_TEST off), stdio.h (LOM_HOST_TEST on)
- | Globals: s_steps, s_count, s_index, s_remaining, s_releasing, s_buttons, s_printer
+ | Dependencies: pad_script.h, watch.h, dc_system.h (LOM_HOST_TEST off), pad_script_table.h, stdio.h (LOM_PAD_SCRIPT), stdio.h (LOM_HOST_TEST on)
+ | Globals: s_steps, s_count, s_index, s_remaining, s_releasing, s_buttons, s_selected, s_printer
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -14,6 +14,11 @@
 #include <stdio.h>
 #else
 #include "dc_system.h"
+#endif
+
+#ifdef LOM_PAD_SCRIPT
+#include "pad_script_table.h"
+#include <stdio.h>
 #endif
 
 /*----------------------
@@ -240,9 +245,9 @@ void pad_script_start(const PadScriptStep *steps, unsigned count)
 
 /*----------------------
  | pad_script_poll
- | Description: Feeds the test tone, then advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, calls a test-only hook once, starts a tone, long voice or song, stops the song, or uploads an effect set.
+ | Description: Feeds the test tone, then advances the current step by one vblank: counts down waits and holds, checks the wait-state condition, logs a capture marker once, mashes until its stop condition holds, calls a test-only hook once, starts a tone, long voice, effects sequence or song, stops the song, or uploads an effect set.
  | Author: suinevere
- | Dependencies: advance, log_capture, mash_stopped, sound_test_poll, sound_test_tone, sound_test_longvoice, sound_test_music, sound_test_music_off, sound_test_sfxset, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover, g_dc_movie_probe, g_dc_field_movie
+ | Dependencies: advance, log_capture, mash_stopped, sound_test_poll, sound_test_tone, sound_test_longvoice, sound_test_effects, sound_test_music, sound_test_music_off, sound_test_sfxset, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover, g_dc_movie_probe, g_dc_field_movie
  | Globals: s_steps, s_index, s_count, s_remaining, s_releasing, s_buttons, g_dc_field_scene_jump, g_dc_field_battle, g_dc_field_open, g_dc_field_gameover, g_dc_movie_probe, g_dc_field_movie
  | Params: vblank -- current vblank count (unused), game_state -- current g_game_state
  | Returns: N/A
@@ -347,6 +352,11 @@ void pad_script_poll(unsigned vblank, int game_state)
         sound_test_longvoice((int)step->arg);
         advance();
         break;
+    case PAD_OP_EFFECTS:
+        s_buttons = 0;
+        sound_test_effects();
+        advance();
+        break;
     case PAD_OP_MUSIC:
         s_buttons = 0;
         sound_test_music((int)step->arg);
@@ -389,6 +399,10 @@ void pad_script_poll(unsigned vblank, int game_state)
     case PAD_OP_MOVIES:
         s_buttons = 0;
         s_movies_on = 1;
+        advance();
+        break;
+    case PAD_OP_BOOTHOLD:
+        s_buttons = 0;
         advance();
         break;
     case PAD_OP_OPEN:
@@ -439,6 +453,131 @@ int pad_script_done(void)
 {
     return s_index >= s_count;
 }
+
+#ifdef LOM_PAD_SCRIPT
+/*----------------------
+ | PAD_SCRIPT_SELECT_PATH
+ | Description: Disc file whose first line names the compiled-in pad script to run; without it the first script runs.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_SCRIPT_SELECT_PATH "/cd/PADSEL.TXT"
+
+/*----------------------
+ | s_selected
+ | Description: The script pad_script_selected has picked, cached after the first call so PADSEL.TXT is read at most once.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const PadScriptChoice *s_selected;
+
+/*----------------------
+ | select_script
+ | Description: Reads PADSEL.TXT once and matches its first line against pad_script_scripts, caching whichever choice is found (or the first script, if the file is missing, empty, or names none).
+ | Author: suinevere
+ | Dependencies: fopen, fgets, fclose
+ | Globals: s_selected, pad_script_scripts, pad_script_script_count
+ | Params: N/A
+ | Returns: the selected script
+ ----------------------*/
+static const PadScriptChoice *select_script(void)
+{
+    char wanted[32];
+    FILE *f;
+    unsigned i;
+
+    if (s_selected != 0)
+    {
+        return s_selected;
+    }
+    s_selected = &pad_script_scripts[0];
+    f = fopen(PAD_SCRIPT_SELECT_PATH, "r");
+    if (f == 0)
+    {
+        return s_selected;
+    }
+    if (fgets(wanted, sizeof wanted, f) == 0)
+    {
+        wanted[0] = 0;
+    }
+    fclose(f);
+    for (i = 0; wanted[i] != 0; i++)
+    {
+        if (wanted[i] == '\r' || wanted[i] == '\n' || wanted[i] == ' ')
+        {
+            wanted[i] = 0;
+            break;
+        }
+    }
+    for (i = 0; i < pad_script_script_count; i++)
+    {
+        const char *a = pad_script_scripts[i].name;
+        const char *b = wanted;
+
+        while (*a != 0 && *a == *b)
+        {
+            a++;
+            b++;
+        }
+        if (*a == 0 && *b == 0)
+        {
+            s_selected = &pad_script_scripts[i];
+            break;
+        }
+    }
+    return s_selected;
+}
+
+/*----------------------
+ | pad_script_selected
+ | Description: The pad script PADSEL.TXT names, selecting and caching it on first call so later callers do not re-read the file.
+ | Author: suinevere
+ | Dependencies: select_script
+ | Globals: N/A
+ | Params: N/A
+ | Returns: the selected script
+ ----------------------*/
+const PadScriptChoice *pad_script_selected(void)
+{
+    return select_script();
+}
+
+/*----------------------
+ | pad_script_boot_hold
+ | Description: Whether the script PADSEL.TXT picked starts with a PAD_OP_BOOTHOLD step; safe to call before anything else has read PADSEL.TXT.
+ | Author: suinevere
+ | Dependencies: select_script
+ | Globals: N/A
+ | Params: N/A
+ | Returns: 1 if the picked script's first step is PAD_OP_BOOTHOLD, else 0
+ ----------------------*/
+int pad_script_boot_hold(void)
+{
+    const PadScriptChoice *choice = select_script();
+
+    return choice->count > 0 && choice->steps[0].op == PAD_OP_BOOTHOLD;
+}
+#else
+/*----------------------
+ | pad_script_boot_hold
+ | Description: Without LOM_PAD_SCRIPT there is no compiled-in script table to pick from, so no script can start with PAD_OP_BOOTHOLD.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: 0
+ ----------------------*/
+int pad_script_boot_hold(void)
+{
+    return 0;
+}
+#endif
 
 #ifdef LOM_HOST_TEST
 /*----------------------

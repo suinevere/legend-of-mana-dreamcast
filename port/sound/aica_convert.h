@@ -47,6 +47,28 @@ void aica_level_pan(short ps1_left, short ps1_right, unsigned char *tl, unsigned
  ----------------------*/
 void aica_envelope(unsigned short adsr_low, unsigned short adsr_high, unsigned short *eg10, unsigned short *eg14);
 
+/*----------------------
+ | aica_reverb_send
+ | Description: AICA DSP send bus (ISEL) and level (IMXL) for a voice's reverb bit and pan: full send when enabled, bus picked by which side DIPAN favors.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: dipan -- voice's 5-bit DIPAN; enabled -- voice's reverb bit; isel -- out MIXS bus (0 left, 1 right, 2 centre); imxl -- out send level (15 full, 0 mute)
+ | Returns: N/A
+ ----------------------*/
+void aica_reverb_send(unsigned char dipan, int enabled, unsigned char *isel, unsigned char *imxl);
+
+/*----------------------
+ | spu_pitch_mod
+ | Description: PS1 pitch modulation: steps pitch by the previous voice's current sample scaled by its envelope, clamped to the SPU's maximum pitch.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: pitch -- this voice's PS1 pitch (4.12); sample -- previous voice's current signed PCM sample; envelope -- previous voice's envelope, 0..0x7FFF
+ | Returns: modulated PS1 pitch, clamped to 0x3FFF
+ ----------------------*/
+unsigned short spu_pitch_mod(unsigned short pitch, int sample, int envelope);
+
 #ifdef __cplusplus
 }
 #endif

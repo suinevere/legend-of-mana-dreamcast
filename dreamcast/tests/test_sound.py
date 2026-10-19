@@ -1,8 +1,8 @@
 #----------------------
 # | test_sound.py
-# | Description: Flycast checks of the Dreamcast sound path: AKAO's tick rate; from one audio capture of the test image's boot, the stream channel's test tone and a streamed long voice; the new-game songs' notes against PS1 references; and the sweep of every song and effect bank.
+# | Description: Flycast checks of the Dreamcast sound path: AKAO's tick rate; from one audio capture of the test image's boot, the stream channel's test tone and a streamed long voice; from the sound-effects disc, run with the title song stopped, the effects step's reverb tail, noise voice and pitch modulation; the new-game songs' notes against PS1 references; and the sweep of every song and effect bank. The sweep's post-stop gap check only needs to catch a stuck voice (around -20 dBFS), since Studio Large's reverb now rings for about 3 s after a stop and the check's 0.5-0.7 s window cannot move later inside sound_sweep.pad's 45-vblank pause.
 # | Author: suinevere
-# | Dependencies: tools/flycast_run.py, tools/audio_capture.py, stale_image.py, lom.cdi, lom_test.cdi, src/sound/akao_tick_dc.c, src/sound/aica_stream.c, src/sound/sound_test_dc.c, src/boot/state_report_dc.c, tests/pad_scripts/new_game.pad, tests/pad_scripts/sound_sweep.pad, tools/sweep_check.py, tools/gen_pad_script.py, lom_sound_sweep_test.cdi
+# | Dependencies: tools/flycast_run.py, tools/audio_capture.py, stale_image.py, lom.cdi, lom_test.cdi, src/sound/akao_tick_dc.c, src/sound/aica_stream.c, src/sound/sound_test_dc.c, src/boot/state_report_dc.c, tests/pad_scripts/new_game.pad, tests/pad_scripts/sound_sweep.pad, tests/pad_scripts/sound_effects.pad, lom_sound_effects_test.cdi, tools/sweep_check.py, tools/gen_pad_script.py, tools/aica_reverb.py, lom_sound_sweep_test.cdi
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -19,6 +19,7 @@ DC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "
 sys.path.insert(0, os.path.join(DC, "tools"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import aica_reverb  # noqa: E402
 import audio_capture  # noqa: E402
 import audio_compare  # noqa: E402
 import flycast_run  # noqa: E402
@@ -113,6 +114,122 @@ def test_long_voice_is_seamless(boot_capture):
         assert high.max() <= numpy.median(high) + 6.0, (side, float(high.max()), float(numpy.median(high)))
 
 
+RATE = audio_capture.RATE
+EFFECT_PHASES = ("reverb-on", "reverb-off", "noise", "pitchmod", "end")
+CLICK_LEVEL = 0.1 * 32768
+NOISE_LEVEL = 0.05 * 32768
+PITCHMOD_LEVEL = 0.1 * 32768
+REVERB_HOLD = 3.0
+NOISE_HOLD = 1.3
+PITCHMOD_HOLD = 1.5
+UNMOD_HOLD = 1.0
+ONSET_SLACK = 0.2
+QUIET_LEVEL = 0.01 * 32768
+QUIET_BEFORE_CLICK = 0.5
+NORMALIZE_FROM = int(0.05 * RATE)
+NORMALIZE_TO = int(0.1 * RATE)
+
+
+@pytest.fixture(scope="module")
+def effects_capture():
+    if flycast_run.find_flycast() is None:
+        pytest.skip("no flycast")
+    stale_image.require_fresh_test_image(DC)
+    image = os.path.join(DC, "lom_sound_effects_test.cdi")
+    raw = os.path.join(tempfile.mkdtemp(prefix="lom-effects-"), "effects.raw")
+    code, lines = flycast_run.run_flycast(image, seconds=150, until="LOM: effects end", audio_out=raw)
+    assert code == 0, "\n".join(lines[-40:])
+    order = [phase for line in lines for phase in EFFECT_PHASES if line.strip().endswith("LOM: effects " + phase)]
+    assert order == list(EFFECT_PHASES), order
+    samples = audio_capture.read_raw(raw)
+    return lines, samples, _effect_onsets(samples)
+
+
+def _first_above(samples, level, start):
+    loud = numpy.nonzero(numpy.abs(samples[start:].astype(numpy.int32)).max(axis=1) > level)[0]
+    assert len(loud), (start, level)
+    return start + int(loud[0])
+
+
+def _after_quiet(samples, level, quiet):
+    peak = numpy.abs(samples.astype(numpy.int32)).max(axis=1)
+    loud = numpy.nonzero(peak > level)[0]
+    still = numpy.r_[0, numpy.cumsum(peak > QUIET_LEVEL)]
+    for at in loud:
+        if at >= quiet and still[at] == still[at - quiet]:
+            return int(at)
+    raise AssertionError("no click after %d quiet samples" % quiet)
+
+
+def _effect_onsets(samples):
+    first = _after_quiet(samples, CLICK_LEVEL, int(QUIET_BEFORE_CLICK * RATE))
+    second = _first_above(samples, CLICK_LEVEL, first + int((REVERB_HOLD - ONSET_SLACK) * RATE))
+    noise = _first_above(samples, NOISE_LEVEL, second + int((REVERB_HOLD - ONSET_SLACK) * RATE))
+    pitchmod = _first_above(samples, PITCHMOD_LEVEL, noise + int((NOISE_HOLD - ONSET_SLACK) * RATE))
+    return first, second, noise, pitchmod
+
+
+def _rms_db(channel):
+    rms = numpy.sqrt(numpy.mean((channel.astype(numpy.float64) / 32768.0) ** 2))
+    return 20.0 * numpy.log10(max(rms, 1e-9))
+
+
+def test_reverb_tail(effects_capture):
+    _lines, samples, (first, second, _noise, _pitchmod) = effects_capture
+    near, far = int(0.03 * RATE), int(0.4 * RATE)
+    reference = aica_reverb.impulse_response(0.4, bus=2)
+    for side in (0, 1):
+        wet = _rms_db(samples[first + near:first + far, side])
+        dry = _rms_db(samples[second + near:second + far, side])
+        assert wet - dry >= 30.0, (side, wet, dry)
+        ref_side = numpy.asarray(reference[side], dtype=numpy.float64)
+        tail = audio_capture.levels_db(samples[first:first + far, side], 0.01)
+        ref = audio_capture.levels_db(ref_side, 0.01)
+        keep = numpy.arange(3, min(len(tail), len(ref)))
+        keep = keep[(ref[keep] > audio_capture.SILENCE_DB) & (tail[keep] > audio_capture.SILENCE_DB)]
+        tail = tail - _rms_db(samples[first + NORMALIZE_FROM:first + NORMALIZE_TO, side])
+        ref = ref - _rms_db(ref_side[NORMALIZE_FROM:NORMALIZE_TO])
+        error = float(numpy.median(numpy.abs(tail[keep] - ref[keep])))
+        assert error <= 3.0, (side, error, numpy.round(tail[keep], 1).tolist(), numpy.round(ref[keep], 1).tolist())
+
+
+def test_noise_voice(effects_capture):
+    _lines, samples, (_first, _second, noise, _pitchmod) = effects_capture
+    body = samples[noise + int(0.2 * RATE):noise + int(0.8 * RATE)]
+    for side in (0, 1):
+        level = _rms_db(body[:, side])
+        assert level >= -30.0, (side, level)
+        bands = [float(numpy.median(audio_capture.band_db(body[:, side], hz, 0.01))) for hz in (1000.0, 4000.0, 10000.0)]
+        assert max(bands) - min(bands) <= 10.0, (side, bands)
+
+
+def _peak_track(mono, start, end, hop=441, size=2048, pad=16384):
+    window = numpy.hanning(size)
+    freqs = numpy.fft.rfftfreq(pad, 1.0 / RATE)
+    band = numpy.nonzero((freqs > 700.0) & (freqs < 1500.0))[0]
+    track = []
+    for at in range(start, end - size + 1, hop):
+        spectrum = numpy.abs(numpy.fft.rfft(mono[at:at + size] * window, pad))
+        k = band[int(numpy.argmax(spectrum[band]))]
+        a, b, c = numpy.log(spectrum[k - 1:k + 2] + 1e-12)
+        track.append(freqs[k] + 0.5 * (a - c) / (a - 2.0 * b + c) * (freqs[1] - freqs[0]))
+    return numpy.asarray(track)
+
+
+def test_pitch_modulation(effects_capture):
+    _lines, samples, (_first, _second, _noise, pitchmod) = effects_capture
+    mono = samples.astype(numpy.float64).mean(axis=1)
+    modulated = _peak_track(mono, pitchmod, pitchmod + int(PITCHMOD_HOLD * RATE))
+    plain = _peak_track(mono, pitchmod + int((PITCHMOD_HOLD + 0.1) * RATE), pitchmod + int((PITCHMOD_HOLD + UNMOD_HOLD - 0.05) * RATE))
+    ratio = float(modulated.max() / modulated.min())
+    assert 1.15 <= ratio <= 1.45, (ratio, float(modulated.min()), float(modulated.max()))
+    variation = numpy.abs(numpy.fft.rfft(modulated - modulated.mean(), 1024))
+    rate = numpy.fft.rfftfreq(1024, 0.01)[1 + int(numpy.argmax(variation[1:]))]
+    assert 4.0 <= rate <= 6.0, rate
+    still = float(plain.max() / plain.min())
+    assert still < 1.02, (still, float(plain.min()), float(plain.max()))
+
+
 REFERENCES = os.path.join(DC, "..", "reference", "ps1", "audio")
 SONGS = ("title", "wmap")
 
@@ -173,5 +290,5 @@ def test_sweep_plays_everything():
     assert uploaded == set(gen_pad_script.SFXSET_RESOURCES), sorted(set(gen_pad_script.SFXSET_RESOURCES) - uploaded)
     report = sweep_check.check(lines, audio_capture.read_raw(raw))
     assert sorted(report["songs"]) == sorted(gen_pad_script.MUSIC_RESOURCES), report["songs"]
-    assert report["gap_db"] < -50.0, report
+    assert report["gap_db"] < -40.0, report
     assert not report["silent"], report

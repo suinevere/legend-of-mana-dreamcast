@@ -51,7 +51,8 @@ static unsigned fake_position(int voice)
     return s_pos[voice];
 }
 
-static const SpuBackend k_backend = {fake_upload, fake_key_on, fake_key_off, NULL, NULL, NULL, NULL, fake_position, NULL, NULL};
+static const SpuBackend k_backend = {fake_upload, fake_key_on, fake_key_off, NULL, NULL, NULL, NULL, fake_position, NULL, NULL,
+                                     NULL, NULL, NULL, NULL, NULL};
 
 static void sink(unsigned aica_offset, const short *pcm, unsigned bytes, void *ctx)
 {

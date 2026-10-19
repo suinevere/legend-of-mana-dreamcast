@@ -33,17 +33,29 @@
 #define AICA_LPOFF 0x0020u
 
 /*----------------------
- | aica_channel_words
- | Description: Packs a voice setup into channel words +0x00..+0x28: 16-bit PCM from the span, loop, envelope, pitch, full direct send with pan, TL and the filter off; no key bits.
+ | AICA_PCMS_8BIT
+ | Description: Word 0 bit selecting 8-bit PCM (PCMS 1) instead of 16-bit.
  | Author: suinevere
- | Dependencies: AICA_LPCTL, AICA_DISDL_FULL, AICA_LPOFF
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define AICA_PCMS_8BIT 0x0080u
+
+/*----------------------
+ | aica_channel_words
+ | Description: Packs a voice setup into channel words +0x00..+0x28: 16- or 8-bit PCM from the span, loop, envelope, pitch, full direct send with pan, TL, the filter off and the DSP send; no key bits.
+ | Author: suinevere
+ | Dependencies: AICA_LPCTL, AICA_PCMS_8BIT, AICA_DISDL_FULL, AICA_LPOFF
  | Globals: N/A
  | Params: setup -- voice setup, words -- out AICA_CHANNEL_WORDS words
  | Returns: N/A
  ----------------------*/
 void aica_channel_words(const SpuVoiceSetup *setup, unsigned short words[AICA_CHANNEL_WORDS])
 {
-    words[0] = (unsigned short)((setup->span.loops ? AICA_LPCTL : 0u) | ((setup->span.pcm_offset >> 16) & 0x7Fu));
+    words[0] = (unsigned short)((setup->span.loops ? AICA_LPCTL : 0u) | (setup->pcm8 ? AICA_PCMS_8BIT : 0u) |
+                                 ((setup->span.pcm_offset >> 16) & 0x7Fu));
     words[1] = (unsigned short)(setup->span.pcm_offset & 0xFFFFu);
     words[2] = (unsigned short)setup->span.loop_start;
     words[3] = (unsigned short)setup->span.frames;
@@ -51,7 +63,7 @@ void aica_channel_words(const SpuVoiceSetup *setup, unsigned short words[AICA_CH
     words[5] = setup->eg14;
     words[6] = setup->pitch;
     words[7] = 0;
-    words[8] = 0;
+    words[8] = (unsigned short)(((unsigned)setup->imxl << 4) | setup->isel);
     words[9] = (unsigned short)(AICA_DISDL_FULL | setup->dipan);
     words[10] = (unsigned short)(((unsigned)setup->tl << 8) | AICA_LPOFF);
 }

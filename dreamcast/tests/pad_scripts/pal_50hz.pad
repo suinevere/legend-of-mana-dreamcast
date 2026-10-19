@@ -1,0 +1,9 @@
+# PAL 50 Hz boot check for test_video_pal.py: boothold asks for 50 Hz on a held European console, then new_game's path up to the title capture.
+# Timings are vblanks at the console's actual refresh, not always 60 Hz.
+boothold
+longvoice 4
+wait 250
+tone 1000 3
+wait state 2
+wait 600
+capture title

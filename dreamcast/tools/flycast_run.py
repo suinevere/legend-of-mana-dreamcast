@@ -43,14 +43,14 @@ DOCKER_IMAGE = "lom-flycast"
 
 #----------------------
 # | EMU_CFG
-# | Description: Flycast settings written to the job-local config dir for a plain boot check; SerialConsoleEnabled sends guest SCIF bytes to Flycast's stdout.
+# | Description: Flycast settings written to the job-local config dir for a plain boot check; SerialConsoleEnabled sends guest SCIF bytes to Flycast's stdout, and aica.DSPEnabled runs the AICA DSP (off by default).
 # | Author: suinevere
 # | Dependencies: Flycast v2.7 core/cfg/option.cpp
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-EMU_CFG = "[config]\nDebug.SerialConsoleEnabled = yes\n"
+EMU_CFG = "[config]\nDebug.SerialConsoleEnabled = yes\naica.DSPEnabled = yes\n"
 
 #----------------------
 # | EMU_CFG_VMU / EMU_CFG_NO_VMU / VMU_FILE / MAPLE_NONE
@@ -69,7 +69,7 @@ EMU_CFG_NO_VMU = "PerGameVmu = no\n\n[input]\ndevice1.1 = %d\ndevice1.2 = %d\n" 
 
 #----------------------
 # | EMU_CFG_CAPTURE
-# | Description: Flycast settings used while capturing: SerialConsoleEnabled, plus a fullscreen 640x480 SDL window that fills the fixed-size Xvfb screen exactly.
+# | Description: Flycast settings used while capturing: SerialConsoleEnabled and aica.DSPEnabled, plus a fullscreen 640x480 SDL window that fills the fixed-size Xvfb screen exactly.
 # |              Flycast v2.7 core/sdl/sdl.cpp reads [window] width/height/fullscreen via config::loadInt/loadBool.
 # | Author: suinevere
 # | Dependencies: Flycast v2.7 core/sdl/sdl.cpp (window.width, window.height, window.fullscreen, window.maximized)
@@ -79,7 +79,7 @@ EMU_CFG_NO_VMU = "PerGameVmu = no\n\n[input]\ndevice1.1 = %d\ndevice1.2 = %d\n" 
 #----------------------
 EMU_CFG_CAPTURE = (
     "\n[window]\nwidth = 640\nheight = 480\nfullscreen = yes\nmaximized = no\n"
-    "\n[config]\nDebug.SerialConsoleEnabled = yes\n"
+    "\n[config]\nDebug.SerialConsoleEnabled = yes\naica.DSPEnabled = yes\n"
 )
 
 #----------------------
@@ -182,14 +182,18 @@ def _grab_capture(container, cap_name, cap_dir, captures):
 # | Description: Boots image in lom-flycast with a job-local config, collecting stdout lines until until appears, a halt line appears or seconds pass.
 # |              Grabs a PNG at each capture marker before checking until when captures is given; always kills the container.
 # |              With audio_out, SDL's disk driver writes Flycast's mixed output (s16le stereo 44100 Hz, per core/audio/audiobackend_sdl2.cpp) to /job/audio.raw, copied to audio_out afterwards.
+# |              With region, cable or broadcast set, Dreamcast.Region / Dreamcast.Cable / Dreamcast.Broadcast go into the [config] section right after the base lines (Flycast v2.7 core/cfg/option.cpp).
+# |              flashrom_get_region() reads a 5-char code built from Region, Language and Broadcast (core/hw/flashrom/nvmem.cpp fixUpDCFlash); Region alone yields an unknown code, so a real Europe reading needs broadcast=1 (PAL) too.
 # | Author: suinevere
 # | Dependencies: find_flycast, _pump, _grab_capture, docker
 # | Globals: DOCKER_IMAGE, EMU_CFG, EMU_CFG_CAPTURE, HALT_MARKER, CAPTURE_PREFIX, CAPTURE_DISPLAY
 # | Params: image -- path to a .cdi/.gdi, seconds -- time limit, until -- text to wait for or None, captures -- directory to save "<name>.png" grabs into, or None for a plain boot check,
-# |         vmu_in -- VMU image bytes to start with (Flycast formats a blank one otherwise), vmu_out -- path to copy the VMU image to afterwards, no_vmu -- run with no VMU attached, audio_out -- raw audio path or None
+# |         vmu_in -- VMU image bytes to start with (Flycast formats a blank one otherwise), vmu_out -- path to copy the VMU image to afterwards, no_vmu -- run with no VMU attached, audio_out -- raw audio path or None,
+# |         region -- Flycast Dreamcast.Region value or None, cable -- Flycast Dreamcast.Cable value or None, broadcast -- Flycast Dreamcast.Broadcast value or None
 # | Returns: (exit_code, lines) -- 0 found or plain timeout, 2 halt, 3 timeout waiting for until
 #----------------------
-def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None, no_vmu=False, audio_out=None):
+def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None, no_vmu=False, audio_out=None,
+                 region=None, cable=None, broadcast=None):
     image = os.path.abspath(image)
     job = tempfile.mkdtemp(prefix="lom-flycast-")
     os.makedirs(os.path.join(job, "config", "flycast"))
@@ -202,7 +206,14 @@ def run_flycast(image, seconds, until, captures=None, vmu_in=None, vmu_out=None,
     if captures is not None:
         cap_dir = os.path.join(job, "cap")
         os.makedirs(cap_dir)
-    cfg = (EMU_CFG_CAPTURE if captures is not None else EMU_CFG) + (EMU_CFG_NO_VMU if no_vmu else EMU_CFG_VMU)
+    cfg = EMU_CFG_CAPTURE if captures is not None else EMU_CFG
+    if region is not None:
+        cfg += "Dreamcast.Region = %d\n" % region
+    if cable is not None:
+        cfg += "Dreamcast.Cable = %d\n" % cable
+    if broadcast is not None:
+        cfg += "Dreamcast.Broadcast = %d\n" % broadcast
+    cfg += EMU_CFG_NO_VMU if no_vmu else EMU_CFG_VMU
     with open(os.path.join(job, "config", "flycast", "emu.cfg"), "w", newline="\n") as f:
         f.write(cfg)
     name = "lom-flycast-" + uuid.uuid4().hex[:12]

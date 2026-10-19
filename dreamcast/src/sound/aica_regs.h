@@ -52,7 +52,7 @@
 
 /*----------------------
  | aica_channel_words
- | Description: Packs a voice setup into channel words +0x00..+0x28: 16-bit PCM from the span, loop, envelope, pitch, full direct send with pan, TL and the filter off; no key bits.
+ | Description: Packs a voice setup into channel words +0x00..+0x28: 16- or 8-bit PCM from the span, loop, envelope, pitch, full direct send with pan, TL, the filter off and the DSP send; no key bits.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

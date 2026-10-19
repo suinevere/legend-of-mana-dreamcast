@@ -1,0 +1,8 @@
+# Reverb, noise and pitch-modulation checks for test_sound.py's effects fixture; timings are vblanks at 60 Hz.
+# Waits at the title until its song has started, stops it and waits 5 s for its reverb to die away, then runs the 9.8 s effects sequence.
+wait state 2
+wait 600
+musicoff
+wait 300
+effects
+wait 660

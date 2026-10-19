@@ -91,11 +91,39 @@ static void test_envelope(void)
     CHECK(((w2 >> 5) & 0x1F) == aica_decay_level[0]);
 }
 
+static void test_reverb_send(void)
+{
+    unsigned char isel;
+    unsigned char imxl;
+
+    aica_reverb_send(0x00, 1, &isel, &imxl);
+    CHECK(isel == 2 && imxl == 15);
+    aica_reverb_send(0x01, 1, &isel, &imxl);
+    CHECK(isel == 2 && imxl == 15);
+    aica_reverb_send(0x12, 1, &isel, &imxl);
+    CHECK(isel == 0 && imxl == 15);
+    aica_reverb_send(0x02, 1, &isel, &imxl);
+    CHECK(isel == 1 && imxl == 15);
+    aica_reverb_send(0x12, 0, &isel, &imxl);
+    CHECK(isel == 0 && imxl == 0);
+}
+
+static void test_pitch_mod(void)
+{
+    CHECK(spu_pitch_mod(0x1000, 0, 0x7FFF) == 0x1000);
+    CHECK(spu_pitch_mod(0x1000, 0x7FFF, 0x7FFF) == 0x1FFF);
+    CHECK(spu_pitch_mod(0x1000, -0x8000, 0x7FFF) == 0);
+    CHECK(spu_pitch_mod(0x3000, 0x7FFF, 0x7FFF) == 0x3FFF);
+    CHECK(spu_pitch_mod(0x1234, 0x5678, 0) == 0x1234);
+}
+
 int main(void)
 {
     test_pitch();
     test_level_pan();
     test_envelope();
+    test_reverb_send();
+    test_pitch_mod();
     if (failures == 0)
         printf("OK\n");
     return failures != 0;

@@ -1,9 +1,9 @@
 /*----------------------
  | cd_stream.c
- | Description: Paced sector delivery for CdlReadS: a sector becomes due every 60/150 of a vblank from the stream's start and is handed to the transfer callback through CdGetSector.
+ | Description: Paced sector delivery for CdlReadS: a sector becomes due every refresh/150 of a vblank from the stream's start and is handed to the transfer callback through CdGetSector.
  | Author: suinevere
  | Dependencies: cd_stream.h, string.h
- | Globals: s_active, s_total, s_next, s_start_vbl, s_callback, s_fetch, s_ctx, s_current, s_offset, s_delivering
+ | Globals: s_active, s_total, s_next, s_start_vbl, s_refresh_hz, s_callback, s_fetch, s_ctx, s_current, s_offset, s_delivering
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -24,6 +24,31 @@ static int s_active;
 static unsigned s_total;
 static unsigned s_next;
 static unsigned s_start_vbl;
+
+/*----------------------
+ | s_refresh_hz
+ | Description: Vblanks per second cd_stream_service paces delivery against, set by cd_stream_set_refresh; 60 until then.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_refresh_hz = 60;
+
+/*----------------------
+ | cd_stream_set_refresh
+ | Description: Sets the vblank refresh rate cd_stream_service paces delivery against.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_refresh_hz
+ | Params: hz -- vblanks per second
+ | Returns: N/A
+ ----------------------*/
+void cd_stream_set_refresh(unsigned hz)
+{
+    s_refresh_hz = hz;
+}
 
 /*----------------------
  | s_callback / s_fetch / s_ctx
@@ -90,7 +115,7 @@ void cd_stream_service(unsigned now_vbl)
     {
         return;
     }
-    due = (now_vbl - s_start_vbl) * CD_STREAM_SECTORS_PER_SECOND / CD_STREAM_VBLANKS_PER_SECOND;
+    due = (now_vbl - s_start_vbl) * CD_STREAM_SECTORS_PER_SECOND / s_refresh_hz;
     s_delivering = 1;
     while (s_active && s_next < due && burst < CD_STREAM_MAX_BURST)
     {

@@ -72,6 +72,17 @@ extern "C" {
 #define SPU_PCM_OFFSET(spu_addr) ((unsigned)(spu_addr) / 2u * 7u)
 
 /*----------------------
+ | SPU_PCM_LIMIT
+ | Description: AICA byte offset where the reverb ring begins; uploads reaching or past it must be clipped or dropped.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SPU_PCM_LIMIT 0x1A8000u
+
+/*----------------------
  | SpuSampleSpan
  | Description: What a voice keyed at a start address plays: AICA offset, frames to the sample end, loop frame and block, whether it loops and whether it is too long for one channel.
  | Author: suinevere

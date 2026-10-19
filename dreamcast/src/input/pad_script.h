@@ -178,8 +178,8 @@
 #define PAD_OP_PROBE_MOVIE 14
 
 /*----------------------
- | sound_test_tone / sound_test_longvoice / sound_test_music / sound_test_music_off / sound_test_sfxset / sound_test_poll
- | Description: The test image's sound checks: start a stream-channel tone, a streamed long voice or a music resource's song, stop the song, upload an effect resource's banks, and feed or end them once per vblank.
+ | sound_test_tone / sound_test_longvoice / sound_test_effects / sound_test_music / sound_test_music_off / sound_test_sfxset / sound_test_poll
+ | Description: The test image's sound checks: start a stream-channel tone, a streamed long voice, the effects sequence or a music resource's song, stop the song, upload an effect resource's banks, and feed or end them once per vblank.
  | Author: suinevere
  | Dependencies: src/sound/sound_test_dc.c
  | Globals: N/A
@@ -188,6 +188,7 @@
  ----------------------*/
 void sound_test_tone(int hz, int seconds);
 void sound_test_longvoice(int seconds);
+void sound_test_effects(void);
 void sound_test_music(int resource);
 void sound_test_music_off(void);
 void sound_test_sfxset(int resource);
@@ -214,6 +215,28 @@ void sound_test_poll(void);
  | Returns: N/A
  ----------------------*/
 #define PAD_OP_FIELD_MOVIE 16
+
+/*----------------------
+ | PAD_OP_EFFECTS
+ | Description: Test-only step op: arms the reverb, noise and pitch-modulation sequence through sound_test_effects, then advances at once.
+ | Author: suinevere
+ | Dependencies: sound_test_effects
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_EFFECTS 17
+
+/*----------------------
+ | PAD_OP_BOOTHOLD
+ | Description: Test-only step op, first step only: no-op that advances at once; its presence as the picked script's first step makes pad_script_boot_hold() return 1.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_BOOTHOLD 18
 
 /*----------------------
  | PAD_SCRIPT_INTRO_MOVIE_STATE
@@ -457,6 +480,28 @@ uint16_t pad_script_buttons(void);
  | Returns: 1 once every step has completed, else 0
  ----------------------*/
 int pad_script_done(void);
+
+/*----------------------
+ | pad_script_selected
+ | Description: The pad script PADSEL.TXT names, selecting and caching it on first call so later callers do not re-read the file.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: the selected script
+ ----------------------*/
+const PadScriptChoice *pad_script_selected(void);
+
+/*----------------------
+ | pad_script_boot_hold
+ | Description: Whether the script PADSEL.TXT picked starts with a PAD_OP_BOOTHOLD step; safe to call before anything else has read PADSEL.TXT.
+ | Author: suinevere
+ | Dependencies: pad_script_selected
+ | Globals: N/A
+ | Params: N/A
+ | Returns: 1 if the picked script's first step is PAD_OP_BOOTHOLD, else 0
+ ----------------------*/
+int pad_script_boot_hold(void);
 
 #ifdef LOM_HOST_TEST
 /*----------------------

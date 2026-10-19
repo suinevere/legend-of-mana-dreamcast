@@ -95,6 +95,7 @@ PORT_SOURCES = ../port/boot/overlay_header.c ../port/boot/resource_index.c ../po
 	../port/sound/spu_sample_map.c \
 	../port/sound/aica_convert.c \
 	../port/sound/spu_long_voice.c \
+	../port/sound/spu_noise.c \
 	../port/sound/spu_voice_flush.c \
 	../port/sound/libspu_shim.c
 
@@ -923,14 +924,14 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 
 #----------------------
 # | PADSEL_IMAGES / lom_<script>_test.cdi
-# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the card save and load discs, the sound sweep disc and the movie probe and intro discs and the FIELD movie disc.
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the card save and load discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc and the PAL 50 Hz boot disc.
 # | Author: suinevere
 # | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = card_save card_load sound_sweep movie_probe movie_intro field_movie
+PADSEL_SCRIPTS = card_save card_load sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*
