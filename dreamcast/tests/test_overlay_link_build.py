@@ -125,7 +125,7 @@ def test_wsel_main_is_wsel_code_not_a_trap_buffer_alias(linked):
     _, main, _, _ = linked
     types = nm_types(os.path.join(WORK, "lom.nm"))
     assert main["_wsel_main"] == targets.DREAMCAST.regions["wsel"].code_base
-    assert main["_wsel_main"] != main["_lom_trap_buffer"]
+    assert main["_wsel_main"] != main.get("_lom_trap_buffer")
     assert types["_wsel_main"] not in "BbDd"
 
 
@@ -138,7 +138,7 @@ def test_run_world_map_is_wmap_code_not_a_trap_buffer_alias(linked):
     types = nm_types(os.path.join(WORK, "lom.nm"))
     region = targets.DREAMCAST.regions["wmap"]
     assert main["_run_world_map"] == region.code_base
-    assert main["_run_world_map"] != main["_lom_trap_buffer"]
+    assert main["_run_world_map"] != main.get("_lom_trap_buffer")
     assert types["_run_world_map"] not in "BbDdTt"
 
 

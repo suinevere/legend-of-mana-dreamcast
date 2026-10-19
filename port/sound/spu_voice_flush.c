@@ -111,6 +111,17 @@ static unsigned short s_prev_noise_low;
 static unsigned short s_prev_noise_high;
 
 /*----------------------
+ | s_held
+ | Description: Bitmask of voices currently held: set in key_on, cleared when a voice is keyed off, cleared entirely by spu_voice_flush_reset.
+ | Author: suinevere
+ | Dependencies: SPU_VOICE_COUNT
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_held;
+
+/*----------------------
  | s_noise_clock / s_noise_clock_changed
  | Description: The SPU noise clock last set by SpuSetNoiseClock, and whether it changed since the last spu_shim_noise_clock_take.
  | Author: suinevere
@@ -345,10 +356,10 @@ static unsigned s_loudest_tl = 0xFFu;
 
 /*----------------------
  | key_on
- | Description: Keys a voice on at its start register: a set NON bit plays the looping noise table at the noise clock's pitch as 8-bit PCM, else the sample map gives the span (a too-long sample streams, an unwritten address logs and stays silent); the DSP send comes from DIPAN and the reverb bit; clears the voice's pitch-modulation mask so the next tick re-pitches it unconditionally.
+ | Description: Keys a voice on at its start register: a set NON bit plays the looping noise table at the noise clock's pitch as 8-bit PCM, else the sample map gives the span (a too-long sample streams, an unwritten address logs and stays silent); the DSP send comes from DIPAN and the reverb bit; clears the voice's pitch-modulation mask so the next tick re-pitches it unconditionally; marks the voice held.
  | Author: suinevere
  | Dependencies: noise_enabled, spu_noise_span, spu_noise_pitch, spu_shim_noise_clock, spu_sample_map_locate, aica_pitch_word, aica_envelope, level_pan, aica_reverb_send, reverb_enabled, spu_long_voice_stop, spu_long_voice_start, log_unwritten
- | Globals: s_backend, s_key_ons, s_loudest_tl, s_send, s_modulated
+ | Globals: s_backend, s_key_ons, s_loudest_tl, s_send, s_modulated, s_held
  | Params: voice -- 0..23
  | Returns: N/A
  ----------------------*/
@@ -377,6 +388,7 @@ static void key_on(int voice)
     aica_reverb_send(setup.dipan, reverb_enabled(voice), &setup.isel, &setup.imxl);
     s_send[voice] = (unsigned char)(setup.isel | (unsigned)(setup.imxl << 4));
     s_modulated &= ~(1u << voice);
+    s_held |= 1u << voice;
     spu_long_voice_stop(voice);
     s_key_ons++;
     if (setup.tl < s_loudest_tl)
@@ -448,21 +460,26 @@ static void resend_changed_voices(unsigned short prev, unsigned short current, i
 
 /*----------------------
  | resend_noise_voices
- | Description: Re-keys every still-sounding voice whose NON bit toggled between prev and current, so it restarts from its new source (sample or noise table): the AICA latches SA only at key-on.
+ | Description: Re-keys every held, still-sounding voice whose NON bit toggled, since the AICA latches SA only at key-on; skips voices keyed on or off this tick and forgets held voices whose one-shot already ended.
  | Author: suinevere
  | Dependencies: key_on
- | Globals: s_backend
- | Params: prev / current -- the halfword's bits as of the last flush and now, first_voice -- 0 or 16
+ | Globals: s_held, s_backend
+ | Params: prev / current -- the halfword's bits as of the last flush and now, first_voice -- 0 or 16, on / off -- this tick's key-on and key-off masks
  | Returns: N/A
  ----------------------*/
-static void resend_noise_voices(unsigned short prev, unsigned short current, int first_voice)
+static void resend_noise_voices(unsigned short prev, unsigned short current, int first_voice, unsigned on, unsigned off)
 {
     unsigned short changed = (unsigned short)(prev ^ current);
     int voice;
 
     for (voice = first_voice; voice < first_voice + 16 && voice < SPU_VOICE_COUNT; voice++)
-        if ((changed & (1u << (voice - first_voice))) && s_backend->envelope(voice) > 0)
-            key_on(voice);
+        if ((changed & (1u << (voice - first_voice))) && !(on & (1u << voice)) && !(off & (1u << voice)) && (s_held & (1u << voice)))
+        {
+            if (s_backend->envelope(voice) > 0)
+                key_on(voice);
+            else
+                s_held &= ~(1u << voice);
+        }
 }
 
 /*----------------------
@@ -490,22 +507,22 @@ static void resend_noise_pitch(void)
 
 /*----------------------
  | flush_globals
- | Description: Re-keys voices whose NON bit changed while still sounding, re-sends voices whose reverb bit changed, and passes CD volume changes to the backend.
+ | Description: Re-keys held voices whose NON bit changed, re-sends voices whose reverb bit changed, and passes CD volume changes to the backend.
  | Author: suinevere
  | Dependencies: dirty, resend_noise_voices, resend_changed_voices
  | Globals: lom_spu_shadow, s_backend, s_prev_reverb_low, s_prev_reverb_high, s_prev_noise_low, s_prev_noise_high
- | Params: bits -- dirty bits
+ | Params: bits -- dirty bits, on / off -- this tick's key-on and key-off masks
  | Returns: N/A
  ----------------------*/
-static void flush_globals(const unsigned bits[8])
+static void flush_globals(const unsigned bits[8], unsigned on, unsigned off)
 {
     if (dirty(bits, SHADOW_NOISE) || dirty(bits, SHADOW_NOISE + 1))
     {
         unsigned short low = lom_spu_shadow[SHADOW_NOISE];
         unsigned short high = lom_spu_shadow[SHADOW_NOISE + 1];
 
-        resend_noise_voices(s_prev_noise_low, low, 0);
-        resend_noise_voices(s_prev_noise_high, high, 16);
+        resend_noise_voices(s_prev_noise_low, low, 0, on, off);
+        resend_noise_voices(s_prev_noise_high, high, 16, on, off);
         s_prev_noise_low = low;
         s_prev_noise_high = high;
     }
@@ -566,7 +583,7 @@ static void pitch_mod_service(void)
  | Description: Applies the SPU register changes since the last call through the backend (key off first, then live changes, then key on), re-pitches noise voices on a clock change even with nothing else dirty, refills streamed voices, then applies pitch modulation; run after each AKAO tick.
  | Author: suinevere
  | Dependencies: spu_shadow_take_dirty, update_voice, key_on, flush_globals, resend_noise_pitch, spu_long_voice_service, pitch_mod_service
- | Globals: spu_shadow_key_events, s_backend
+ | Globals: spu_shadow_key_events, s_backend, s_held
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -583,14 +600,17 @@ void spu_voice_flush(void)
         off = spu_shadow_key_events[2] | ((unsigned)spu_shadow_key_events[3] << 16);
         for (voice = 0; voice < SPU_VOICE_COUNT; voice++)
             if (off & (1u << voice))
+            {
                 s_backend->key_off(voice);
+                s_held &= ~(1u << voice);
+            }
         for (voice = 0; voice < SPU_VOICE_COUNT; voice++)
             if (!(on & (1u << voice)))
                 update_voice(bits, voice);
         for (voice = 0; voice < SPU_VOICE_COUNT; voice++)
             if (on & (1u << voice))
                 key_on(voice);
-        flush_globals(bits);
+        flush_globals(bits, on, off);
     }
     if (s_backend != NULL)
     {
@@ -668,10 +688,10 @@ int spu_shim_noise_clock_take(unsigned *clock)
 
 /*----------------------
  | spu_voice_flush_reset
- | Description: Forgets every voice's cached DSP send, the reverb and noise bitmap copies, the noise clock change flag, and which voices pitch modulation drives; call from SpuInit alongside spu_shadow_reset and spu_sample_map_reset.
+ | Description: Forgets every voice's cached DSP send, the reverb and noise bitmap copies, the noise clock change flag, which voices pitch modulation drives, and which voices are held; call from SpuInit alongside spu_shadow_reset and spu_sample_map_reset.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_send, s_prev_reverb_low, s_prev_reverb_high, s_prev_noise_low, s_prev_noise_high, s_noise_clock, s_noise_clock_changed, s_modulated
+ | Globals: s_send, s_prev_reverb_low, s_prev_reverb_high, s_prev_noise_low, s_prev_noise_high, s_noise_clock, s_noise_clock_changed, s_modulated, s_held
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -688,4 +708,5 @@ void spu_voice_flush_reset(void)
     s_noise_clock = 0;
     s_noise_clock_changed = 0;
     s_modulated = 0;
+    s_held = 0;
 }

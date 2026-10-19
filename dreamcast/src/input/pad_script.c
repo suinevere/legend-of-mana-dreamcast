@@ -405,6 +405,11 @@ void pad_script_poll(unsigned vblank, int game_state)
         s_buttons = 0;
         advance();
         break;
+    case PAD_OP_SWEEP:
+        s_buttons = 0;
+        scene_sweep_begin();
+        advance();
+        break;
     case PAD_OP_OPEN:
         s_buttons = 0;
         advance();

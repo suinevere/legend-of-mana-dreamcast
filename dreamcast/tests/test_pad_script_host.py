@@ -234,6 +234,32 @@ def test_gen_pad_script_effects_compiles_to_its_op():
     assert '{ PAD_OP_EFFECTS, 0, 0, "", 0 },' in header
 
 
+def test_gen_pad_script_sweep_compiles_to_its_op():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "sweep.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("sweep" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    with open(header_path) as f:
+        header = f.read()
+    assert '{ PAD_OP_SWEEP, 0, 0, "", 0 },' in header
+
+
+def test_gen_pad_script_sweep_rejects_arguments():
+    out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
+    script_path = os.path.join(out_dir, "sweep.pad")
+    header_path = os.path.join(out_dir, "pad_script_table.h")
+    with open(script_path, "w") as f:
+        f.write("sweep 3" + chr(10))
+    result = subprocess.run([sys.executable, os.path.join(DC, "tools", "gen_pad_script.py"), script_path, header_path],
+                            capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "line 1" in result.stderr
+
+
 def test_gen_pad_script_tone_compiles_to_its_op():
     out_dir = tempfile.mkdtemp(prefix="lom-pad-script-")
     script_path = os.path.join(out_dir, "tone.pad")

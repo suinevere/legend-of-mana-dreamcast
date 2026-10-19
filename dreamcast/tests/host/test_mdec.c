@@ -8,6 +8,7 @@
  | Returns: N/A
  ----------------------*/
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "mdec.h"
 
@@ -15,6 +16,9 @@ static int s_fail;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); s_fail = 1; } } while (0)
 
 static uint32_t s_cmd[1 + 256];
+
+#define VARIED_HASH_15 0xF3C57E3Eu
+#define VARIED_HASH_24 0xA7047607u
 
 /*----------------------
  | put_block
@@ -170,6 +174,81 @@ static void test_runs_out(void)
 }
 
 /*----------------------
+ | build_varied
+ | Description: Builds a one-macroblock command whose six blocks each hold a random DC and up to ten small random AC codes at random runs, from rand()'s current state; values stay small enough that the IDCT output stays inside the clamp table.
+ | Author: suinevere
+ | Dependencies: MDEC_EOB
+ | Globals: s_cmd
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void build_varied(void)
+{
+    uint16_t *hw = (uint16_t *)&s_cmd[1];
+    int n = 0, b, k, pos;
+
+    for (b = 0; b < 6; b++)
+    {
+        hw[n++] = (uint16_t)(((1 + rand() % 20) << 10) | ((rand() % 256 - 128) & 0x3FF));
+        pos = 0;
+        for (k = rand() % 11; k > 0; k--)
+        {
+            int run = rand() % 6;
+
+            if (pos + run + 1 > 63)
+            {
+                break;
+            }
+            pos += run + 1;
+            hw[n++] = (uint16_t)((run << 10) | ((rand() % 16 - 8) & 0x3FF));
+        }
+        hw[n++] = MDEC_EOB;
+    }
+    if (n & 1)
+    {
+        hw[n++] = MDEC_EOB;
+    }
+    s_cmd[0] = 0x38000000u | (uint32_t)(n / 2);
+}
+
+/*----------------------
+ | test_varied_output_is_unchanged
+ | Description: FNV-1a hashes of 200 varied macroblocks in each output depth match the values the per-pixel reference loop produced, pinning the colour conversion exactly.
+ | Author: suinevere
+ | Dependencies: build_varied, mdec_begin, mdec_decode_macroblock
+ | Globals: s_cmd, s_fail
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_varied_output_is_unchanged(void)
+{
+    uint8_t mb[MDEC_MB_BYTES_24];
+    uint32_t hash[2] = {2166136261u, 2166136261u};
+    int depth, i, j;
+
+    for (depth = 0; depth < 2; depth++)
+    {
+        srand(99);
+        for (i = 0; i < 200; i++)
+        {
+            MdecStream s;
+            int bytes = depth ? MDEC_MB_BYTES_24 : MDEC_MB_BYTES_15;
+
+            build_varied();
+            mdec_begin(&s, s_cmd, depth, i & 1);
+            CHECK(mdec_decode_macroblock(&s, mb) == 0);
+            for (j = 0; j < bytes; j++)
+            {
+                hash[depth] = (hash[depth] ^ mb[j]) * 16777619u;
+            }
+        }
+    }
+    printf("varied hashes 15 0x%08X 24 0x%08X\n", hash[0], hash[1]);
+    CHECK(hash[0] == VARIED_HASH_15);
+    CHECK(hash[1] == VARIED_HASH_24);
+}
+
+/*----------------------
  | main
  | Description: Runs every mdec test and prints ok when all pass.
  | Author: suinevere
@@ -186,6 +265,7 @@ int main(void)
     test_bright_luma_24();
     test_red_15();
     test_runs_out();
+    test_varied_output_is_unchanged();
     if (!s_fail)
     {
         printf("ok\n");

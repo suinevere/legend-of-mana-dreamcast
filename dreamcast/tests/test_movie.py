@@ -64,6 +64,18 @@ def padsel_image(script):
     return image
 
 
+#----------------------
+# | DECODE_AVG_LIMIT_US
+# | Description: Highest average decode time per probe frame: the 29.3 ms measured after the depth-split colour loop, plus 20%, rounded up to a millisecond.
+# | Author: suinevere
+# | Dependencies: src/movie/mdec.c
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+DECODE_AVG_LIMIT_US = 36000
+
+
 def test_decode_probe():
     image = padsel_image("movie_probe")
     code, lines = flycast_run.run_flycast(image, seconds=300, until="LOM: movie probe")
@@ -73,6 +85,7 @@ def test_decode_probe():
     frames, us_avg, us_max = (int(v) for v in found[-1].groups())
     print("movie probe: frames %d us_avg %d us_max %d" % (frames, us_avg, us_max))
     assert frames == 150
+    assert us_avg <= DECODE_AVG_LIMIT_US, us_avg
 
 
 #----------------------

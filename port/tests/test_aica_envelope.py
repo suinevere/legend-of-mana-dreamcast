@@ -33,6 +33,12 @@ def test_fastest_rates_map_to_fast_aica_rates():
     assert tables["aica_decrease_exponential"][0] >= 28
 
 
+def test_fastest_linear_attack_is_instant():
+    tables, _, _ = se.build_tables()
+    assert tables["aica_attack_linear"][0] == 31
+    assert tables["aica_attack_exponential"][0] == 30
+
+
 def test_decay_levels():
     levels = se.decay_levels()
     assert levels[15] == 0 and levels[0] == 8

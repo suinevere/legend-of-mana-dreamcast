@@ -774,6 +774,17 @@ def convert_dreamcast_only(buf, off):
 
 
 #----------------------
+# | FIELD_RODATA_BINS
+# | Description: FIELD's splat rodata bins before its code holding tables FIELD's C reads (marker and small-icon frames; golem shape, weapon-class and menu element tables); packed on the Dreamcast only, ahead of FIELD's data range.
+# | Author: suinevere
+# | Dependencies: config/us/overlays/FIELD.BIN.yaml (unk2_rodata_2_after_a838c, unk2_rodata_after_bdca4)
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+FIELD_RODATA_BINS = ((0x800513E8, 0x8005146C), (0x80051888, 0x80051F28))
+
+#----------------------
 # | OVERLAYS
 # | Description: Overlays the converter packs, keyed by CD resource index; WMAP's large buffers are cut out of its ranges and placed by wmap_memory. Secondaries from MENU on are Dreamcast-only; MENU, ZUKAN, GOSUB and CARDA also pack the tables and strings that sit in rodata bins before their code.
 # | Author: suinevere
@@ -784,7 +795,7 @@ def convert_dreamcast_only(buf, off):
 #----------------------
 OVERLAYS = {
     2: OverlaySpec("field", 0x8004FC70, [(0x800CBF44, 0x80123FD8)], ("field_symbol_addrs.txt", "shared_symbol_addrs.txt"),
-                   [], convert_field, 0, 0x800F2268),
+                   [], convert_field, 0, 0x800F2268, (), list(FIELD_RODATA_BINS) + [(0x800CBF44, 0x80123FD8)]),
     4: OverlaySpec("title", 0x8004FC70, [(0x800522E8, 0x801026CC)], "title_symbol_addrs.txt",
                    ["g_title_menu_tim_0", "g_title_menu_tim_1"] + ["g_save_layout_tim_%02d" % i for i in range(11)],
                    convert_title),

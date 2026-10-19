@@ -248,6 +248,13 @@ void sound_test_effects(void)
     s_effects++;
 }
 
+static int s_sweeps;
+
+void scene_sweep_begin(void)
+{
+    s_sweeps++;
+}
+
 void sound_test_tone(int hz, int seconds)
 {
     s_tone_hz = hz;
@@ -408,6 +415,19 @@ static void test_effects_starts_and_advances(void)
     CHECK(pad_script_done());
 }
 
+static void test_sweep_starts_and_advances(void)
+{
+    PadScriptStep steps[] = {
+        { PAD_OP_SWEEP, 0, 0, "", 0 },
+    };
+
+    s_sweeps = 0;
+    pad_script_start(steps, 1);
+    pad_script_poll(0, 0);
+    CHECK(s_sweeps == 1);
+    CHECK(pad_script_done());
+}
+
 static void test_music_ops_call_their_hooks_and_advance(void)
 {
     PadScriptStep steps[] = {
@@ -519,6 +539,7 @@ int main(void)
     test_tone_starts_and_advances_while_polling_sound();
     test_longvoice_starts_and_advances();
     test_effects_starts_and_advances();
+    test_sweep_starts_and_advances();
     test_music_ops_call_their_hooks_and_advance();
     test_boothold_advances_without_pressing();
     if (s_failures == 0)

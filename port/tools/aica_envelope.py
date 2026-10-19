@@ -64,14 +64,14 @@ AICA_DR_MS = [math.inf, math.inf, 118200.0, 101300.0, 88600.0, 70900.0, 59100.0,
 
 #----------------------
 # | INSTANT_MS
-# | Description: Stand-in time for the AICA's instant attack so it can be compared in log space.
+# | Description: Stand-in time for the AICA's instant attack so it can be compared in log space: one 44.1 kHz sample, the soonest it can land.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-INSTANT_MS = 0.01
+INSTANT_MS = 1000.0 / 44100.0
 
 #----------------------
 # | EG_RANGE_DB

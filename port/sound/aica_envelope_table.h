@@ -10,10 +10,10 @@
 #ifndef LOM_AICA_ENVELOPE_TABLE_H
 #define LOM_AICA_ENVELOPE_TABLE_H
 
-/* Worst phase time error 5.88x inside the AICA range; 252 entries clamp to its fastest or slowest rate. */
+/* Worst phase time error 4.00x inside the AICA range; 252 entries clamp to its fastest or slowest rate. */
 
 static const unsigned char aica_attack_linear[128] = {
-    30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 29, 29, 28,
+    31, 31, 31, 31, 30, 30, 30, 30, 30, 30, 30, 30, 30, 29, 29, 28,
     28, 27, 27, 26, 26, 25, 25, 24, 24, 23, 23, 22, 22, 21, 21, 20,
     20, 19, 19, 18, 18, 17, 17, 16, 16, 15, 15, 14, 14, 13, 13, 12,
     12, 11, 11, 10, 10,  9,  9,  8,  8,  7,  7,  6,  6,  5,  5,  4,

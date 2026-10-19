@@ -230,6 +230,29 @@ def test_pitch_modulation(effects_capture):
     assert still < 1.02, (still, float(plain.min()), float(plain.max()))
 
 
+#----------------------
+# | HELD_EXPECT_DB
+# | Description: The PS1 level of the unmodulated carrier: its 14,000-peak sine at voice volume 0x3FFF, which psx-spx doubles to full scale, as RMS dBFS on each side.
+# | Author: suinevere
+# | Dependencies: sound_test_dc.c (FX_CARRIER_AMPLITUDE, FX_VOLUME)
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+HELD_EXPECT_DB = 20.0 * numpy.log10(14000.0 / numpy.sqrt(2.0) / 32768.0)
+
+
+def test_held_level(effects_capture):
+    _lines, samples, (first, _second, _noise, pitchmod) = effects_capture
+    held = pitchmod + int(PITCHMOD_HOLD * RATE)
+    body = samples[held + int(0.3 * RATE):held + int(0.8 * RATE)]
+    click = int(numpy.abs(samples[first:first + 64].astype(numpy.int32)).max())
+    levels = [_rms_db(body[:, side]) for side in (0, 1)]
+    print("held %.2f %.2f dBFS (expect %.2f), click peak %d" % (levels[0], levels[1], HELD_EXPECT_DB, click))
+    for side in (0, 1):
+        assert abs(levels[side] - HELD_EXPECT_DB) <= 1.0, (side, levels, HELD_EXPECT_DB, click)
+
+
 REFERENCES = os.path.join(DC, "..", "reference", "ps1", "audio")
 SONGS = ("title", "wmap")
 

@@ -362,45 +362,76 @@ static void chroma_deltas(const int32_t *cr, const int32_t *cb, ChromaDelta out[
 }
 
 /*----------------------
- | put_luma_block
- | Description: Converts one 8x8 Y block at (xx, yy) of the macroblock to RGB with the shared chroma offsets.
+ | put_luma_block_24
+ | Description: Converts one 8x8 Y block at (xx, yy) of the macroblock to 24-bit RGB with the shared chroma offsets, two pixels per chroma sample.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: s_clamp
- | Params: s -- stream (output format), y -- Y block, deltas -- chroma offsets, xx, yy -- block origin, out -- macroblock
+ | Params: y -- Y block, deltas -- chroma offsets, xx, yy -- block origin, out -- macroblock
  | Returns: N/A
  ----------------------*/
-static void put_luma_block(const MdecStream *s, const int32_t *y, const ChromaDelta *deltas, int xx, int yy, uint8_t *out)
+static void put_luma_block_24(const int32_t *y, const ChromaDelta *deltas, int xx, int yy, uint8_t *out)
 {
     const uint8_t *clamp = s_clamp + CLAMP_BIAS;
     int px, py;
 
     for (py = 0; py < 8; py++)
     {
-        const ChromaDelta *row = &deltas[((py + yy) >> 1) * 8 + (xx >> 1)];
+        const ChromaDelta *d = &deltas[((py + yy) >> 1) * 8 + (xx >> 1)];
+        const int32_t *row = &y[py * 8];
+        uint8_t *dst = out + ((py + yy) * 16 + xx) * 3;
 
-        for (px = 0; px < 8; px++)
+        for (px = 0; px < 8; px += 2, d++, row += 2, dst += 6)
         {
-            const ChromaDelta *d = &row[px >> 1];
-            int lum = y[px + py * 8];
-            int r = clamp[lum + d->r];
-            int g = clamp[lum + d->g];
-            int b = clamp[lum + d->b];
-            int at = (px + xx) + (py + yy) * 16;
+            int dr = d->r;
+            int dg = d->g;
+            int db = d->b;
+            int l0 = row[0];
+            int l1 = row[1];
 
-            if (s->depth24)
-            {
-                out[at * 3] = (uint8_t)r;
-                out[at * 3 + 1] = (uint8_t)g;
-                out[at * 3 + 2] = (uint8_t)b;
-            }
-            else
-            {
-                unsigned v = (unsigned)(r >> 3) | ((unsigned)(g >> 3) << 5) | ((unsigned)(b >> 3) << 10) | ((unsigned)s->stp << 15);
+            dst[0] = clamp[l0 + dr];
+            dst[1] = clamp[l0 + dg];
+            dst[2] = clamp[l0 + db];
+            dst[3] = clamp[l1 + dr];
+            dst[4] = clamp[l1 + dg];
+            dst[5] = clamp[l1 + db];
+        }
+    }
+}
 
-                out[at * 2] = (uint8_t)v;
-                out[at * 2 + 1] = (uint8_t)(v >> 8);
-            }
+/*----------------------
+ | put_luma_block_15
+ | Description: Converts one 8x8 Y block at (xx, yy) of the macroblock to 15-bit pixels with the stream's STP bit, two pixels per chroma sample.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_clamp
+ | Params: y -- Y block, deltas -- chroma offsets, xx, yy -- block origin, stp -- bit 15 of each pixel, out -- macroblock
+ | Returns: N/A
+ ----------------------*/
+static void put_luma_block_15(const int32_t *y, const ChromaDelta *deltas, int xx, int yy, unsigned stp, uint8_t *out)
+{
+    const uint8_t *clamp = s_clamp + CLAMP_BIAS;
+    unsigned top = stp << 15;
+    int px, py;
+
+    for (py = 0; py < 8; py++)
+    {
+        const ChromaDelta *d = &deltas[((py + yy) >> 1) * 8 + (xx >> 1)];
+        const int32_t *row = &y[py * 8];
+        uint8_t *dst = out + ((py + yy) * 16 + xx) * 2;
+
+        for (px = 0; px < 8; px += 2, d++, row += 2, dst += 4)
+        {
+            int dr = d->r;
+            int dg = d->g;
+            int db = d->b;
+            unsigned v0 = (unsigned)(clamp[row[0] + dr] >> 3) | ((unsigned)(clamp[row[0] + dg] >> 3) << 5) | ((unsigned)(clamp[row[0] + db] >> 3) << 10) | top;
+            unsigned v1 = (unsigned)(clamp[row[1] + dr] >> 3) | ((unsigned)(clamp[row[1] + dg] >> 3) << 5) | ((unsigned)(clamp[row[1] + db] >> 3) << 10) | top;
+
+            dst[0] = (uint8_t)v0;
+            dst[1] = (uint8_t)(v0 >> 8);
+            dst[2] = (uint8_t)v1;
+            dst[3] = (uint8_t)(v1 >> 8);
         }
     }
 }
@@ -409,7 +440,7 @@ static void put_luma_block(const MdecStream *s, const int32_t *y, const ChromaDe
  | mdec_decode_macroblock
  | Description: Decodes Cr, Cb and Y blocks at (0,0), (8,0), (0,8), (8,8) into one macroblock.
  | Author: suinevere
- | Dependencies: decode_block, chroma_deltas, put_luma_block
+ | Dependencies: decode_block, chroma_deltas, put_luma_block_24, put_luma_block_15
  | Globals: N/A
  | Params: s -- stream, out -- 768 or 512 bytes
  | Returns: 0, or -1 with out cleared once the data runs out
@@ -434,7 +465,14 @@ int mdec_decode_macroblock(MdecStream *s, uint8_t *out)
             memset(out, 0, s->depth24 ? MDEC_MB_BYTES_24 : MDEC_MB_BYTES_15);
             return -1;
         }
-        put_luma_block(s, y, deltas, origin[i][0], origin[i][1], out);
+        if (s->depth24)
+        {
+            put_luma_block_24(y, deltas, origin[i][0], origin[i][1], out);
+        }
+        else
+        {
+            put_luma_block_15(y, deltas, origin[i][0], origin[i][1], (unsigned)s->stp, out);
+        }
     }
     return 0;
 }

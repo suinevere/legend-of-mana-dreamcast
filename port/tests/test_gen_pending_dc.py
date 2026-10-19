@@ -47,7 +47,7 @@ def test_field_slots_map_field_data_into_fields_dreamcast_region():
 
 
 def test_field_slots_leave_names_outside_fields_data_unresolved():
-    assert gp.resolve_aliases(["g_marker"], ["g_marker = 0x80051428;"], set(), gp.DREAMCAST_FIELD_SLOTS,
+    assert gp.resolve_aliases(["g_marker"], ["g_marker = 0x80051500;"], set(), gp.DREAMCAST_FIELD_SLOTS,
                               None, gp.OVERLAY_BUFFER_RANGES["dreamcast"]) == {}
 
 

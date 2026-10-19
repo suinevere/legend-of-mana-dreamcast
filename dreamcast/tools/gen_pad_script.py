@@ -387,10 +387,25 @@ def parse_boothold(tokens, lineno):
 
 
 #----------------------
+# | parse_sweep
+# | Description: Parses "sweep" into a test-only step that starts the FIELD scene sweep over the VMU's LOMSWEEP range.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "sweep", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_SWEEP"
+#----------------------
+def parse_sweep(tokens, lineno):
+    if tokens:
+        raise ScriptError("line %d: sweep takes no arguments" % lineno)
+    return {"op": "PAD_OP_SWEEP", "arg": 0, "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | parse_script
 # | Description: Parses every non-comment, non-blank line of a .pad script into step dicts; boothold is only accepted as the first step.
 # | Author: suinevere
-# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, parse_tone, parse_longvoice, parse_effects, parse_resource_step, parse_musicoff, parse_probe, parse_movies, parse_fieldmovie, parse_boothold, ScriptError
+# | Dependencies: parse_wait, parse_press, parse_mash, parse_capture, parse_scene, parse_battle, parse_open, parse_gameover, parse_tone, parse_longvoice, parse_effects, parse_resource_step, parse_musicoff, parse_probe, parse_movies, parse_fieldmovie, parse_boothold, parse_sweep, ScriptError
 # | Globals: N/A
 # | Params: text -- script file contents
 # | Returns: list of step dicts
@@ -425,6 +440,8 @@ def parse_script(text):
             steps.append(parse_longvoice(rest, lineno))
         elif verb == "effects":
             steps.append(parse_effects(rest, lineno))
+        elif verb == "sweep":
+            steps.append(parse_sweep(rest, lineno))
         elif verb == "music":
             steps.append(parse_resource_step(verb, "PAD_OP_MUSIC", MUSIC_RESOURCES, rest, lineno))
         elif verb == "musicoff":

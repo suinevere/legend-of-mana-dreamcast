@@ -239,6 +239,28 @@ void sound_test_poll(void);
 #define PAD_OP_BOOTHOLD 18
 
 /*----------------------
+ | PAD_OP_SWEEP
+ | Description: Test-only step op: starts the FIELD scene sweep over the range in /vmu/a1/LOMSWEEP through scene_sweep_begin, then advances at once.
+ | Author: suinevere
+ | Dependencies: scene_sweep_begin
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_SWEEP 19
+
+/*----------------------
+ | scene_sweep_begin
+ | Description: Test-image-only: reads the sweep range from the VMU and starts the FIELD scene sweep (scene_sweep_kos.c).
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void scene_sweep_begin(void);
+
+/*----------------------
  | PAD_SCRIPT_INTRO_MOVIE_STATE
  | Description: The game state that plays the intro movie (GAME_STATE_INTRO_MOVIE), during which a script holds Start unless a movies step has run.
  | Author: suinevere

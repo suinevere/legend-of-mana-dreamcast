@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import akao_data  # noqa: E402
+import main_data  # noqa: E402
 import overlay_rules  # noqa: E402
 import targets  # noqa: E402
 
@@ -135,9 +136,9 @@ BUFFER_RANGES = (
 
 #----------------------
 # | DREAMCAST_BUFFER_RANGES
-# | Description: BUFFER_RANGES for the Dreamcast build, whose lom_sound_bank covers the full PS1 bank area TITLE copies into, plus AKAO's PS1 data and BSS spans, which gen/akao_data.c lays out as on the PS1.
+# | Description: BUFFER_RANGES for the Dreamcast build, whose lom_sound_bank covers the full PS1 bank area TITLE copies into, plus AKAO's PS1 data and BSS spans, which gen/akao_data.c lays out as on the PS1, and the main symbols gen/main_data.c gives storage.
 # | Author: suinevere
-# | Dependencies: BUFFER_RANGES, dreamcast/src/boot/main_globals_dc.c, akao_data.py (gen/akao_data.c)
+# | Dependencies: BUFFER_RANGES, dreamcast/src/boot/main_globals_dc.c, akao_data.py (gen/akao_data.c), main_data.py (gen/main_data.c)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -146,7 +147,7 @@ DREAMCAST_BUFFER_RANGES = tuple((start, 0x4000 if symbol == "_lom_sound_bank" el
                                 for start, size, symbol in BUFFER_RANGES) + (
     (akao_data.DATA_START, akao_data.DATA_END - akao_data.DATA_START, "_lom_akao_data"),
     (akao_data.BSS_START, akao_data.BSS_END - akao_data.BSS_START, "_lom_akao_bss"),
-)
+) + main_data.buffer_ranges()
 
 #----------------------
 # | OVERLAY_BUFFER_RANGES

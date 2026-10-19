@@ -59,9 +59,9 @@ PRE_BUILD_INPUTS = $(LOM_PS1_IMAGE) $(wildcard ../port/tools/*.py) $(wildcard ..
 #----------------------
 # | $(PRE_BUILD_STAMP)
 # | Description: Runs the disc converter for the Dreamcast target, whose --out is the project directory holding cd/data and gen, writes gen's overlay entries, regions header, vectors and linker scripts.
-# |              Then extracts the libgte tables gte_saturn.c reads and AKAO's data block; only reruns when PRE_BUILD_INPUTS changed.
+# |              Then extracts the libgte tables gte_saturn.c reads, AKAO's data block and the undefined main symbols' storage; only reruns when PRE_BUILD_INPUTS changed.
 # | Author: suinevere
-# | Dependencies: PYTHON, PRE_BUILD_INPUTS, ../port/tools/convert_disc.py, ../port/tools/overlay_link.py, ../port/tools/libgte_tables.py, ../port/tools/akao_data.py
+# | Dependencies: PYTHON, PRE_BUILD_INPUTS, ../port/tools/convert_disc.py, ../port/tools/overlay_link.py, ../port/tools/libgte_tables.py, ../port/tools/akao_data.py, ../port/tools/main_data.py
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -71,6 +71,7 @@ $(PRE_BUILD_STAMP): $(PRE_BUILD_INPUTS)
 	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast gen --out gen
 	$(PYTHON) ../port/tools/libgte_tables.py --image "$(LOM_PS1_IMAGE)" --out .
 	$(PYTHON) ../port/tools/akao_data.py --image "$(LOM_PS1_IMAGE)" --out .
+	$(PYTHON) ../port/tools/main_data.py --image "$(LOM_PS1_IMAGE)" --out .
 	@mkdir -p $(dir $@)
 	@touch $@
 

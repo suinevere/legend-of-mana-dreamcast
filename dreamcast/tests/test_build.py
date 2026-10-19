@@ -19,7 +19,7 @@ REPO = os.path.dirname(DC)
 
 #----------------------
 # | CONVERTER_START_LINE
-# | Description: The disc converter's first printed line for the committed US image and the dreamcast target (convert_disc.py's "resource %4d kind %d size 0x%X", index 2 being FIELD, a real KIND_OVERLAY since Task 6 gave it its own Dreamcast link).
+# | Description: The start of the disc converter's first printed line for the dreamcast target (convert_disc.py's "resource %4d kind %d size 0x%X", index 2 being FIELD, a real KIND_OVERLAY since Task 6 gave it its own Dreamcast link), without the size, which moves whenever FIELD's packed data does.
 # |              Its absence from a build's output means pre_build's recipe did not run.
 # | Author: suinevere
 # | Dependencies: ../port/tools/convert_disc.py
@@ -27,7 +27,7 @@ REPO = os.path.dirname(DC)
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-CONVERTER_START_LINE = "resource    2 kind 1 size 0x26324"
+CONVERTER_START_LINE = "resource    2 kind 1 size 0x"
 
 #----------------------
 # | SECOND_BUILD_MARKER

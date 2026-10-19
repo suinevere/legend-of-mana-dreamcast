@@ -106,7 +106,7 @@ int spu_shim_noise_clock_take(unsigned *clock);
 
 /*----------------------
  | spu_voice_flush_reset
- | Description: Forgets every voice's cached DSP send, the reverb and noise bitmap copies, and the noise clock change flag; call from SpuInit alongside spu_shadow_reset and spu_sample_map_reset.
+ | Description: Forgets every voice's cached DSP send, the reverb and noise bitmap copies, the noise clock change flag, the pitch-modulation mask, and the held-voice mask; call from SpuInit alongside spu_shadow_reset and spu_sample_map_reset.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

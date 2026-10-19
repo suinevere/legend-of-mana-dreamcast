@@ -64,10 +64,18 @@ static unsigned fake_push(const short *frames, unsigned count)
     return count;
 }
 
+static int s_volume_calls[16];
+static int s_volume_count;
+
 static void fake_volume(int left, int right)
 {
     s_volume_left = left;
     s_volume_right = right;
+    if (s_volume_count < 16)
+    {
+        s_volume_calls[s_volume_count] = left == right ? left : -1;
+    }
+    s_volume_count++;
 }
 
 static void fake_stop(void)
@@ -100,6 +108,7 @@ static void make_block(int index, unsigned remaining)
     b[HEADER_AT + 0x1C] = 0x00;
     b[HEADER_AT + 0x1D] = 0x10;
     put32(b + HEADER_AT + 0x20, ADPCM_BLOCKS * 16u);
+    put32(b + HEADER_AT + 0x28, 0);
     for (i = 0; i < 128; i++)
     {
         unsigned char *left = b + DATA_AT + i * 16;
@@ -241,6 +250,55 @@ static void test_volume_and_stop(void)
     CHECK(movie_audio_position() == -1);
 }
 
+static void test_fade_in_ramps_to_the_set_volume(void)
+{
+    reset();
+    movie_audio_volume(127);
+    put32(&s_ring[HEADER_AT + 0x28], 24);
+    s_volume_count = 0;
+    movie_audio_start(s_ring, sizeof(s_ring));
+    movie_audio_advance();
+    movie_audio_advance();
+    CHECK(s_volume_count == 3);
+    CHECK(s_volume_calls[0] == 0);
+    CHECK(s_volume_calls[1] == 0x7FFF * FRAMES / 4410);
+    CHECK(s_volume_calls[2] == 0x7FFF);
+    s_queued -= FRAMES;
+    movie_audio_position();
+    CHECK(s_volume_count == 3);
+}
+
+static void test_volume_mid_fade_moves_the_target(void)
+{
+    reset();
+    movie_audio_volume(127);
+    put32(&s_ring[HEADER_AT + 0x28], 48);
+    s_volume_count = 0;
+    movie_audio_start(s_ring, sizeof(s_ring));
+    movie_audio_advance();
+    movie_audio_advance();
+    CHECK(s_volume_count == 3);
+    CHECK(s_volume_calls[2] == 0x7FFF * 2 * FRAMES / 8820);
+    movie_audio_volume(0x40);
+    CHECK(s_volume_count == 3);
+    movie_audio_advance();
+    s_queued -= FRAMES;
+    movie_audio_position();
+    CHECK(s_volume_count == 4);
+    CHECK(s_volume_calls[3] == (0x40 * 0x7FFF) / 0x7F);
+}
+
+static void test_no_fade_without_ticks(void)
+{
+    reset();
+    movie_audio_volume(127);
+    s_volume_count = 0;
+    movie_audio_start(s_ring, sizeof(s_ring));
+    movie_audio_advance();
+    movie_audio_advance();
+    CHECK(s_volume_count == 0);
+}
+
 int main(void)
 {
     test_empty_ring_is_refused();
@@ -249,6 +307,9 @@ int main(void)
     test_unfilled_blocks_are_not_played();
     test_last_block_ends_with_silence();
     test_volume_and_stop();
+    test_fade_in_ramps_to_the_set_volume();
+    test_volume_mid_fade_moves_the_target();
+    test_no_fade_without_ticks();
     if (failures != 0)
     {
         return 1;

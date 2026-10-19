@@ -7,6 +7,7 @@
 #ifdef LOM_PAD_SCRIPT
 
 #include "watch.h"
+#include "scene_sweep.h"
 #include "dc_system.h"
 #include "main/main.h"
 #include "overlays/field/internal/field_records.h"
@@ -340,6 +341,44 @@ static void field_movie_watch(void)
 }
 
 /*----------------------
+ | field_sweep_poll
+ | Description: Steps the scene sweep once per vblank against FIELD's scene and pending transition, jumping and logging as it asks.
+ | Author: suinevere
+ | Dependencies: scene_sweep_step, field_scene_jump, dc_log
+ | Globals: g_dc_scene_sweep, g_field_scene_id, g_field_runtime
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void field_scene_jump(int scene, int spawn);
+
+static void field_sweep_poll(void)
+{
+    SweepEvent e = scene_sweep_step(&g_dc_scene_sweep, (int)(g_field_scene_id & 0xFFFF),
+                                    g_field_runtime->transition.bits.requested ? 1 : 0);
+
+    switch (e.kind)
+    {
+    case SWEEP_EVENT_JUMP:
+        field_scene_jump(e.scene, 0);
+        break;
+    case SWEEP_EVENT_ARRIVE:
+        dc_log("sweep arrive %d", e.scene);
+        break;
+    case SWEEP_EVENT_OK:
+        dc_log("sweep ok %d", e.scene);
+        break;
+    case SWEEP_EVENT_STUCK:
+        dc_log("sweep stuck %d at %d", e.scene, e.reached);
+        break;
+    case SWEEP_EVENT_DONE:
+        dc_log("sweep done");
+        break;
+    default:
+        break;
+    }
+}
+
+/*----------------------
  | field_watch_poll
  | Description: Refreshes the shadow copies from live FIELD state and runs one watch_poll pass.
  | Author: suinevere
@@ -361,6 +400,7 @@ static void field_watch_poll(void)
     field_movie_watch();
     watch_poll();
     field_run_open_request();
+    field_sweep_poll();
 }
 
 /*----------------------

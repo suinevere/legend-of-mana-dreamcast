@@ -1,0 +1,44 @@
+# FIELD scene sweep: the new-game path to Home, then a sweep over the range dreamcast/tools/scene_sweep.py wrote to the VMU's LOMSWEEP file.
+wait state 2
+wait 600
+press DOWN 6
+wait 30
+press CROSS 6
+wait state 7
+wait 240
+mash CIRCLE 30 state 2
+wait 600
+press UP 6
+wait 30
+press CROSS 6
+wait 240
+press CROSS 6
+wait 180
+press CROSS 6
+wait state 3
+wait 300
+press CROSS 6
+wait state 5
+wait 180
+press CROSS 6
+wait 120
+press CROSS 6
+wait 120
+press CROSS 6
+wait 120
+mash CROSS 40 state 1
+wait 10
+wait 215
+wait 45
+wait 180
+press CROSS 6
+wait 30
+press CROSS 6
+wait 300
+wait 150
+wait 120
+wait 140
+mash CROSS 40 marker field scene 857
+mash CROSS 40 marker field map 18
+wait 240
+sweep

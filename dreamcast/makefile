@@ -52,7 +52,7 @@ EXTRA_CFLAGS ?=
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PAD_SCRIPT_SOURCES = src/input/pad_script.c src/input/pad_dc_script_map.c src/system/watch.c src/sound/sound_test_dc.c src/movie/movie_probe_dc.c
+PAD_SCRIPT_SOURCES = src/input/pad_script.c src/input/pad_dc_script_map.c src/system/watch.c src/system/scene_sweep.c src/system/scene_sweep_kos.c src/sound/sound_test_dc.c src/movie/movie_probe_dc.c
 
 #----------------------
 # | SOURCES
@@ -308,7 +308,7 @@ DECOMP_WMAP = ../src/overlays/wmap/overlay_header.c ../src/overlays/wmap/effects
 #----------------------
 DECOMP_OBJ = $(patsubst ../src/%.c,build/decomp/%.o,$(1))
 MAIN_OBJS = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst ../port/%.c,$(OBJDIR)/port/%.o,$(PORT_SOURCES)) $(call DECOMP_OBJ,$(DECOMP_MAIN)) $(call DECOMP_OBJ,$(DECOMP_AUDIO)) \
-	$(OBJDIR)/gen/akao_data.o
+	$(OBJDIR)/gen/akao_data.o $(OBJDIR)/gen/main_data.o
 OBJS = $(MAIN_OBJS) $(OBJDIR)/gen/dc_pending.o
 CHECKPS_OBJS = build/ovl/checkps_vectors.o $(call DECOMP_OBJ,$(DECOMP_CHECKPS)) build/overlays/checkps_init_unit.o
 TITLE_OBJS = build/ovl/title_vectors.o $(call DECOMP_OBJ,$(DECOMP_TITLE))
@@ -544,6 +544,17 @@ $(OBJDIR)/cd/cdrom_dc.o: DECOMP_STD += -std=c11
 $(OBJDIR)/card/card_vmu.o $(OBJDIR)/card/card_store_kos.o: DECOMP_STD += -std=c11
 
 #----------------------
+# | build-test/system/scene_sweep_kos.o
+# | Description: Strict C11 for the test-only sweep starter's <kos.h>, for the same bcopy clash as card_store_kos.o.
+# | Author: suinevere
+# | Dependencies: src/system/scene_sweep_kos.c, ../port/psyq/lom_prefix.h
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/system/scene_sweep_kos.o: DECOMP_STD += -std=c11
+
+#----------------------
 # | build/decomp/overlays/checkps/kanji.o
 # | Description: kanji.c includes <strings.h> directly, so -std=c11 cannot hide its legacy bcopy the way it does for <string.h> callers (newlib still shows bcopy when __POSIX_VISIBLE is unset); raising _POSIX_C_SOURCE past 200112 hides it instead, clashing with lom_prefix.h's Psy-Q bcopy.
 # | Author: suinevere
@@ -724,6 +735,21 @@ $(OBJDIR)/gen/akao_data.o: gen/akao_data.c
 gen/akao_data.c: | $(PRE_BUILD_STAMP)
 
 #----------------------
+# | build/gen/main_data.o
+# | Description: Storage for main-executable symbols the C build never defines, generated from the user's SLUS by the pre-build step; gen/dc_pending.ld aliases their PS1 addresses into it.
+# | Author: suinevere
+# | Dependencies: gen/main_data.c, ../port/tools/main_data.py
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/gen/main_data.o: gen/main_data.c
+	@mkdir -p $(dir $@)
+	kos-cc $(CFLAGS) -MMD -MP -c $< -o $@
+
+gen/main_data.c: | $(PRE_BUILD_STAMP)
+
+#----------------------
 # | DEPFILES
 # | Description: Pulls in every object's -MMD -MP dependency file, so editing a header these objects include (lom_prefix.h, gpu_tag.h, lom_platform_memory.h, …) rebuilds them; mirrors saturn/makefile's -include of C_OBJECTS/PORT_OBJECTS .d files.
 # | Author: suinevere
@@ -764,7 +790,7 @@ $(KOS_CDROM_PATCH_OBJS): $(KOS_CDROM_PATCH_DIR)/.stamp
 #----------------------
 $(TARGET): $(OBJS) $(KOS_CDROM_PATCH_OBJS) dreamcast.ld gen/dc_pending.ld gen/overlay_entries.ld $(OBJDIR)/ovl/overlay_externs.ld
 	kos-cc -o $@ $(OBJS) $(KOS_CDROM_PATCH_OBJS) gen/dc_pending.ld $(OBJDIR)/ovl/overlay_externs.ld -Wl,--orphan-handling=error \
-		-Wl,-u,_lom_akao_data -Wl,-u,_lom_akao_bss
+		-Wl,-u,_lom_akao_data -Wl,-u,_lom_akao_bss -Wl,-u,_lom_main_data
 
 #----------------------
 # | $(OBJDIR)/ovl/overlay_externs.ld
@@ -924,14 +950,14 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 
 #----------------------
 # | PADSEL_IMAGES / lom_<script>_test.cdi
-# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the card save and load discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc and the PAL 50 Hz boot disc.
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the card save and load discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc, the PAL 50 Hz boot disc and the FIELD scene sweep disc.
 # | Author: suinevere
 # | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = card_save card_load sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz
+PADSEL_SCRIPTS = card_save card_load sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*

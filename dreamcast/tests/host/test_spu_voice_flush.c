@@ -388,6 +388,58 @@ static void test_noise_voice_pitch_write_ignored(void)
     CHECK(count_ops(OP_PITCH, 14) == 0);
 }
 
+static void test_noise_toggle_key_off_same_tick(void)
+{
+    set_voice(11, 0x1010, 0x3FFF, 0x3FFF);
+    key_on(11);
+    spu_voice_flush();
+    s_levels[11] = 1234;
+    set_noise(11, 1);
+    key_off(11);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_KEY_OFF, 11) == 1);
+    CHECK(count_ops(OP_KEY_ON, 11) == 0);
+}
+
+static void test_noise_toggle_key_on_same_tick(void)
+{
+    s_levels[15] = 1234;
+    set_voice(15, 0x1010, 0x3FFF, 0x3FFF);
+    set_noise(15, 1);
+    key_on(15);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_KEY_ON, 15) == 1);
+}
+
+static void test_noise_toggle_after_release_no_rekey(void)
+{
+    set_voice(16, 0x1010, 0x3FFF, 0x3FFF);
+    key_on(16);
+    spu_voice_flush();
+    key_off(16);
+    spu_voice_flush();
+    s_levels[16] = 1234;
+    set_noise(16, 1);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_KEY_ON, 16) == 0);
+    CHECK(count_ops(OP_KEY_OFF, 16) == 0);
+}
+
+static void test_noise_toggle_after_natural_end_no_rekey(void)
+{
+    set_voice(17, 0x1010, 0x3FFF, 0x3FFF);
+    key_on(17);
+    spu_voice_flush();
+    s_levels[17] = 0;
+    set_noise(17, 1);
+    clear_events();
+    spu_voice_flush();
+    CHECK(count_ops(OP_KEY_ON, 17) == 0);
+}
+
 static void test_pitch_modulation(void)
 {
     int i;
@@ -744,6 +796,10 @@ int main(void)
     test_noise_toggle_off_restarts_sample();
     test_noise_clock_repitches_noise_voices_only();
     test_noise_voice_pitch_write_ignored();
+    test_noise_toggle_key_off_same_tick();
+    test_noise_toggle_key_on_same_tick();
+    test_noise_toggle_after_release_no_rekey();
+    test_noise_toggle_after_natural_end_no_rekey();
     test_pitch_modulation();
     test_pitch_modulation_key_on_refreshes();
     test_pitch_modulation_noise_toggle_keeps_noise_pitch();

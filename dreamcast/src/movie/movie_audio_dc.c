@@ -13,6 +13,9 @@
 #include "movie_audio_dc.h"
 #include "aica_stream.h"
 #include "spu_sample_map.h"
+#if defined(LOM_PAD_SCRIPT) && !defined(LOM_HOST_TEST)
+#include "dc_system.h"
+#endif
 
 /*----------------------
  | RING_BLOCK_BYTES / HEADER_AT / DATA_AT / RIGHT_AT / LEFT_BLOCKS / RIGHT_BLOCKS
@@ -60,6 +63,18 @@
 #define SILENCE_FRAMES 512u
 
 /*----------------------
+ | FADE_HEADER_AT / AKAO_TICK_HZ
+ | Description: AkaoXaProgramHeader.fade_in_ticks inside the ring header, and AKAO's tick rate those ticks count at.
+ | Author: suinevere
+ | Dependencies: src/main/audio/internal/akao_driver.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FADE_HEADER_AT 0x28u
+#define AKAO_TICK_HZ 240u
+
+/*----------------------
  | default_start / default_free / default_push / default_volume / default_stop
  | Description: The AICA stream channel behind MovieAudioOps.
  | Author: suinevere
@@ -105,6 +120,19 @@ static int s_done;
 static unsigned s_frames;
 static int s_history[4];
 static short s_pcm[LEFT_BLOCKS * SPU_BLOCK_FRAMES * 2];
+
+/*----------------------
+ | s_volume_target / s_fade_frames / s_fade_done
+ | Description: The last level movie_audio_volume set, and the running fade-in's length and frames pushed so far (no fade while s_fade_frames is 0).
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_volume_target = 0x7FFF;
+static unsigned s_fade_frames;
+static unsigned s_fade_done;
 
 /*----------------------
  | read32 / read16
@@ -159,10 +187,38 @@ static unsigned decode_half(const unsigned char *adpcm, unsigned max_blocks, int
 }
 
 /*----------------------
+ | fade_step
+ | Description: Counts frames pushed during a fade-in and raises the stream volume toward the target in proportion, ending the fade at the target.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_fade_frames, s_fade_done, s_volume_target, s_ops
+ | Params: frames -- frames just pushed
+ | Returns: N/A
+ ----------------------*/
+static void fade_step(unsigned frames)
+{
+    int level;
+
+    if (s_fade_frames == 0)
+    {
+        return;
+    }
+    s_fade_done += frames;
+    if (s_fade_done >= s_fade_frames)
+    {
+        s_fade_frames = 0;
+        s_ops->volume(s_volume_target, s_volume_target);
+        return;
+    }
+    level = (int)(((long long)s_volume_target * s_fade_done) / s_fade_frames);
+    s_ops->volume(level, level);
+}
+
+/*----------------------
  | play_block
  | Description: Decodes the ring block at the play position and pushes it, then advances the position; a block without the AKAO magic or whose remaining size no longer exceeds its own ends playback, as AKAO's refill does.
  | Author: suinevere
- | Dependencies: read32, decode_half
+ | Dependencies: read32, decode_half, fade_step
  | Globals: s_ring, s_position, s_block_count, s_played, s_done, s_frames, s_pcm, s_ops
  | Params: stereo -- the stream's channel count is 2
  | Returns: N/A
@@ -186,6 +242,7 @@ static void play_block(int stereo)
     }
     s_ops->push(s_pcm, frames);
     s_frames = frames;
+    fade_step(frames);
     s_played++;
     s_position = (int)(((unsigned)s_position + 1u) % s_block_count);
     if (!(read32(block + HEADER_AT + 0x10u) > read32(block + HEADER_AT + 0x20u)))
@@ -257,7 +314,7 @@ void movie_audio_set_ops(const MovieAudioOps *ops)
  | Description: akao_start_xa_stream: takes the ring and resets the cursors; nothing plays until two blocks are filled.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_ring, s_block_count, s_fill_block, s_filled, s_played, s_position, s_playing, s_done, s_frames, s_history
+ | Globals: s_ring, s_block_count, s_fill_block, s_filled, s_played, s_position, s_playing, s_done, s_frames, s_history, s_fade_frames
  | Params: ring_base -- first ring block, byte_count -- ring size
  | Returns: 0, or -1 for an empty ring
  ----------------------*/
@@ -276,16 +333,17 @@ int movie_audio_start(void *ring_base, unsigned byte_count)
     s_playing = 0;
     s_done = 0;
     s_frames = 0;
+    s_fade_frames = 0;
     memset(s_history, 0, sizeof(s_history));
     return 0;
 }
 
 /*----------------------
  | movie_audio_advance
- | Description: akao_xa_advance_frame: counts one more filled block and, once the fill cursor passes the second block, starts the stream at the first block's rate and channel count.
+ | Description: akao_xa_advance_frame: counts one more filled block and, once the fill cursor passes the second block, starts the stream at the first block's rate and channel count, beginning its fade-in when the header asks for one.
  | Author: suinevere
- | Dependencies: read32, read16, pump
- | Globals: s_fill_block, s_filled, s_block_count, s_playing, s_position, s_ring, s_ops
+ | Dependencies: read32, read16, pump, dc_log (LOM_PAD_SCRIPT)
+ | Globals: s_fill_block, s_filled, s_block_count, s_playing, s_position, s_ring, s_ops, s_fade_frames, s_fade_done
  | Params: N/A
  | Returns: the next ring block to play, or -1 before playback
  ----------------------*/
@@ -302,7 +360,19 @@ int movie_audio_advance(void)
         unsigned pitch = read16(s_ring + HEADER_AT + 0x1Cu);
         int stereo = (read32(s_ring + HEADER_AT + 0x18u) & STEREO_FLAG) != 0;
 
-        s_ops->start(pitch * UNITY_RATE / PITCH_UNITY, stereo ? 2 : 1);
+        unsigned rate = pitch * UNITY_RATE / PITCH_UNITY;
+        int ticks = (int)read32(s_ring + HEADER_AT + FADE_HEADER_AT);
+
+        s_ops->start(rate, stereo ? 2 : 1);
+        if (ticks > 0)
+        {
+            s_fade_frames = (unsigned)ticks * rate / AKAO_TICK_HZ;
+            s_fade_done = 0;
+            s_ops->volume(0, 0);
+#if defined(LOM_PAD_SCRIPT) && !defined(LOM_HOST_TEST)
+            dc_log("movie audio fade %d", ticks);
+#endif
+        }
         s_playing = 1;
         s_position = 0;
     }
@@ -327,18 +397,20 @@ int movie_audio_position(void)
 
 /*----------------------
  | movie_audio_volume
- | Description: akao_set_xa_volume: scales AKAO's 7-bit XA volume to the stream's PS1 CD-volume range on both sides.
+ | Description: akao_set_xa_volume: scales AKAO's 7-bit XA volume to the stream's PS1 CD-volume range on both sides; during a fade-in it only moves the fade's target.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_ops
+ | Globals: s_ops, s_volume_target, s_fade_frames
  | Params: volume -- low 7 bits used
  | Returns: 0
  ----------------------*/
 int movie_audio_volume(int volume)
 {
-    int level = ((volume & VOLUME_MAX) * 0x7FFF) / VOLUME_MAX;
-
-    s_ops->volume(level, level);
+    s_volume_target = ((volume & VOLUME_MAX) * 0x7FFF) / VOLUME_MAX;
+    if (s_fade_frames == 0)
+    {
+        s_ops->volume(s_volume_target, s_volume_target);
+    }
     return 0;
 }
 
