@@ -11,6 +11,7 @@
 
 int printf(const char *format, ...);
 int puts(const char *text);
+int func_80034648(long chan, long block, long count);
 long func_8001680C(char *path, long mode);
 long func_8001681C(long fd, void *buf, long n);
 long func_8001683C(long fd);
@@ -200,6 +201,7 @@ int main(void)
     unsigned char back[0x4000];
     long cmd = 0;
     long result = -1;
+    unsigned char time[8];
     long fd;
     int i;
 
@@ -223,6 +225,22 @@ int main(void)
     CHECK(firstfile("bu00:*", &entry) == &entry);
     CHECK(strcmp(entry.name, "BADCVMU-OTHER") == 0 && entry.size == 3 * 8192);
     CHECK(nextfile(&entry) == NULL);
+    {
+        unsigned char head[0x200];
+        long filler_fd = lom_card_open("bu00:BADCVMU-OTHER", F_ASYNC | F_READ);
+
+        memset(head, 0x5A, sizeof head);
+        CHECK(filler_fd >= 0 && lom_card_read(filler_fd, head, sizeof head) == (long)sizeof head && head[0] == 0 && head[0x1FF] == 0);
+        {
+            long again = lom_card_open("bu00:BADCVMU-OTHER", F_READ);
+
+            CHECK(again >= 0 && firstfile("bu00:*", &entry) == &entry && nextfile(&entry) == NULL);
+            CHECK(lom_card_close(again) == 0);
+        }
+        CHECK(lom_card_close(filler_fd) == 0 && fake_count(0) == 0);
+        CHECK(lom_card_open("bu00:BADCVMU-OTHER", F_WRITE) == -1);
+        CHECK(lom_card_open("bu00:BADCVMU-OTHER", F_CREAT | F_BLOCKS(1)) == -1);
+    }
 
     CHECK(save(0) == 0);
     CHECK(fake_count(0) == 1 && fake_find(0, "BASLUS-01013LOM00") >= 0);
@@ -306,8 +324,34 @@ int main(void)
     CHECK(lom_card_open("bu00:BASLUS-01013LOM00", F_READ) == -1);
     CHECK(erase("bu00:BASLUS-01013LOM00") == 1 && fake_count(0) == 0);
 
+    {
+        static unsigned char rrl[0xC000];
+        unsigned char head[0x400];
+        long ioe = OpenEvent(SwCARD, EvSpIOE, EvMdNOINTR, 0);
+
+        for (i = 0; i < (int)sizeof rrl; i++)
+        {
+            rrl[i] = (unsigned char)(i * 7 + (i >> 8));
+        }
+        fd = lom_card_open("bu00:BASLUSP01013", F_CREAT | F_BLOCKS(6));
+        CHECK(fd >= 0 && lom_card_close(fd) == 0);
+        fd = lom_card_open("bu00:BASLUSP01013", F_ASYNC | F_WRITE);
+        CHECK(fd >= 0 && lom_card_write(fd, rrl, sizeof rrl) == (long)sizeof rrl && TestEvent(ioe) == 1);
+        CHECK(lom_card_close(fd) == 0);
+        i = fake_find(0, "BASLUSP01013");
+        CHECK(i >= 0 && s_files[i].size == sizeof rrl && memcmp(s_files[i].bytes, rrl, sizeof rrl) == 0);
+        CHECK(firstfile("bu00:BASLUSP01013*", &entry) == &entry && strcmp(entry.name, "BASLUSP01013") == 0 && entry.size == (long)sizeof rrl);
+        fd = lom_card_open("bu00:BASLUSP01013", F_READ);
+        CHECK(fd >= 0 && lom_card_read(fd, head, sizeof head) == (long)sizeof head && lom_card_close(fd) == 0);
+        CHECK(memcmp(head, rrl, sizeof head) == 0);
+        CHECK(erase("bu00:BASLUSP01013") == 1 && fake_find(0, "BASLUSP01013") < 0);
+    }
+    memset(time, 0x77, sizeof(time));
     CHECK(McxCardType(0) == MCX_COMMAND_ISSUED);
-    CHECK(McxSync(MCX_SYNC_WAIT, &cmd, &result) == McxSyncFin && result == McxErrInvalid);
+    CHECK(McxSync(MCX_SYNC_WAIT, &cmd, &result) == McxSyncFin && result == McxErrSuccess);
+    CHECK(McxGetTime(0, time) == MCX_COMMAND_ISSUED);
+    CHECK(McxSync(MCX_SYNC_WAIT, &cmd, &result) == McxSyncFin && result == McxErrInvalid && time[0] == 0x77);
+    CHECK(func_80034648(0, 1, 1) != 0);
     CHECK(McxCardType(0x10) == MCX_COMMAND_ISSUED);
     CHECK(McxSync(MCX_SYNC_WAIT, &cmd, &result) == McxSyncFin && result == McxErrNoCard);
     CHECK(McxSync(MCX_SYNC_WAIT, &cmd, &result) == McxSyncNone);

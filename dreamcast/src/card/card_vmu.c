@@ -56,14 +56,15 @@
 #define CARD_SECTORS_PER_BLOCK 64
 
 /*----------------------
- | CARD_MODE_CREATE / CARD_MODE_ASYNC / CARD_MODE_BLOCKS
- | Description: Psy-Q open() mode bits: create, asynchronous, and the block count a create allocates.
+ | CARD_MODE_WRITE / CARD_MODE_CREATE / CARD_MODE_ASYNC / CARD_MODE_BLOCKS
+ | Description: Psy-Q open() mode bits: write, create, asynchronous, and the block count a create allocates.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#define CARD_MODE_WRITE 0x0002UL
 #define CARD_MODE_CREATE 0x0200UL
 #define CARD_MODE_ASYNC 0x8000UL
 #define CARD_MODE_BLOCKS(mode) ((int)(((mode) >> 16) & 0xFF))
@@ -651,7 +652,7 @@ static int build_listing(int slot)
     }
     for (i = 0; i < CARD_RAM_FILES; i++)
     {
-        if (s_files[i].used && s_files[i].slot == slot && find_dir(slot, s_files[i].name) == NULL)
+        if (s_files[i].used && s_files[i].slot == slot && find_dir(slot, s_files[i].name) == NULL && strcmp(s_files[i].name, CARD_FILLER_NAME) != 0)
         {
             copy_name(s_search[s_search_count].ps1_name, s_files[i].name);
             s_search[s_search_count].size = s_files[i].size;
@@ -1006,7 +1007,7 @@ struct DIRENTRY *nextfile(struct DIRENTRY *entry)
 
 /*----------------------
  | lom_card_open
- | Description: BIOS open on a card path: a create makes an empty RAM file of the requested blocks when the card has room, otherwise the file is loaded for reading or writing.
+ | Description: BIOS open on a card path: a create makes an empty RAM file of the requested blocks when the card has room (never under the filler name), the filler entry opens read-only as one shared block of zeros, as another game's file would on a PS1 card, otherwise the file is loaded for reading or writing.
  | Author: suinevere
  | Dependencies: path_slot, slot_present, find_ram, find_dir, build_listing, ps1_blocks_free, new_ram, load_ram
  | Globals: s_store, s_handles
@@ -1031,6 +1032,10 @@ long lom_card_open(char *path, unsigned long mode)
     {
         return -1;
     }
+    if ((mode & CARD_MODE_CREATE) && strcmp(name, CARD_FILLER_NAME) == 0)
+    {
+        return -1;
+    }
     if (mode & CARD_MODE_CREATE)
     {
         int blocks = CARD_MODE_BLOCKS(mode) ? CARD_MODE_BLOCKS(mode) : 1;
@@ -1044,6 +1049,18 @@ long lom_card_open(char *path, unsigned long mode)
             return -1;
         }
         file = new_ram(slot, name, (unsigned int)blocks * PS1_BLOCK_BYTES);
+    }
+    else if (strcmp(name, CARD_FILLER_NAME) == 0)
+    {
+        if (mode & CARD_MODE_WRITE)
+        {
+            return -1;
+        }
+        file = find_ram(slot, name);
+        if (file == NULL && (file = new_ram(slot, name, PS1_BLOCK_BYTES)) != NULL)
+        {
+            file->stored = 1;
+        }
     }
     else
     {
@@ -1237,25 +1254,36 @@ long erase(char *path)
 }
 
 /*----------------------
- | McxCardType / McxGetTime
- | Description: Accept the command; its McxSync result says a present card is not a PocketStation, else that no card is there.
+ | McxCardType
+ | Description: Accept the command; its McxSync result says a present VMU is a PocketStation, else that no card is there.
  | Author: suinevere
- | Dependencies: slot_present
+ | Dependencies: slot_present, chan_slot
  | Globals: s_mcx_pending, s_mcx_result
- | Params: port -- slot channel, time -- clock bytes (left untouched)
+ | Params: port -- slot channel
  | Returns: MCX_COMMAND_ISSUED
  ----------------------*/
 int McxCardType(int port)
 {
     s_mcx_pending = 1;
-    s_mcx_result = slot_present(chan_slot(port)) ? McxErrInvalid : McxErrNoCard;
+    s_mcx_result = slot_present(chan_slot(port)) ? McxErrSuccess : McxErrNoCard;
     return MCX_COMMAND_ISSUED;
 }
 
+/*----------------------
+ | McxGetTime
+ | Description: Accept the command; its McxSync result says a present VMU has no clock to read, so FIELD keeps its no-clock path.
+ | Author: suinevere
+ | Dependencies: slot_present, chan_slot
+ | Globals: s_mcx_pending, s_mcx_result
+ | Params: port -- slot channel, time -- clock bytes (left untouched)
+ | Returns: MCX_COMMAND_ISSUED
+ ----------------------*/
 int McxGetTime(int port, unsigned char *time)
 {
     (void)time;
-    return McxCardType(port);
+    s_mcx_pending = 1;
+    s_mcx_result = slot_present(chan_slot(port)) ? McxErrInvalid : McxErrNoCard;
+    return MCX_COMMAND_ISSUED;
 }
 
 /*----------------------
@@ -1282,17 +1310,17 @@ int McxSync(int mode, long *cmd, long *result)
 
 /*----------------------
  | func_80033E7C / func_80034648
- | Description: libmcx internals CARDA calls on its PocketStation save path; with no PocketStation both fail.
+ | Description: libmcx calls CARDA makes on its PocketStation save path: the first after a failed write, the second to mark the written file's first block executable; a VMU needs neither, so both succeed.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: chan -- slot channel, block -- first block, count -- block count
- | Returns: 0
+ | Returns: 1
  ----------------------*/
 int func_80033E7C(long chan)
 {
     (void)chan;
-    return 0;
+    return 1;
 }
 
 int func_80034648(long chan, long block, long count)
@@ -1300,7 +1328,7 @@ int func_80034648(long chan, long block, long count)
     (void)chan;
     (void)block;
     (void)count;
-    return 0;
+    return 1;
 }
 
 /*----------------------

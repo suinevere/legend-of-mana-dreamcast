@@ -1,6 +1,6 @@
 /*----------------------
  | test_vmu_format.c
- | Description: Host test for vmu_format.c: VMU names for PS1 files, icon conversion, block math, the virtual PS1 free-block count and the LCD wordmark.
+ | Description: Host test for vmu_format.c: VMU names for PS1 files, PS1 names from package descriptions, icon conversion, block math, the virtual PS1 free-block count and the LCD wordmark.
  | Author: suinevere
  | Dependencies: vmu_format.c
  ----------------------*/
@@ -81,6 +81,19 @@ int main(void)
         {
             CHECK(lcd_bit(lcd, 13 + x, y) == lcd_bit(lcd, 35 + x, y));
         }
+    }
+    {
+        char name[21];
+        char desc[32];
+
+        memset(desc, ' ', sizeof desc);
+        memcpy(desc, "BASLUSP01013", 12);
+        desc[20] = 'Q';
+        vmu_ps1_name_from_desc(desc, sizeof desc, name);
+        CHECK(strcmp(name, "BASLUSP01013") == 0);
+        memset(desc, 'A', sizeof desc);
+        vmu_ps1_name_from_desc(desc, sizeof desc, name);
+        CHECK(strlen(name) == 20);
     }
     puts("OK");
     return 0;

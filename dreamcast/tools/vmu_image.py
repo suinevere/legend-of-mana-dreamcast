@@ -173,3 +173,119 @@ def add(img, name, data):
     struct.pack_into("<HH", entry, 0x18, count, 0)
     img[slot:slot + 32] = entry
     return bytes(img)
+
+
+#----------------------
+# | LOM_PS1_PRODUCT
+# | Description: Product code vmu_format.c strips from PS1 names before naming the VMU file.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+LOM_PS1_PRODUCT = "BASLUS-01013"
+
+
+#----------------------
+# | vmu_name_for_ps1
+# | Description: VMU file name the Dreamcast build gives a PS1 card file, as vmu_format.c's vmu_name_for_ps1 does.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: LOM_PS1_PRODUCT
+# | Params: ps1_name -- PS1 file name without the device
+# | Returns: VMU file name, at most 12 characters
+#----------------------
+def vmu_name_for_ps1(ps1_name):
+    if not ps1_name.startswith(LOM_PS1_PRODUCT):
+        h = 2166136261
+        for c in ps1_name.encode("ascii"):
+            h = ((h ^ c) * 16777619) & 0xFFFFFFFF
+        return "LOMX%08X" % h
+    return ("LOM" + ps1_name[len(LOM_PS1_PRODUCT):].upper())[:12]
+
+
+#----------------------
+# | package_payload
+# | Description: The data a VMS package carries after its 128-byte header and icon frames.
+# | Author: suinevere
+# | Dependencies: struct
+# | Globals: N/A
+# | Params: data -- package bytes
+# | Returns: payload bytes
+#----------------------
+def package_payload(data):
+    icons, _, _, _, data_len = struct.unpack_from("<HHHHI", data, 0x40)
+    start = 128 + 512 * icons
+    return bytes(data[start:start + data_len])
+
+
+#----------------------
+# | ps1_file
+# | Description: The PS1 file the Dreamcast build stored under a PS1 name, unwrapped from its VMS package.
+# | Author: suinevere
+# | Dependencies: files, vmu_name_for_ps1, package_payload
+# | Globals: N/A
+# | Params: img -- image bytes, ps1_name -- PS1 file name
+# | Returns: file bytes, or None when the image has no such file
+#----------------------
+def ps1_file(img, ps1_name):
+    want = vmu_name_for_ps1(ps1_name)
+    for name, data in files(img):
+        if name == want:
+            return package_payload(data)
+    return None
+
+
+#----------------------
+# | vms_crc
+# | Description: The CRC a VMS package header carries: CRC-16 with polynomial 0x1021 and initial value 0 (XMODEM) over the package with the CRC field zeroed.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: data -- bytes
+# | Returns: 16-bit CRC
+#----------------------
+def vms_crc(data):
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else (crc << 1)
+            crc &= 0xFFFF
+    return crc
+
+
+#----------------------
+# | set_ps1_file
+# | Description: Replaces the payload of the package stored under a PS1 name with bytes of the same length, refreshing its CRC, in the blocks it already holds.
+# | Author: suinevere
+# | Dependencies: _fat, _entries, vmu_name_for_ps1, vms_crc, struct
+# | Globals: BLOCK, DATA_TYPE, END
+# | Params: img -- image bytes, ps1_name -- PS1 file name, payload -- new file bytes
+# | Returns: new image bytes; raises ValueError when the file is missing or the size differs
+#----------------------
+def set_ps1_file(img, ps1_name, payload):
+    img = bytearray(img)
+    want = vmu_name_for_ps1(ps1_name).encode("ascii")
+    table = _fat(img)
+    for off in _entries():
+        if img[off] != DATA_TYPE or img[off + 4:off + 16].rstrip(b"\0 ") != want:
+            continue
+        first, = struct.unpack_from("<H", img, off + 2)
+        size, = struct.unpack_from("<H", img, off + 0x18)
+        chain = [first]
+        while len(chain) < size and table[chain[-1]] != END:
+            chain.append(table[chain[-1]])
+        data = bytearray(b"".join(img[b * BLOCK:(b + 1) * BLOCK] for b in chain))
+        icons, _, _, _, data_len = struct.unpack_from("<HHHHI", data, 0x40)
+        if data_len != len(payload):
+            raise ValueError("%s holds %d bytes, not %d" % (ps1_name, data_len, len(payload)))
+        start = 128 + 512 * icons
+        data[start:start + data_len] = payload
+        struct.pack_into("<H", data, 0x46, 0)
+        struct.pack_into("<H", data, 0x46, vms_crc(bytes(data[:start + data_len])))
+        for i, block in enumerate(chain):
+            img[block * BLOCK:(block + 1) * BLOCK] = data[i * BLOCK:(i + 1) * BLOCK]
+        return bytes(img)
+    raise ValueError("no %s on the VMU" % ps1_name)

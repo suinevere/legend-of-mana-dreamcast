@@ -116,6 +116,26 @@ void vmu_name_for_ps1(const char *ps1_name, char out[VMU_NAME_LEN + 1])
 }
 
 /*----------------------
+ | vmu_ps1_name_from_desc
+ | Description: The PS1 file name a package's long description holds, cut at the first space or NUL, since VMS headers pad it with spaces.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: desc -- description field, desc_bytes -- its size, out -- 21-byte destination
+ | Returns: N/A
+ ----------------------*/
+void vmu_ps1_name_from_desc(const char *desc, int desc_bytes, char out[21])
+{
+    int i;
+
+    for (i = 0; i < desc_bytes && i < 20 && desc[i] != 0 && desc[i] != ' '; i++)
+    {
+        out[i] = desc[i];
+    }
+    out[i] = 0;
+}
+
+/*----------------------
  | vmu_icon_from_ps1
  | Description: Converts a PS1 save's icon to VMU form: ARGB4444 palette with colour 0x0000 transparent, and each 16x16 frame doubled to 32x32 with the left pixel in the high nibble.
  | Author: suinevere

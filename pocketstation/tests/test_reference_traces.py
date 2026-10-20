@@ -39,10 +39,10 @@ def docker(*args):
                           capture_output=True, text=True)
 
 
-def run(script, trace, extra=()):
+def run(script, trace, extra=(), schedule=("--idle-time",)):
     r = docker("pocketstation/build/pkrun", "--kernel", KERNEL, "--card", CARD,
                "--script", "pocketstation/tests/scripts/%s.pks" % script, "--trace", trace,
-               "--max-seconds", "600", "--idle-time", *extra)
+               "--max-seconds", "600", *schedule, *extra)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
     if "--hooks" in extra:
         assert "drive ran ARM app code from 0 entries" in r.stdout, r.stdout[-500:]
@@ -68,10 +68,8 @@ def test_scripts_exist():
 @pytest.mark.parametrize("script", SCRIPTS)
 def test_reference_trace(built, request, script):
     ref = "pocketstation/build/reference/%s.pktr" % script
-    cov = "pocketstation/build/coverage/%s.txt" % script
-    extra = ("--coverage", cov)
-    if request.config.getoption("--drive"):
-        extra += ("--hooks",)
+    drive = request.config.getoption("--drive")
+    extra = ("--hooks",) if drive else ()
     if request.config.getoption("--verify"):
         exclude = ",".join(x for x in (NO_RETURN, request.config.getoption("--hooks-exclude")) if x)
         extra += ("--verify", "--hooks-exclude", exclude)
@@ -83,5 +81,12 @@ def test_reference_trace(built, request, script):
     assert os.path.exists(os.path.join(REPO, ref)), "no reference; run with --regen"
     d = psk_trace.compare(psk_trace.read(os.path.join(REPO, ref)), got)
     assert d is None, d
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_cycle_timed_calls_match_and_cover(built, script):
+    cov = "pocketstation/build/coverage/%s.txt" % script
+    run(script, "pocketstation/build/test/%s-cycles.pktr" % script,
+        ("--verify", "--hooks-exclude", NO_RETURN, "--coverage", cov), schedule=())
     with open(os.path.join(REPO, cov)) as f:
         assert f.read().split()

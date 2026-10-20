@@ -297,6 +297,12 @@ which have fully raised mana. In US the function is empty. The retained US
 transfer branches therefore don't establish a working US Ring Ring Land
 feature. Its PocketStation messages are also left empty.
 
+The Dreamcast port turns the US feature on. Its build takes the JP path in
+`card_prepare_pet_transfer`, its card layer answers `McxCardType()` as if every
+VMU were a PocketStation, and the six-block file is stored on the VMU unchanged.
+The converter fills the empty PocketStation messages with English and gives the
+ranch back its Ring Ring Land option, which the US scene masks out.
+
 The shared Yes/No initializer selects No in US and Yes in JP. Some transfer
 prompts set their choice directly, so that isn't a rule for every prompt.
 JP also has different text spacing and browser layout.
@@ -308,6 +314,8 @@ tags and option meanings remain in the
 [save-file reference](../reference/save-file.md#what-we-dont-know-yet).
 
 Sources: [US preparation hook](../../../../src/main/card_callbacks.c),
+[Dreamcast card layer](../../../../dreamcast/src/card/card_vmu.c),
+[Dreamcast text and ranch patches](../../../../port/tools/overlay_text.py),
 [JP assembly-unit selection](../../../../config/jp/asm_units.txt),
 [regional CARDA branches](../../../../src/overlays/carda/carda.c),
 [transfer window](../../../../src/overlays/carda/carda_save.c),

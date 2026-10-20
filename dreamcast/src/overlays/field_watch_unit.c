@@ -78,6 +78,9 @@ void field_open_gosub_screen_sequence(void *screen_sequence);
 void field_open_carda(s32 mode);
 void field_open_niki(s32 mode);
 void field_open_addhero(s32 mode);
+extern s32 g_gosub_result_values[];
+extern s32 g_field_card_overlay_mode;
+s32 field_start_interaction(s32 actor_id, s32 script);
 extern s32 g_field_modal_state;
 extern s32 g_field_gover_load_countdown;
 void field_script_op_88(s32 image_resource_index, s32 music_resource_index, s32 audio_clip_index);
@@ -203,7 +206,7 @@ static int s_opening;
 static ShopEntry s_open_shop_entries[] = { { 1, 0, 10 }, { 2, 0, 20 }, { 3, 0, 30 } };
 #define FIELD_OPEN_SHOP_OPTIONS 2
 
-static const char *const FIELD_OPEN_NAMES[] = { "shop", "golem", "zukan", "gosub", "carda", "niki", "addhero" };
+static const char *const FIELD_OPEN_NAMES[] = { "shop", "golem", "zukan", "gosub", "carda", "niki", "addhero", "carda_send", "carda_return", "ranch_menu" };
 
 /*----------------------
  | s_field_watch_entries
@@ -241,10 +244,141 @@ static void field_watch_print(const char *line)
 }
 
 /*----------------------
+ | FIELD_TRANSFER_PET / FIELD_TRANSFER_REWARD_ITEMS
+ | Description: The pet "open carda_send" puts in ranch slot 0 (egg species 7, level 9, unique id 0x01234567), and the two item ids the return test's file brings back.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const u8 FIELD_TRANSFER_PET[0x60] = {
+    0x52, 0x61, 0x62, 0x69, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x07, 0x00, 0x09, 0x78, 0x00, 0x00, 0x3C, 0x00, 0x14, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x00, 0x2C, 0x00, 0x30, 0x00, 0x34, 0x00,
+    0x38, 0x00, 0x3C, 0x00, 0x40, 0x00, 0x44, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x22, 0x22, 0x22, 0x22,
+    0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x00, 0x00, 0x00, 0x00, 0x67, 0x45, 0x23, 0x01,
+};
+static const int FIELD_TRANSFER_REWARD_ITEMS[2] = { 0x10, 0x11 };
+
+/*----------------------
+ | FIELD_RANCH_MENU_SCRIPT
+ | Description: Event-script entry of MHM_ALC2's barn ring menu (Feed, Graze, Sell, Ring Ring Land...), which the barn routine (entries 5 and 6) calls.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FIELD_RANCH_MENU_SCRIPT 9
+
+/*----------------------
+ | FIELD_RUN_AS_SCRIPT
+ | Description: Script-id flag field_start_interaction reads as "run this event-script entry as the field script" (FIELD_INTERACTION_SCRIPT in FIELD).
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FIELD_RUN_AS_SCRIPT 0x8000
+
+/*----------------------
+ | s_transfer_open
+ | Description: Nonzero from an "open carda_send" or "open carda_return" step until CARDA closes and field_log_transfer reports.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_transfer_open;
+
+/*----------------------
+ | field_plant_transfer_pet
+ | Description: Test-only: puts FIELD_TRANSFER_PET in ranch slot 0 and sets the land flags and mana levels card_prepare_pet_transfer reads to test_pet_transfer.c's, so the sent file is predictable.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_saved_game, FIELD_TRANSFER_PET
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void field_plant_transfer_pet(void)
+{
+    static const int placed[] = { 1, 2, 3, 5, 7, 9, 15, 31 };
+    FieldLandRecord *lands = g_saved_game.layout.lands;
+    u8 *pet = (u8 *)&g_saved_game.layout.pets[0];
+    unsigned int i;
+    unsigned int j;
+
+    for (i = 0; i < sizeof(FIELD_TRANSFER_PET); i++)
+    {
+        pet[i] = FIELD_TRANSFER_PET[i];
+    }
+    for (i = 1; i <= 33; i++)
+    {
+        lands[i].flags &= (u8)~(FIELD_LAND_FLAG_02 | FIELD_LAND_FLAG_04);
+        for (j = 0; j < sizeof(lands[i].levels); j++)
+        {
+            lands[i].levels[j] = 0;
+        }
+    }
+    for (i = 0; i < sizeof(placed) / sizeof(placed[0]); i++)
+    {
+        lands[placed[i]].flags = FIELD_LAND_FLAG_02;
+    }
+    lands[32].flags = FIELD_LAND_FLAG_02;
+    lands[33].flags = FIELD_LAND_FLAG_04;
+    lands[9].levels[0] = 6;
+    lands[9].levels[2] = 6;
+    lands[9].levels[7] = 6;
+    lands[10].levels[1] = 6;
+    for (j = 0; j < sizeof(lands[31].levels); j++)
+    {
+        lands[31].levels[j] = 6;
+    }
+}
+
+/*----------------------
+ | field_open_ranch_menu
+ | Description: Test-only: runs the ranch scene's ring-menu script as the field script, as the barn routine does after its pet checks.
+ | Author: suinevere
+ | Dependencies: field_start_interaction, dc_log
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void field_open_ranch_menu(void)
+{
+    dc_log("ranch menu result %d", (int)field_start_interaction(0, FIELD_RANCH_MENU_SCRIPT | FIELD_RUN_AS_SCRIPT));
+}
+
+/*----------------------
+ | field_log_transfer
+ | Description: Once CARDA closes after a transfer step, logs its result, ranch slot 0's first name byte and unique id, and the two reward items' counts.
+ | Author: suinevere
+ | Dependencies: dc_log
+ | Globals: s_transfer_open, g_field_modal_state, g_field_card_overlay_mode, g_saved_game, FIELD_TRANSFER_REWARD_ITEMS
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void field_log_transfer(void)
+{
+    if (s_transfer_open && !s_opening && g_field_modal_state == 0)
+    {
+        s_transfer_open = 0;
+        dc_log("transfer result %d pet0 %02x %08x items %d %d", (int)g_field_card_overlay_mode, g_saved_game.layout.pets[0].name[0],
+               (unsigned int)g_saved_game.layout.pets[0].unique_id, g_saved_game.layout.item_counts[FIELD_TRANSFER_REWARD_ITEMS[0]],
+               g_saved_game.layout.item_counts[FIELD_TRANSFER_REWARD_ITEMS[1]]);
+    }
+}
+
+/*----------------------
  | field_run_open_request
  | Description: Runs a pending open step's FIELD opener once, outside any opener already running; blocking openers return here when their overlay closes.
  | Author: suinevere
- | Dependencies: field openers, watch_clear_seen, dc_log
+ | Dependencies: field openers, field_plant_transfer_pet, watch_clear_seen, dc_log
  | Globals: s_open_request, s_opening, FIELD_OPEN_NAMES, D_800F19AC, s_open_shop_entries
  | Params: N/A
  | Returns: N/A
@@ -280,6 +414,21 @@ static void field_run_open_request(void)
         break;
     case 5:
         field_open_niki(0);
+        break;
+    case 7:
+        field_plant_transfer_pet();
+        g_gosub_result_values[0] = 0;
+        s_transfer_open = 1;
+        field_open_carda(2);
+        break;
+    case 8:
+        g_gosub_result_values[0] = 0;
+        s_transfer_open = 1;
+        field_open_carda(3);
+        break;
+    case 9:
+        field_plant_transfer_pet();
+        field_open_ranch_menu();
         break;
     default:
         field_open_addhero(0);
@@ -382,7 +531,7 @@ static void field_sweep_poll(void)
  | field_watch_poll
  | Description: Refreshes the shadow copies from live FIELD state and runs one watch_poll pass.
  | Author: suinevere
- | Dependencies: watch_poll, field_movie_watch, field_run_open_request
+ | Dependencies: watch_poll, field_movie_watch, field_run_open_request, field_log_transfer
  | Globals: s_scene_id, s_map_id, s_dialog0, s_battle, g_field_scene_id, g_field_map_id, g_field_text_window0_flags, g_field_runtime
  | Params: N/A
  | Returns: N/A
@@ -400,6 +549,7 @@ static void field_watch_poll(void)
     field_movie_watch();
     watch_poll();
     field_run_open_request();
+    field_log_transfer();
     field_sweep_poll();
 }
 

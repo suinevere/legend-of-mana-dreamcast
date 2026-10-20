@@ -99,7 +99,7 @@ static int read_package(maple_device_t *dev, const char *vmu_name, vmu_pkg_t *pk
  | kos_list
  | Description: Lists the slot's Legend of Mana files. Names and sizes come from the directory alone, since PS1 files fill whole 8 KB blocks; only hashed names need their package's long description.
  | Author: suinevere
- | Dependencies: slot_device, vmufs_readdir, read_package, vmu_name_for_ps1
+ | Dependencies: slot_device, vmufs_readdir, read_package, vmu_ps1_name_from_desc
  | Globals: N/A
  | Params: slot -- 0 or 1, out -- entries out, max -- capacity of out
  | Returns: entry count, or -1
@@ -136,8 +136,7 @@ static int kos_list(int slot, card_store_entry *out, int max)
             {
                 continue;
             }
-            memset(out[n].ps1_name, 0, sizeof out[n].ps1_name);
-            strncpy(out[n].ps1_name, pkg.desc_long, sizeof out[n].ps1_name - 1);
+            vmu_ps1_name_from_desc(pkg.desc_long, (int)sizeof pkg.desc_long, out[n].ps1_name);
             out[n].size = (unsigned int)pkg.data_len;
             free(raw);
         }

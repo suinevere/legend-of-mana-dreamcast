@@ -2,7 +2,7 @@
 # | convert_disc.py
 # | Description: Converts the user's PS1 disc image into Saturn or Dreamcast files: per-overlay data blobs in cd/data/OVL, decompressed stream and raw resources in cd/data/RES, and a root resource index.
 # | Author: suinevere
-# | Dependencies: disc_image.py, overlay_rules.py, targets.py, field_map.py, field_scene.py, wmap_layout.py, wmap_resources.py, wmap_memory.py, tools/splat_ext/decompress.py
+# | Dependencies: disc_image.py, overlay_rules.py, scene_patches.py, targets.py, field_map.py, field_scene.py, wmap_layout.py, wmap_resources.py, wmap_memory.py, tools/splat_ext/decompress.py
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -22,6 +22,7 @@ import field_map  # noqa: E402
 import field_party_data  # noqa: E402
 import field_scene  # noqa: E402
 import overlay_rules  # noqa: E402
+import scene_patches  # noqa: E402
 import targets  # noqa: E402
 import wmap_layout  # noqa: E402
 import wmap_memory  # noqa: E402
@@ -744,7 +745,7 @@ def dreamcast_overlay_exported(target, name):
 # | Description: Converts every overlay, stream and raw resource the target build loads, writes each overlay's generated function tables, and writes the index.
 # |              A target without convert rules gets raw PS1 bytes outside its relocated overlays, plus every other live resource raw (WMAP's layout cells unpacked), and KIND_SKIP for overlays and resources it deliberately omits.
 # | Author: suinevere
-# | Dependencies: disc_image, overlay_rules, targets.by_name, decompress, encode_index, check_disc_identity, check_resource_live,
+# | Dependencies: disc_image, overlay_rules, scene_patches.patch, targets.by_name, decompress, encode_index, check_disc_identity, check_resource_live,
 # |               check_overlay_length, check_stream_size, load_spec_symbols, STREAM_RULES, RAW_RESOURCES, export_wmap_layout_pack,
 # |               export_wmap_layout_image_pack, export_wmap_resources, check_buffer_users, wmap_resources, resource_path, index_path,
 # |               remove_stale_root_files, check_index_capacity, check_folder_capacity, remove_stale_folder_files,
@@ -817,7 +818,7 @@ def run(args):
 
         overlays = set(overlay_rules.OVERLAYS)
         for index in dreamcast_raw_resources(table, entries, overlays):
-            data = disc_image.read_resource(image, table[index])
+            data = scene_patches.patch(index, disc_image.read_resource(image, table[index]))
             write_file(resource_path(args.out, index, KIND_RAW, target), data)
             entries.append((index, KIND_RAW, len(data)))
 

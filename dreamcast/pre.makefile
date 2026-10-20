@@ -67,6 +67,7 @@ PRE_BUILD_INPUTS = $(LOM_PS1_IMAGE) $(wildcard ../port/tools/*.py) $(wildcard ..
 # | Returns: N/A
 #----------------------
 $(PRE_BUILD_STAMP): $(PRE_BUILD_INPUTS)
+	@mkdir -p gen
 	$(PYTHON) ../port/tools/convert_disc.py --target dreamcast --image "$(LOM_PS1_IMAGE)" --out .
 	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast gen --out gen
 	$(PYTHON) ../port/tools/libgte_tables.py --image "$(LOM_PS1_IMAGE)" --out .

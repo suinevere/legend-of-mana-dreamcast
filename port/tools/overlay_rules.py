@@ -11,6 +11,7 @@ import collections
 import functools
 import struct
 
+import overlay_text
 import targets
 import wmap_memory
 
@@ -1039,11 +1040,42 @@ def function_table_source(spec, overlay, symbols):
 
 
 #----------------------
+# | TEXT_TABLES
+# | Description: PS1 address of the message table whose empty PocketStation entries the Dreamcast build fills, per overlay.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+TEXT_TABLES = {"carda": 0x8014B038, "cload": 0x80145E9C, "niki": 0x801470F8, "addhero": 0x80146FA4}
+
+
+#----------------------
+# | append_text_table
+# | Description: Appends a rebuilt copy of an overlay's message table holding the English lines, and moves every symbol inside the old table to the copy.
+# | Author: suinevere
+# | Dependencies: overlay_text.load_lines, overlay_text.encode_overlay, overlay_text.rebuild_table, packed_offset
+# | Globals: TEXT_TABLES
+# | Params: buf -- packed bytearray, extended in place; spec -- OverlaySpec; symbols -- name to PS1 address
+# | Returns: dict of moved symbol name to packed offset
+#----------------------
+def append_text_table(buf, spec, symbols):
+    table = TEXT_TABLES[spec.name]
+    lines = {i: overlay_text.encode_overlay(text) for i, text in overlay_text.load_lines().get(spec.name, {}).items()}
+    new, old_size = overlay_text.rebuild_table(bytes(buf), packed_offset(table, spec), lines, overlay_text.text_table.TWO_BYTE_CODES["us"])
+    buf += bytes(-len(buf) % 4)
+    start = len(buf)
+    buf += new
+    return {name: start + addr - table for name, addr in symbols.items() if table <= addr < table + old_size}
+
+
+#----------------------
 # | build_overlay
 # | Description: Packs an overlay's ranges, drops its all-zero tail, applies its TIM and data rules (or only its pointer rule for a target without convert rules),
 # |              and builds its linker symbol script at the target's data address without the FUNCTION_TABLES or C_DEFINED names, giving placed symbols their fixed addresses.
 # | Author: suinevere
-# | Dependencies: target_spec, packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, POINTER_RULES, data_base, targets.SATURN
+# | Dependencies: target_spec, packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, POINTER_RULES, data_base, append_text_table, targets.SATURN
 # | Globals: N/A
 # | Params: spec -- OverlaySpec, overlay -- decompressed overlay bytes, symbols -- name to PS1 address, target -- targets.Target, Saturn by default
 # | Returns: (packed bytearray, linker script text); raises ValueError when the blob overflows the target's data region
@@ -1071,6 +1103,10 @@ def build_overlay(spec, overlay, symbols, target=targets.SATURN):
     elif spec.name in POINTER_RULES:
         POINTER_RULES[spec.name](buf, off, target)
 
+    moved = {}
+    if target.name == targets.DREAMCAST.name and spec.name in TEXT_TABLES:
+        moved = append_text_table(buf, spec, symbols)
+
     base = data_base(spec, target)
     if target.regions is not None and len(buf) > target.regions[spec.name].data_size:
         raise ValueError("overlay %s data is 0x%X bytes, its %s region holds 0x%X"
@@ -1082,7 +1118,9 @@ def build_overlay(spec, overlay, symbols, target=targets.SATURN):
     placed = dict(spec.placed)
     for name in sorted(symbols, key=lambda n: symbols[n]):
         offset = packed_offset(symbols[name], spec)
-        if offset is not None and name not in in_c and name not in placed:
+        if name in moved:
+            lines.append("_%s = 0x%08X;" % (name, base + moved[name]))
+        elif offset is not None and name not in in_c and name not in placed:
             lines.append("_%s = 0x%08X;" % (name, base + offset))
     lines += ["_%s = 0x%08X;" % (name, addr) for name, addr in spec.placed]
     return buf, "\n".join(lines) + "\n"

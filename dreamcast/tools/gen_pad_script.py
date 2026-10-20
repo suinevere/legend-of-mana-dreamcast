@@ -310,7 +310,7 @@ def parse_probe(tokens, lineno):
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OPEN_TARGETS = ["shop", "golem", "zukan", "gosub", "carda", "niki", "addhero"]
+OPEN_TARGETS = ["shop", "golem", "zukan", "gosub", "carda", "niki", "addhero", "carda_send", "carda_return", "ranch_menu"]
 
 
 #----------------------

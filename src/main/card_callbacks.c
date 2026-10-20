@@ -1,7 +1,7 @@
 #include "main/card_callbacks.h"
 #include "common/saved_game.h"
 
-#if defined(VERSION_JP)
+#if defined(VERSION_JP) || defined(LOM_DREAMCAST)
 #define CARD_RESOURCE_HEADER_SIZE 768
 #define CARD_REWARD_COUNT 50
 #define CARD_LAND_MASK_COUNT 20
@@ -40,11 +40,11 @@ typedef struct
  * @param resource Loaded CARD resource containing the transfer state.
  * @param pet Pet to copy into the resource.
  * @see decomp.me (100%) https://decomp.me/scratch/LO4aD
- * @note The US release leaves the resource unchanged.
+ * @note The US release leaves the resource unchanged; the Dreamcast build takes the JP path.
  */
 void card_prepare_pet_transfer(u8* resource, PetRecord* pet)
 {
-#if defined(VERSION_JP)
+#if defined(VERSION_JP) || defined(LOM_DREAMCAST)
     CardPetTransfer* transfer;
     u8* destination;
     u8* source;
