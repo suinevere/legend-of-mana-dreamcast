@@ -390,19 +390,19 @@ static void undoFlash(std::vector<std::pair<uint32_t, uint16_t>> &undo) {
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: c, a -- outcomes; regs -- whether all registers and flags count (register-level); result -- whether r0 is a result
+ | Params: c, a -- outcomes; regs -- whether registers and flags count (register-level); result -- whether r0 is a result; live -- which registers (bits 0-15) and flags (bit 16) a register-level hook compares
  | Returns: description
  ----------------------*/
-static std::string differ(const Outcome &c, const Outcome &a, bool regs, bool result) {
+static std::string differ(const Outcome &c, const Outcome &a, bool regs, bool result, uint32_t live) {
     char buf[160];
     if (c.pc != a.pc) return "continuation";
     for (int i = 0; i < 15; i++) {
-        if ((regs || (i == 0 && result) || i == 13) && c.r[i] != a.r[i]) {
+        if (((regs && (live >> i & 1u)) || (i == 0 && result) || i == 13) && c.r[i] != a.r[i]) {
             snprintf(buf, sizeof buf, "r%d C %08X ARM %08X", i, c.r[i], a.r[i]);
             return buf;
         }
     }
-    if (regs && c.flags != a.flags) {
+    if (regs && (live >> 16 & 1u) && c.flags != a.flags) {
         snprintf(buf, sizeof buf, "flags C %08X ARM %08X", c.flags, a.flags);
         return buf;
     }
@@ -475,7 +475,7 @@ static void verify(const PskHook *h) {
     g.sandbox = false;
     g.verified++;
     std::string d = n >= ARM_LIMIT ? std::string("ARM never reached the C continuation") :
-                    differ(oc, oa, h->regs, h->result);
+                    differ(oc, oa, h->regs, h->result, h->live);
     if (!d.empty()) {
         printf("PSK: verify %08X mismatch sample %u: %s (continuation %08X)\n", h->addr & ~1u, g.host.sampleIndex(),
                d.c_str(), oc.pc);

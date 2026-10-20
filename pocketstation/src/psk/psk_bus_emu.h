@@ -19,7 +19,7 @@
 
 /*----------------------
  | PskHook
- | Description: One hooked address (bit 0 = Thumb), the function that replaces the code there, and whether it is register-level or returns r0.
+ | Description: One hooked address (bit 0 = Thumb), the function that replaces the code there, whether it is register-level or returns r0, and which registers (bits 0-15) and flags (bit 16) a register-level hook's callers read.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -32,6 +32,7 @@ struct PskHook {
     const char *name;
     int regs;
     int result;
+    uint32_t live;
 };
 
 extern "C" const PskHook psk_hooks[];

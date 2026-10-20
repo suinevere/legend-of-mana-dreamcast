@@ -16,7 +16,7 @@
 
 /*----------------------
  | PskHookEntry
- | Description: One decompiled function in the generated table: address (bit 0 = Thumb), entry, name, register-level flag, r0-result flag.
+ | Description: One decompiled function in the generated table: address (bit 0 = Thumb), entry, name, register-level flag, r0-result flag, live outputs (bits 0-15 registers, bit 16 flags).
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -29,6 +29,7 @@ typedef struct {
     const char *name;
     int regs;
     int result;
+    uint32_t live;
 } PskHookEntry;
 
 extern const PskHookEntry psk_hooks[];

@@ -1,0 +1,2 @@
+# Hook test: the same leaf with every register live.
+020028E9 rrl_func_020028E8 regs

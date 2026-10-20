@@ -1,0 +1,2 @@
+# Hook test: the good leaf with a dead register left wrong, declared live outputs r0 and flags.
+020028E9 rrl_func_020028E8 regs:r0,flags

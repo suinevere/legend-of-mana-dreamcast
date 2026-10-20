@@ -151,3 +151,41 @@ def test_gen_hooks_refuses_stack_arguments():
     with pytest.raises(ValueError):
         gen_hooks.parse("02000000 f regs\n02000000 g regs\n")
     assert "thunk_02000000" in gen_hooks.generate(gen_hooks.parse("02000000 f 2 u32\n"))
+
+
+def test_override_replaces_entries_at_the_same_address(tmp_path):
+    base = tmp_path / "base.txt"
+    over = tmp_path / "over.txt"
+    out = tmp_path / "hooks.c"
+    base.write_text("020042A1 rrl_random regs\n02004275 rrl_func_02004274 regs\n")
+    over.write_text("020042A1 game_random 1 u32\n")
+    assert gen_hooks.main([str(base), str(out), "--override", str(over)]) == 0
+    text = out.read_text()
+    assert '"game_random"' in text and '"rrl_random"' not in text
+    assert '"rrl_func_02004274"' in text
+
+
+def test_override_of_an_unknown_address_is_an_error(tmp_path):
+    base = tmp_path / "base.txt"
+    over = tmp_path / "over.txt"
+    base.write_text("020042A1 rrl_random regs\n")
+    over.write_text("02009999 game_nothing 0\n")
+    assert gen_hooks.main([str(base), str(tmp_path / "h.c"), "--override", str(over)]) == 1
+
+
+def test_gen_hooks_live_mask_names_the_compared_outputs():
+    text = gen_hooks.generate(gen_hooks.parse("020028E9 f regs:r0,r7,flags\n020028EB g regs\n"))
+    assert '{0x020028E9u, f, "f", 1, 0, 0x00010081u},' in text
+    assert '{0x020028EBu, g, "g", 1, 0, 0x0001FFFFu},' in text
+    with pytest.raises(ValueError):
+        gen_hooks.parse("020028E9 f regs:r16\n")
+
+
+def test_dead_register_outside_the_live_mask_is_not_compared():
+    all_verified(build("live", "live.txt", "test_hooks_live.c"))
+
+
+def test_dead_register_is_compared_when_every_register_is_live():
+    binary = build("live-all", "live_all.txt", "test_hooks_live.c")
+    r, _ = run(binary, "race", "--verify")
+    assert r.returncode == 6 and "r1 C 0000DEAD" in r.stdout, r.stdout[-500:]
