@@ -75,7 +75,24 @@ $(HOST_BIN): $(HOST_OUT)/rrl_host.o $(HOST_OUT)/psk_host.o $(HOST_OUT)/hooks.o $
 
 host: $(HOST_BIN)
 
+GAME_HOST_BIN ?= ../build/game_host
+GAME_HOST_OUT ?= ../build/game-alone
+GAME_DEFS     ?=
+
+$(GAME_HOST_OUT)/%.o: %.c $(wildcard $(PSK)/*.h ../src/game/*.h ../build/game/gen/*.h)
+	@mkdir -p $(GAME_HOST_OUT)
+	$(CC) $(CFLAGS) $(GAME_DEFS) -c $< -o $@
+
+$(GAME_HOST_OUT)/psk_host.o: $(PSK)/psk_host.c $(PSK)/psk_host.h $(PSK)/psk_hw.h $(PSK)/psk_swi.h
+	@mkdir -p $(GAME_HOST_OUT)
+	$(CC) $(CFLAGS) $(GAME_DEFS) -c $< -o $@
+
+$(GAME_HOST_BIN): $(GAME_HOST_OUT)/game_host.o $(GAME_HOST_OUT)/psk_host.o $(patsubst %.c,$(GAME_HOST_OUT)/%.o,$(notdir $(CSRCS)))
+	$(CC) -o $@ $^
+
+game-alone: $(GAME_HOST_BIN)
+
 clean:
 	rm -rf ../build/runner* ../build/pkrun* $(HOST_OUT) $(HOST_BIN)
 
-.PHONY: all clean host
+.PHONY: game-alone all clean host

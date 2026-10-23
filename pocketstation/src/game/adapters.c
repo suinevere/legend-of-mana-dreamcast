@@ -49,131 +49,13 @@ static uint32_t mirror_last_bit(uint32_t bits) {
     return (bits & 1u) ? 1u : (bits & 2u) ? 2u : (bits & 4u) ? 4u : 8u;
 }
 
-/*----------------------
- | game_mode1_leave_regs
- | Description: Register entry for game_mode1_leave; r7 = r6 + 0x20.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode1_leave_regs(PskCpu *c) {
-    game_mode1_leave();
-    c->r[7] = c->r[6] + STATE_SUB;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mode2_leave_regs
- | Description: Register entry for game_mode2_leave; r7 = r6 + 0x20.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode2_leave_regs(PskCpu *c) {
-    game_mode2_leave();
-    c->r[7] = c->r[6] + STATE_SUB;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mode4_leave_regs
- | Description: Register entry for game_mode4_leave; r7 = r6 + 0x20.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode4_leave_regs(PskCpu *c) {
-    game_mode4_leave();
-    c->r[7] = c->r[6] + STATE_SUB;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mode7_leave_regs
- | Description: Register entry for game_mode7_leave; r7 = r6 + 0x20.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode7_leave_regs(PskCpu *c) {
-    game_mode7_leave();
-    c->r[7] = c->r[6] + STATE_SUB;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mode13_leave_regs
- | Description: Register entry for game_mode13_leave; r1 = sel_c's new value, r7 = r6 + 0x20.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode13_leave_regs(PskCpu *c) {
-    game_mode13_leave();
-    c->r[1] = ram_sel_c();
-    c->r[7] = c->r[6] + STATE_SUB;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_set_irq_handler_regs
- | Description: Register entry for game_set_irq_handler (ARM); r4 = the handler table base.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_set_irq_handler_regs(PskCpu *c) {
-    game_set_irq_handler((uint8_t)c->r[0], c->r[1]);
-    c->r[4] = 0x208u;
-    c->r[15] = c->r[14] & ~3u;
-}
 
-/*----------------------
- | game_bag_remove_regs
- | Description: Register entry for game_bag_remove; r1 = the cursor when moved, r2 = 0, r5 = one past the last byte moved within the list base 0x4C4.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_bag_remove_regs(PskCpu *c) {
-    uint32_t index = c->r[0], n = ram_bag_count() - 1u - index;
-    game_bag_remove((uint8_t)index, (uint8_t)c->r[1]);
-    if (c->r[1] == 1u) {
-        c->r[1] = ram_bag_cursor();
-    }
-    c->r[2] = 0;
-    c->r[5] = n ? 0x4C4u + index + n : 0x4C4u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_rom_word_8094_regs
- | Description: Register entry for game_rom_word_8094; r1 = 0x8000.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_rom_word_8094_regs(PskCpu *c) {
-    c->r[0] = game_rom_word_8094((uint8_t)c->r[0]);
-    c->r[1] = 0x8000u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_read_buttons_regs
@@ -217,21 +99,6 @@ void game_buttons_irq_regs(PskCpu *c) {
     c->r[15] = c->r[14] & ~3u;
 }
 
-/*----------------------
- | game_lcd_mode_regs
- | Description: Register entry for game_lcd_mode (ARM); r3 = 0, r4 = the LCD base.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_lcd_mode_regs(PskCpu *c) {
-    game_lcd_mode((uint8_t)c->r[0], (uint8_t)c->r[1]);
-    c->r[3] = 0;
-    c->r[4] = LCD_MODE;
-    c->r[15] = c->r[14] & ~3u;
-}
 
 /*----------------------
  | game_fb_put_rows_regs
@@ -248,42 +115,7 @@ void game_fb_put_rows_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_fb_present_regs
- | Description: Register entry for game_fb_present (ARM); r1-r5 and r8 hold what the last eight-word copy left.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_fb_present_regs(PskCpu *c) {
-    game_fb_present();
-    c->r[1] = 0x0D000180u;
-    c->r[2] = 0;
-    c->r[3] = ram_fb(24);
-    c->r[4] = ram_fb(25);
-    c->r[5] = ram_fb(26);
-    c->r[8] = ram_fb(29);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_fb_clear_regs
- | Description: Register entry for game_fb_clear; r0 = the frame buffer, r1 = r2 = 0.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_fb_clear_regs(PskCpu *c) {
-    game_fb_clear();
-    c->r[0] = 0x240u;
-    c->r[1] = 0;
-    c->r[2] = 0;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_sprite_info_regs
@@ -319,24 +151,6 @@ void game_sprite_draw_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_state_reset_regs
- | Description: Register entry for game_state_reset (ARM); r2-r5 and r8 hold what the last eight-word copy left.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_state_reset_regs(PskCpu *c) {
-    game_state_reset();
-    c->r[2] = STATE_BLOCK + 0x80u;
-    c->r[3] = psk_r32(0x02000360u);
-    c->r[4] = psk_r32(0x02000364u);
-    c->r[5] = psk_r32(0x02000368u);
-    c->r[8] = psk_r32(0x02000374u);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_frame_info_regs
@@ -357,81 +171,10 @@ void game_frame_info_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_wait_ticks_regs
- | Description: Register entry for game_wait_ticks (ARM); r4 = the counter's address, r5 = its value at the end.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_wait_ticks_regs(PskCpu *c) {
-    uint8_t which = (uint8_t)c->r[0];
-    c->r[5] = game_wait_ticks(which, c->r[1]);
-    c->r[4] = 0x5D4u + which * 2u;
-    c->r[15] = c->r[14] & ~3u;
-}
 
-/*----------------------
- | game_sound_request_regs
- | Description: Register entry for game_sound_request; r1 = the sound driver state base.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_sound_request_regs(PskCpu *c) {
-    game_sound_request((uint8_t)c->r[0]);
-    c->r[1] = 0x5C4u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_sound_on_regs
- | Description: Register entry for game_sound_on; r4 = the sound register base.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_sound_on_regs(PskCpu *c) {
-    game_sound_on();
-    c->r[4] = 0x0D800000u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_sound_off_regs
- | Description: Register entry for game_sound_off; r4 = the sound register base.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_sound_off_regs(PskCpu *c) {
-    game_sound_off();
-    c->r[4] = 0x0D800000u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_byte_is_regs
- | Description: Register entry for game_byte_is; r3 = the table base.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_byte_is_regs(PskCpu *c) {
-    c->r[0] = game_byte_is((uint8_t)c->r[0], c->r[1]);
-    c->r[3] = 0x02009EFCu;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_digits_x_regs
@@ -447,54 +190,8 @@ void game_digits_x_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_save_regs
- | Description: Register entry for game_save; r1 = the block, r2 = the interrupt controller, r3 = the old mask, r4 = the lines masked.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_save_regs(PskCpu *c) {
-    c->r[3] = game_save();
-    c->r[1] = STATE_BLOCK;
-    c->r[2] = 0x0A000000u;
-    c->r[4] = 0x2040u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_nibble_regs
- | Description: Register entry for game_nibble; r1 = the nibble's bit offset, r2 = its word shifted down by it.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_nibble_regs(PskCpu *c) {
-    uint32_t index = c->r[0];
-    c->r[0] = game_nibble((uint8_t)index);
-    nibble_leftovers(c, index);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mirror_direction_regs
- | Description: Register entry for game_mirror_direction; r1 = the last bit tested.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mirror_direction_regs(PskCpu *c) {
-    uint32_t bits = c->r[0];
-    c->r[0] = game_mirror_direction(bits);
-    c->r[1] = mirror_last_bit(bits);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_divide_regs
@@ -512,20 +209,6 @@ void game_divide_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_timer_setup_regs
- | Description: Register entry for game_timer_setup; r3 = the mode written, r4 = the timer's base.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_timer_setup_regs(PskCpu *c) {
-    c->r[3] = game_timer_setup(c->r[0], c->r[1], c->r[2], c->r[3]);
-    c->r[4] = 0x0A800000u + c->r[0] * 16u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_timer_start_regs
@@ -589,20 +272,6 @@ void game_timer_irq_off_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_add_capped_regs
- | Description: Register entry for game_add_capped; r3 = one past the last source byte, r4 = the last byte written.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_add_capped_regs(PskCpu *c) {
-    c->r[4] = game_add_capped(c->r[0], c->r[1], c->r[2], c->r[3]);
-    c->r[3] += c->r[0];
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_reels_step_regs
@@ -622,22 +291,6 @@ void game_reels_step_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_strip_load_regs
- | Description: Register entry for game_strip_load; r0 = the length, r3 = 0, r4 = one past the strip's last card byte.
- | Author: suinevere
- | Dependencies: rrl_rom.h
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_strip_load_regs(PskCpu *c) {
-    uint32_t src = psk_r32(ROM_STRIPS + c->r[0] * 4u);
-    c->r[0] = game_strip_load((uint16_t)c->r[0], c->r[1], (uint8_t)c->r[2]);
-    c->r[3] = 0;
-    c->r[4] = src + c->r[0];
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_irq_dispatch_regs
@@ -700,21 +353,6 @@ void game_pop_return_regs(PskCpu *c) {
     c->r[13] += 4u;
 }
 
-/*----------------------
- | game_menu_pick_a_regs
- | Description: Register entry for game_menu_pick_a; r0 = the return address it popped, r1 = mode_wait.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: mode_wait
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_menu_pick_a_regs(PskCpu *c) {
-    game_menu_pick_a();
-    c->r[0] = c->r[14];
-    c->r[1] = ram_mode_wait();
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_menu_pick_b_regs
@@ -736,21 +374,6 @@ void game_menu_pick_b_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_menu_pick_row_regs
- | Description: Register entry for game_menu_pick_row; r0 = the return address it popped, r1 = mode_wait.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: mode_wait
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_menu_pick_row_regs(PskCpu *c) {
-    game_menu_pick_row();
-    c->r[0] = c->r[14];
-    c->r[1] = ram_mode_wait();
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | meter_leftover
@@ -769,20 +392,6 @@ static uint32_t meter_leftover(void) {
     return (target != 0u && target >= shown) ? 0x5C4u : target;
 }
 
-/*----------------------
- | game_meter_update_regs
- | Description: Register entry for game_meter_update; r1 = the delay limit while counting, else 0x5C4 after a sound request, else meter.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: meter, meter_shown, meter_delay
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_meter_update_regs(PskCpu *c) {
-    c->r[1] = meter_leftover();
-    game_meter_update();
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | WalkSeen
@@ -846,101 +455,10 @@ static void walk_step_leftovers(PskCpu *c, WalkSeen w) {
     }
 }
 
-/*----------------------
- | game_walk_step_regs
- | Description: Register entry for game_walk_step; r7 = r6 + 0x20, and with a step running r1 = walk_kind, then what a finished step's nibble and mirror calls leave in r1-r3.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: walk_busy, walk_kind, walk_frame, sel_c, sel_d
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_walk_step_regs(PskCpu *c) {
-    WalkSeen w = walk_seen();
-    game_walk_step();
-    walk_step_leftovers(c, w);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | walk_choose_leftovers
- | Description: What game_walk_choose's ARM will leave, worked out before it runs: with no step running r4 = sel_d, r3 = sel_b (0 for 2), r2 = the last bits tested.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: walk_busy, sel_b, sel_d, btn_prev
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-static void walk_choose_leftovers(PskCpu *c) {
-    if (ram_walk_busy() == 0u) {
-        uint8_t exits = game_cell_exits(), held = ram_btn_prev(), i;
-        c->r[4] = ram_sel_d();
-        c->r[3] = ram_sel_b() == 2u ? 0u : ram_sel_b();
-        for (i = 0u; i < 4u; i++) {
-            c->r[2] = game_walk_dirs[i].button;
-            if (held & c->r[2]) {
-                c->r[2] = exits & game_walk_dirs[i].exits;
-                if (c->r[2] != 0u) {
-                    break;
-                }
-            }
-        }
-    }
-}
 
-/*----------------------
- | game_walk_choose_regs
- | Description: Register entry for game_walk_choose; with no step running r4 = sel_d, r3 = sel_b (0 for 2), r2 = the last button or exit bits the direction scan tested.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: walk_busy, sel_b, sel_d, btn_prev
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_walk_choose_regs(PskCpu *c) {
-    walk_choose_leftovers(c);
-    game_walk_choose();
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_board_enter_regs
- | Description: Register entry for game_board_enter; after a save r2-r4 hold what game_save leaves (the controller, the old mask, the lines masked).
- | Author: suinevere
- | Dependencies: N/A
- | Globals: meter
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_board_enter_regs(PskCpu *c) {
-    uint32_t mask = psk_ldr(INT_MASK_SET);
-    uint8_t saves = ram_meter() != 0u;
-    game_board_enter();
-    if (saves) {
-        c->r[2] = INT_BASE;
-        c->r[3] = mask;
-        c->r[4] = 0x2040u;
-    }
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_bag_kinds_regs
- | Description: Register entry for game_bag_kinds; r2 = 0, r3 = the kinds above the lowest, r4 = 0xFF, r5 = 0x4C4 + bag_count.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: bag_count, scratch_first
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_bag_kinds_regs(PskCpu *c) {
-    uint32_t n = ram_bag_count(), kinds = game_bag_kinds();
-    c->r[2] = 0u;
-    c->r[3] = (kinds >> ram_scratch_first()) >> 1;
-    c->r[4] = 0xFFu;
-    c->r[5] = STATE_BLOCK + n;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | MARKER_BASE
@@ -953,56 +471,8 @@ void game_bag_kinds_regs(PskCpu *c) {
  ----------------------*/
 #define MARKER_BASE 0x424u
 
-/*----------------------
- | game_bag_count_first_regs
- | Description: Register entry for game_bag_count_first; r1 = 0x8000 from the table read, r2 = 0, r3 = the count, r4 = 0xFF, r5 = 0x4C4 + bag_count. Converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: bag_count
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_bag_count_first_regs(PskCpu *c) {
-    uint32_t n = ram_bag_count();
-    c->r[3] = game_bag_count_first();
-    c->r[1] = 0x8000u;
-    c->r[2] = 0;
-    c->r[4] = 0xFFu;
-    c->r[5] = STATE_BLOCK + n;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_bag_find_nth_regs
- | Description: Register entry for game_bag_find_nth; r1 = 0x8000 from the table read, r3 = 0, r4 = 0xFF, r5 = 0x4C4 + the index. Converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_bag_find_nth_regs(PskCpu *c) {
-    c->r[5] = STATE_BLOCK + game_bag_find_nth();
-    c->r[1] = 0x8000u;
-    c->r[3] = 0;
-    c->r[4] = 0xFFu;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_buttons_init_regs
- | Description: Register entry for game_buttons_init (ARM); r4 = the handler table base the last handler store leaves.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_buttons_init_regs(PskCpu *c) {
-    game_buttons_init((uint8_t)c->r[0]);
-    c->r[4] = 0x208u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_sprite_origin_regs
@@ -1019,20 +489,6 @@ void game_sprite_origin_regs(PskCpu *c) {
     game_sprite_info_regs(c);
 }
 
-/*----------------------
- | game_anim_start_regs
- | Description: Register entry for game_anim_start; r2 = ROM_ANIM_DELAY.
- | Author: suinevere
- | Dependencies: rrl_rom.h
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_anim_start_regs(PskCpu *c) {
-    game_anim_start((uint8_t)c->r[0], (uint8_t)c->r[1], (uint8_t)c->r[2]);
-    c->r[2] = ROM_ANIM_DELAY;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | marker_start_leftovers
@@ -1098,28 +554,6 @@ void game_marker_frame_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_quit_sound_regs
- | Description: Register entry for game_quit_sound; r2 = 1 when the kernel flag stopped it, else snd_mode, and r4 the sound register base once it played. Converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: docked, com_flags, snd_mode
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_quit_sound_regs(PskCpu *c) {
-    if (ram_docked() == 0u) {
-        c->r[2] = 1u;
-        if ((psk_ldr(ram_com_flags()) & 1u) == 0u) {
-            c->r[2] = ram_snd_mode();
-            if (c->r[2] != 2u) {
-                c->r[4] = 0x0D800000u;
-            }
-        }
-    }
-    game_quit_sound();
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | sound_start_run
@@ -1174,47 +608,7 @@ void game_sound_play_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_sound_stop_regs
- | Description: Register entry for game_sound_stop; r1 = 0x5C4, r2 = 0xFF, r3 = 4, r4 the sound or interrupt base, r5 = Timer 2's interrupt line. The idle path's r4 is converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: snd_playing
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_sound_stop_regs(PskCpu *c) {
-    uint8_t idle = ram_snd_playing() == 0xFFu;
-    game_sound_stop();
-    c->r[1] = 0x5C4u;
-    c->r[2] = 0xFFu;
-    c->r[3] = 4u;
-    c->r[4] = idle ? 0x0D800000u : INT_BASE;
-    c->r[5] = 0x2000u;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_cell_event_regs
- | Description: Register entry for game_cell_event; r0 = the mode, r2 = 0xE0 + sel_c once the cell was read, r5 = 0x404 after a refill. The refill's r5 is converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: step_result, sel_c, cell_type, cell_arg
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_cell_event_regs(PskCpu *c) {
-    uint8_t result = ram_step_result(), cell = ram_sel_c();
-    uint8_t refill = result != 0u && result != 2u && result != 3u && ram_cell_type(cell) == 0xFFu && ram_cell_arg(cell) == 0u;
-    c->r[0] = game_cell_event();
-    if (result != 0u && result != 3u) {
-        c->r[2] = 0xE0u + cell;
-    }
-    if (refill) {
-        c->r[5] = 0x404u;
-    }
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_event_roll_regs
@@ -1235,53 +629,8 @@ void game_event_roll_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_pick_bag_nth_regs
- | Description: Register entry for game_pick_bag_nth; r3 = 0xFF, r4 = the picked weight.
- | Author: suinevere
- | Dependencies: rrl_rom.h
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_pick_bag_nth_regs(PskCpu *c) {
-    uint8_t i = game_pick_bag_nth();
-    c->r[3] = 0xFFu;
-    c->r[4] = (psk_r32(ROM_ODDS_NTH) >> (i * 8u)) & 0xFFu;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | reels_load_leftovers
- | Description: What game_reels_load's ARM leaves: r1 = strip_c's address, r2 = r3 = 0, r4 = the end of strip 2 in the card, r5 = 0x404.
- | Author: suinevere
- | Dependencies: rrl_rom.h
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-static void reels_load_leftovers(PskCpu *c) {
-    c->r[1] = 0x564u;
-    c->r[2] = 0;
-    c->r[3] = 0;
-    c->r[4] = psk_r32(ROM_STRIPS + 12u);
-    c->r[5] = 0x404u;
-}
 
-/*----------------------
- | game_reels_load_regs
- | Description: Register entry for game_reels_load; r1 = strip_c's address, r2 = 0, r3 = 0, r4 = the end of strip 2 in the card, r5 = 0x404.
- | Author: suinevere
- | Dependencies: rrl_rom.h
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_reels_load_regs(PskCpu *c) {
-    game_reels_load();
-    reels_load_leftovers(c);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | strip3_leftovers
@@ -1300,53 +649,8 @@ static void strip3_leftovers(PskCpu *c) {
     c->r[5] = 0x404u;
 }
 
-/*----------------------
- | game_reels_load_strip3_regs
- | Description: Register entry for game_reels_load_strip3; r1 = strip_a's address, r2 = r3 = 0, r4 = the end of strip 3 in the card, r5 = 0x404. Converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: rrl_rom.h
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_reels_load_strip3_regs(PskCpu *c) {
-    game_reels_load_strip3();
-    strip3_leftovers(c);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | raised_leftovers
- | Description: What game_reels_load_raised's ARM leaves: r1 = strip_a's address, r2 = lap_mark, r3 = one past strip_c's copied symbols, r4 = the last symbol written, r5 = 0x404.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: lap_mark, strip_a
- | Params: c -- ARM register file; len -- strip_c_len before the load
- | Returns: N/A
- ----------------------*/
-static void raised_leftovers(PskCpu *c, uint8_t len) {
-    c->r[1] = 0x544u;
-    c->r[2] = ram_lap_mark();
-    c->r[3] = 0x564u + len;
-    c->r[4] = ram_strip_a((uint8_t)(len - 1u));
-    c->r[5] = 0x404u;
-}
 
-/*----------------------
- | game_reels_load_raised_regs
- | Description: Register entry for game_reels_load_raised; r1 = strip_a's address, r2 = lap_mark, r3 = one past strip_c's copied symbols, r4 = the last symbol written, r5 = 0x404. Converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: strip_c_len, lap_mark, strip_a
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_reels_load_raised_regs(PskCpu *c) {
-    uint8_t len = ram_strip_c_len();
-    game_reels_load_raised();
-    raised_leftovers(c, len);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_strip_shuffle_regs
@@ -1368,22 +672,6 @@ void game_strip_shuffle_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_strip_next_symbol_regs
- | Description: Register entry for game_strip_next_symbol; r1 = the popped return address, r3 = len.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_strip_next_symbol_regs(PskCpu *c) {
-    uint32_t len = c->r[0];
-    c->r[0] = game_strip_next_symbol((uint8_t)len, (uint16_t)c->r[1], c->r[2]);
-    c->r[1] = c->r[14];
-    c->r[3] = len;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | pick_three_leftovers
@@ -1430,20 +718,6 @@ void game_strip_pick_three_regs(PskCpu *c) {
     uint8_t count = game_strip_pick_three((uint8_t)c->r[0], c->r[1], d);
     pick_three_leftovers(c, count, d);
     c->r[15] = psk_bx(c->r[14]);
-}
-
-/*----------------------
- | game_veneer_039c2_regs
- | Description: Register entry for the ARM veneer at 02008384, a tail jump through r12 to 020039C2, which stays on R1 until its callers' batch.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_veneer_039c2_regs(PskCpu *c) {
-    c->r[12] = 0x020039C3u;
-    c->r[15] = psk_bx(c->r[12]);
 }
 
 /*----------------------
@@ -1561,23 +835,6 @@ void game_meter_draw_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_number_draw_regs
- | Description: Register entry for game_number_draw; r0-r1 position, r2 the number; r2-r5 the digit sprite with r4 the units digit, r8 the digit sheet.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_number_draw_regs(PskCpu *c) {
-    SpriteInfo s = game_sprite_info((int16_t)c->r[0], (int16_t)c->r[1], SPRITE_DIGITS);
-    c->r[8] = s.bitmap;
-    s.bitmap = game_number_draw((int16_t)c->r[0], (int16_t)c->r[1], c->r[2]);
-    c->r[2] = s.width;
-    sprite_regs(c, s);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_count_of_draw_regs
@@ -1631,24 +888,6 @@ void game_wide_draw_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_walk_by_buttons_regs
- | Description: Register entry for game_walk_by_buttons; r2-r4 as game_walk_choose leaves them when it ran, then what game_walk_step leaves.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: meter, meter_shown, walk_busy, walk_kind, walk_frame, sel_b, sel_c, sel_d, btn_prev
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_walk_by_buttons_regs(PskCpu *c) {
-    WalkSeen w = walk_seen();
-    if (ram_meter_shown() == ram_meter()) {
-        walk_choose_leftovers(c);
-    }
-    game_walk_by_buttons();
-    walk_step_leftovers(c, w);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_walk_pending_regs
@@ -1724,266 +963,19 @@ void game_bag_reveal_regs(PskCpu *c) {
     c->r[15] = psk_bx(c->r[14]);
 }
 
-/*----------------------
- | game_reels_next_two_regs
- | Description: Register entry for game_reels_next_two (r5 = 0x404 from its one caller); r1 = the second symbol call's return address, r2 = strip_b's address, r3 = reel_len_b.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: reel_len_b
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_reels_next_two_regs(PskCpu *c) {
-    game_reels_next_two();
-    c->r[1] = 0x0200227Du;
-    c->r[2] = 0x554u;
-    c->r[3] = ram_reel_len_b();
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_scene_step_regs
- | Description: Register entry for game_scene_step; r1 = btn_new, r2 = 1, r3 = mode_wait after the count, with each scene's own leftovers. Scene 2's are converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: mode_wait, btn_new, scene_id, mode_done, scratch_wait, scratch_first, scratch_count, strip_c_len
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_scene_step_regs(PskCpu *c) {
-    uint8_t wait = ram_mode_wait(), scene = ram_scene_id(), started = ram_mode_done() == 1u;
-    uint8_t ready = wait <= 1u && (ram_btn_new() & BTN_FIRE) != 0u, count = ram_scratch_count();
-    uint8_t len = ram_strip_c_len(), flag = ram_scratch_wait();
-    game_scene_step();
-    c->r[1] = ram_btn_new();
-    c->r[2] = BTN_FIRE;
-    c->r[3] = wait != 0u ? wait - 1u : 0u;
-    if (scene == 1u && !started && ready) {
-        c->r[2] = flag == 0xFFu ? 0x68u : 0u;
-    } else if (scene == 1u && started) {
-        c->r[4] = ram_scratch_first();
-    } else if (scene == 2u && started) {
-        c->r[3] = count != 0u ? count - 1u : 0u;
-        if (count == 1u) {
-            raised_leftovers(c, len);
-            c->r[1] = 0x5C4u;
-        }
-    }
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_payout_regs
- | Description: Register entry for game_payout; r1 = lap_points before plus the points added (32-bit), r4 = marker type 0x68's frame 0 extra bits, r5 = the points added.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: lap_points
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_payout_regs(PskCpu *c) {
-    uint16_t lap = ram_lap_points();
-    c->r[5] = game_payout();
-    c->r[1] = lap + c->r[5];
-    c->r[4] = game_frame_info(0x68u, 0).extra;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mode0_leave_regs
- | Description: Register entry for game_mode0_leave; r2-r5 hold what game_reels_load leaves.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode0_leave_regs(PskCpu *c) {
-    game_mode0_leave();
-    reels_load_leftovers(c);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mode10_leave_regs
- | Description: Register entry for game_mode10_leave; r1-r4 hold what game_marker_start leaves for type 0x5B.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode10_leave_regs(PskCpu *c) {
-    game_mode10_leave();
-    marker_start_leftovers(c, 0x5Bu);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_mode14_leave_regs
- | Description: Register entry for game_mode14_leave; r1 = 0x8000, r2 = 0, r3 = the count, r4 = 0xFF, r5 = 0x4C4 + bag_count, as game_bag_count_first leaves them. Converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: scratch_lo, bag_count
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_mode14_leave_regs(PskCpu *c) {
-    game_mode14_leave();
-    c->r[1] = 0x8000u;
-    c->r[2] = 0;
-    c->r[3] = ram_scratch_lo();
-    c->r[4] = 0xFFu;
-    c->r[5] = STATE_BLOCK + ram_bag_count();
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | next_roll
- | Description: What the next game_random(limit) will return, worked out from the seed without stepping it.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: seed
- | Params: limit -- exclusive upper bound
- | Returns: the coming roll
- ----------------------*/
-static uint16_t next_roll(uint16_t limit) {
-    uint16_t s = (uint16_t)((ram_seed() + 1u) * 0x3D09u);
-    return (uint16_t)(((uint32_t)limit * s) >> 16);
-}
 
-/*----------------------
- | weights_left
- | Description: The weight word a weighted pick's ARM leaves in r2 for a roll: shifted down by a byte per weight the roll passed.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: weights -- four byte weights, lowest byte first; roll -- the roll below 100
- | Returns: the shifted word
- ----------------------*/
-static uint32_t weights_left(uint32_t weights, uint16_t roll) {
-    while (roll >= (weights & 0xFFu)) {
-        roll = (uint16_t)(roll - (weights & 0xFFu));
-        weights >>= 8;
-    }
-    return weights;
-}
 
-/*----------------------
- | game_pick_item_regs
- | Description: Register entry for game_pick_item; r0 = r3 = the item, then the matched entry's kind, address and odds pick in r2, r4, r5. How 2 leaves its pick's weights in r2 and r4; how 2 and the fixed items leave r5 = r6 + 0x20. Both are unverified.
- | Author: suinevere
- | Dependencies: rrl_rom.h
- | Globals: seed, odds_set, scene_id
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_pick_item_regs(PskCpu *c) {
-    uint8_t how = (uint8_t)c->r[0];
-    uint8_t fixed = how == 1u && ram_scene_id() == 13u && next_roll(100u) < 80u;
-    uint32_t weights = weights_left(psk_r32(ROM_ODDS_SET + ram_odds_set() * 4u), next_roll(100u)), at;
-    c->r[0] = game_pick_item(how);
-    c->r[3] = c->r[0];
-    if (how == 2u) {
-        c->r[2] = weights;
-        c->r[4] = weights & 0xFFu;
-    } else if (!fixed) {
-        at = ROM_WORDS_8094 + c->r[0] * 2u;
-        c->r[2] = psk_r16(at) & 0xFFu;
-        c->r[4] = at;
-        c->r[5] = psk_r16(at) >> 8;
-    }
-    if (how == 2u || fixed) {
-        c->r[5] = c->r[6] + STATE_SUB;
-    }
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_power_down_regs
- | Description: Register entry for game_power_down (ARM); r0 = the interrupt controller, r1 = the input word last read, r4-r5 what stopping Timer 2 leaves. Converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_power_down_regs(PskCpu *c) {
-    uint32_t mode = psk_ldr(TIMER_BASE + 2u * 16u + 8u) & ~4u;
-    c->r[1] = game_power_down();
-    c->r[0] = INT_BASE;
-    c->r[4] = TIMER_BASE + 0x20u;
-    c->r[5] = mode;
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_ticks_start_regs
- | Description: Register entry for game_ticks_start (ARM) on r0-r2; r1 = game_timer_tick's address, r4 = the timer's base, r5 = the mode that started it.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_ticks_start_regs(PskCpu *c) {
-    uint8_t n = (uint8_t)c->r[0];
-    c->r[5] = game_ticks_start(n, (uint16_t)c->r[1], (uint8_t)c->r[2]);
-    c->r[1] = 0x02003E70u;
-    c->r[4] = TIMER_BASE + n * 16u;
-    c->r[15] = c->r[14] & ~3u;
-}
 
-/*----------------------
- | game_timer_reset_regs
- | Description: Register entry for game_timer_reset (ARM) on r0-r2; r4 = the timer's base, r5 = its interrupt line.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_timer_reset_regs(PskCpu *c) {
-    uint8_t n = (uint8_t)c->r[0];
-    game_timer_reset(n, (uint16_t)c->r[1], (uint8_t)c->r[2]);
-    c->r[4] = TIMER_BASE + n * 16u;
-    c->r[5] = n == 0u ? 0x80u : n == 1u ? 0x100u : 0x2000u;
-    c->r[15] = c->r[14] & ~3u;
-}
 
-/*----------------------
- | game_board_fill_regs
- | Description: Register entry for game_board_fill; r5 = cell_arg's address, r8 = the choice kinds still open when the even-cell pass ran, else kept from entry. The kept case is unverified.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: board_args, board_steps
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_board_fill_regs(PskCpu *c) {
-    uint8_t kinds = game_board_fill();
-    c->r[5] = c->r[6] + 0xC0u;
-    if (ram_board_args() != ram_board_steps()) {
-        c->r[8] = kinds;
-    }
-    c->r[15] = psk_bx(c->r[14]);
-}
 
-/*----------------------
- | game_reels_load_single_regs
- | Description: Register entry for game_reels_load_single; r2 = lap_mark, r3 = one past strip_c's copied symbols, r4 = the last symbol written, r5 = 0x404, as game_reels_load_raised leaves them.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: strip_c_len
- | Params: c -- ARM register file
- | Returns: N/A
- ----------------------*/
-void game_reels_load_single_regs(PskCpu *c) {
-    uint8_t len = ram_strip_c_len();
-    game_reels_load_single();
-    raised_leftovers(c, len);
-    c->r[15] = psk_bx(c->r[14]);
-}
 
 /*----------------------
  | game_reels_load_pick_regs
@@ -2020,5 +1012,315 @@ void game_reels_load_pair_regs(PskCpu *c) {
     c->r[3] = roll;
     c->r[4] = moved >= 0 ? (uint32_t)moved : psk_r32(ROM_STRIPS + strip * 4u + 4u);
     c->r[5] = 0x404u;
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+/*----------------------
+ | sprite_all_regs
+ | Description: Writes a sprite into r0-r5 in game_sprite_info_regs's layout, as the last sprite routine called leaves them.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: c -- ARM register file; s -- the sprite
+ | Returns: N/A
+ ----------------------*/
+static void sprite_all_regs(PskCpu *c, SpriteInfo s) {
+    c->r[0] = (uint32_t)(int32_t)s.x;
+    c->r[1] = (uint32_t)(int32_t)s.y;
+    c->r[2] = s.width;
+    c->r[3] = s.height;
+    c->r[4] = s.bitmap;
+    c->r[5] = s.flags;
+}
+
+/*----------------------
+ | window_regs
+ | Description: What the window draw's ARM leaves in r2-r5: r2 = -1 when off screen, else 0x1FF800, r3 the last frame buffer row it inverted, r4 the last symbol and r5 = 0.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: fb
+ | Params: c -- ARM register file; y -- the window's y; last -- game_reel_window_draw's result
+ | Returns: N/A
+ ----------------------*/
+static void window_regs(PskCpu *c, int16_t y, uint32_t last) {
+    c->r[2] = 0xFFFFFFFFu;
+    if (last != 0u) {
+        c->r[2] = 0x001FF800u;
+        c->r[3] = ram_fb((uint8_t)(y >= 16 ? 2 * y - 1 : y + 8));
+        c->r[4] = last;
+        c->r[5] = 0;
+    }
+}
+
+/*----------------------
+ | game_menu_a_draw_regs
+ | Description: Register entry for game_menu_a_draw (ARM); r0-r5 the last sprite drawn.
+ | Author: suinevere
+ | Dependencies: sprite_all_regs
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_menu_a_draw_regs(PskCpu *c) {
+    sprite_all_regs(c, game_menu_a_draw());
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+/*----------------------
+ | game_menu_row_draw_regs
+ | Description: Register entry for game_menu_row_draw (ARM); r0-r5 the last sprite drawn.
+ | Author: suinevere
+ | Dependencies: sprite_all_regs
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_menu_row_draw_regs(PskCpu *c) {
+    sprite_all_regs(c, game_menu_row_draw());
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+/*----------------------
+ | game_markers_draw_regs
+ | Description: Register entry for game_markers_draw (ARM); r0-r5 and r8 as game_marker_frame_regs leaves them for the last slot stepped, r8 from the last slot still in use, all untouched when no slot was.
+ | Author: suinevere
+ | Dependencies: game_frame_info, sprite_all_regs
+ | Globals: marker
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_markers_draw_regs(PskCpu *c) {
+    uint8_t types[4], slot, last;
+    SpriteInfo s;
+    FrameInfo f;
+    for (slot = 0; slot < 4u; slot++) {
+        types[slot] = ram_marker((uint8_t)(slot * 4u));
+    }
+    s = game_markers_draw(&last);
+    for (slot = 0; slot < 4u; slot++) {
+        if (types[slot] != 0xFFu && ram_marker((uint8_t)(slot * 4u)) != 0xFFu) {
+            c->r[8] = game_frame_info(types[slot], ram_marker((uint8_t)(slot * 4u + 1u))).bitmap;
+        }
+    }
+    if (last != 0xFFu) {
+        if (ram_marker((uint8_t)(last * 4u)) == 0xFFu) {
+            f = game_frame_info(types[last], ram_marker((uint8_t)(last * 4u + 1u)));
+            c->r[0] = (uint32_t)(int32_t)f.dx;
+            c->r[1] = (uint32_t)(int32_t)f.dy;
+            c->r[2] = f.bitmap;
+            c->r[3] = f.word;
+            c->r[4] = s.bitmap;
+            c->r[5] = 0xFFu;
+        } else {
+            sprite_all_regs(c, s);
+        }
+    }
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+/*----------------------
+ | game_reel_window_show_regs
+ | Description: Register entry for game_reel_window_show (ARM); r6 = 0x3C4, and unless in phase 8 r3 the window's y, r8 reel_len and r2-r5 as the window draw leaves them.
+ | Author: suinevere
+ | Dependencies: window_regs
+ | Globals: reel_phase, reel_len
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_reel_window_show_regs(PskCpu *c) {
+    uint8_t drawn = ram_reel_phase() != 8u;
+    uint32_t y = c->r[3], last = game_reel_window_show(&y);
+    c->r[6] = 0x3C4u;
+    if (drawn) {
+        c->r[3] = y;
+        c->r[8] = ram_reel_len();
+        window_regs(c, (int16_t)y, last);
+    }
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+
+
+
+
+
+
+
+/*----------------------
+ | game_board_draw_regs
+ | Description: Register entry for game_board_draw (ARM); r1 as its last item, character or walker draw leaves it and r8 the walker's front threshold, or cell_saved once a pass ran with sel_e clear.
+ | Author: suinevere
+ | Dependencies: game_sprite_info
+ | Globals: board_list, cell_arg, cell_type, cell_saved, sel_e, mode, mode_done, mode_phase
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_board_draw_regs(PskCpu *c) {
+    uint32_t result = game_board_draw(), r1;
+    uint8_t count = (uint8_t)result, walker = ram_sel_e(), i, cell, arg, type;
+    int16_t below = (int16_t)(result >> 8);
+    int8_t ex, ey;
+    r1 = (uint32_t)(int32_t)game_sprite_info(0, 0, 0).y;
+    for (i = 0; i < count; i++) {
+        ey = (int8_t)ram_board_list((uint8_t)(i * 3u));
+        ex = (int8_t)ram_board_list((uint8_t)(i * 3u + 1u));
+        cell = ram_board_list((uint8_t)(i * 3u + 2u));
+        if (walker != 0u && ey > below) {
+            r1 = 0;
+            walker = 0;
+        }
+        arg = ram_cell_arg(cell);
+        if (arg != 0xFFu) {
+            r1 = (uint32_t)(int32_t)game_sprite_info(ex, ey, (uint16_t)(arg + 1u)).y;
+        }
+        type = ram_cell_type(cell);
+        if (type != 0xFFu && type != 0x10u) {
+            r1 = (uint32_t)(int32_t)ey;
+        }
+        if (ram_sel_e() == 0u && cell == ram_cell_saved()) {
+            r1 = (uint32_t)(int32_t)ey;
+            if (ram_mode() == 11u && ram_mode_done() >= 10u) {
+                r1 = (uint32_t)(int32_t)ey - ram_mode_phase();
+            }
+        }
+    }
+    if (walker != 0u) {
+        r1 = 0;
+    }
+    c->r[1] = r1;
+    c->r[8] = ram_sel_e() == 0u ? ram_cell_saved() : (uint32_t)(int32_t)below;
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+
+
+
+
+/*----------------------
+ | game_mode_leave_regs
+ | Description: Register entry for game_mode_leave on r0 (ARM); like the original it returns through the link register its caller pushed.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_mode_leave_regs(PskCpu *c) {
+    game_mode_leave((uint8_t)c->r[0]);
+    c->r[15] = psk_r32(c->r[13]) & ~3u;
+    c->r[13] += 4u;
+}
+
+/*----------------------
+ | pop_return
+ | Description: Returns through the link register a fragment's caller pushed, as the original's pop at 0200375C or 020036C0 does.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+static void pop_return(PskCpu *c) {
+    c->r[15] = psk_r32(c->r[13]) & ~3u;
+    c->r[13] += 4u;
+}
+
+/*----------------------
+ | game_mode_leave_changed_regs
+ | Description: Register entry for the fragment at 0200373C: game_mode_leave_changed on r1, then the pop.
+ | Author: suinevere
+ | Dependencies: pop_return
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_mode_leave_changed_regs(PskCpu *c) {
+    game_mode_leave_changed(c->r[1]);
+    pop_return(c);
+}
+
+/*----------------------
+ | game_mode_advance_regs
+ | Description: Register entry for game_mode_advance on r1 (ARM, 020036C4); it ends with its own pushed return.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_mode_advance_regs(PskCpu *c) {
+    game_mode_advance(c->r[1]);
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+/*----------------------
+ | game_mode_advance_pop_regs
+ | Description: Register entry for the fragment at 020036BC: game_mode_advance on r1, then the pop.
+ | Author: suinevere
+ | Dependencies: pop_return
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_mode_advance_pop_regs(PskCpu *c) {
+    game_mode_advance(c->r[1]);
+    pop_return(c);
+}
+
+/*----------------------
+ | game_mode_pressed_regs
+ | Description: Register entry for the fragment at 020036B4: sound 3, game_mode_advance as the sound start leaves r1, then the pop.
+ | Author: suinevere
+ | Dependencies: pop_return
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_mode_pressed_regs(PskCpu *c) {
+    game_sound_begin(3);
+    game_mode_advance(0x5C4u);
+    pop_return(c);
+}
+
+/*----------------------
+ | game_mode_press_regs
+ | Description: Register entry for the fragment at 020036A4: game_mode_press, then the pop.
+ | Author: suinevere
+ | Dependencies: pop_return
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_mode_press_regs(PskCpu *c) {
+    game_mode_press();
+    pop_return(c);
+}
+
+/*----------------------
+ | game_board_reel_screen_regs
+ | Description: Register entry for game_board_reel_screen (ARM); r1 the meter's y, as its draw leaves it.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_board_reel_screen_regs(PskCpu *c) {
+    c->r[1] = (uint32_t)(int32_t)game_board_reel_screen().y;
+    c->r[15] = psk_bx(c->r[14]);
+}
+
+/*----------------------
+ | game_entry_regs
+ | Description: Register entry for game_entry (ARM); like the original it first points the stack at 0x800. It never returns.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: c -- ARM register file
+ | Returns: N/A
+ ----------------------*/
+void game_entry_regs(PskCpu *c) {
+    c->r[13] = 0x800u;
+    game_entry();
     c->r[15] = psk_bx(c->r[14]);
 }

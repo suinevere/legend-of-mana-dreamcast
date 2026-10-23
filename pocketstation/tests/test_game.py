@@ -1,6 +1,6 @@
 """----------------------
  | test_game.py
- | Description: Checks the structured Ring Ring Land: each override against its ARM call by call (idle-time and cycle-timed), and the game driven by it against every reference trace.
+ | Description: Checks the structured Ring Ring Land: each override against its ARM call by call (idle-time and cycle-timed), the game driven by it, and run alone with no R1 code, against every reference trace, that every R1 function has an override, and that the RAM map names every byte the game reads.
  | Author: suinevere
  | Dependencies: pocketstation/Makefile game targets, lom-pocket image, psk_file.py, psk_trace.py, test_reference_traces.py
  | Globals: N/A
@@ -116,3 +116,60 @@ def test_game_functions_are_structured():
             text = f.read()
         for name in names:
             assert not re.search(r"\b%s\s*\(\s*PskCpu" % re.escape(name), text), "%s takes PskCpu in %s" % (name, path)
+
+
+def hook_addresses(path):
+    out = set()
+    with open(path) as f:
+        for line in f:
+            parts = line.split("#", 1)[0].split()
+            if parts:
+                out.add(int(parts[0], 16))
+    return out
+
+
+def test_every_r1_function_is_overridden():
+    missing = hook_addresses(os.path.join(GAME, "..", "rrl", "hooks.txt")) - hook_addresses(os.path.join(GAME, "hooks.txt"))
+    assert not missing, "R1 functions with no structured override: " + ", ".join("%08X" % a for a in sorted(missing))
+
+
+@pytest.fixture(scope="module")
+def alone(built):
+    r = docker("make", "-C", "pocketstation", "game-alone", "game-reads")
+    assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
+
+
+def run_alone(script, binary="game_host", extra=()):
+    trace = "pocketstation/build/test/alone-%s.pktr" % script
+    r = docker("pocketstation/build/%s" % binary, "--card", CARD, "--script", "pocketstation/tests/scripts/%s.pks" % script,
+               "--entry", entry_state(script), "--trace", trace, *extra)
+    assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
+    return psk_trace.compare(psk_trace.read(os.path.join(REFERENCE, script + ".pktr")),
+                             psk_trace.read(os.path.join(REPO, trace)))
+
+
+@pytest.mark.parametrize("script", SCRIPTS)
+def test_game_alone_matches_reference(alone, script):
+    assert run_alone(script) is None
+
+
+def test_ram_map_covers_every_read_byte(alone):
+    import gen_ram
+    with open(os.path.join(GAME, "ram_map.txt")) as f:
+        fields = gen_ram.parse(f.read())
+    unnamed = [f.name for f in fields if f.name.startswith("unk_")]
+    assert not unnamed, "unnamed fields: " + ", ".join(unnamed)
+    owner = {}
+    for f in fields:
+        if f.ps is None:
+            continue
+        for a in range(f.ps, f.ps + f.size):
+            owner[a] = f.name
+    missing = set()
+    for script in SCRIPTS:
+        reads = "pocketstation/build/test/reads-%s.bin" % script
+        assert run_alone(script, "game_host-reads", ("--reads", reads)) is None
+        with open(os.path.join(REPO, reads), "rb") as f:
+            seen = f.read()
+        missing |= {a for a in range(0x200, 0x800) if seen[a] and owner.get(a, "free") == "free"}
+    assert not missing, "read bytes outside named fields: " + ", ".join("0x%03X" % a for a in sorted(missing))

@@ -1,9 +1,9 @@
 /*----------------------
  | board.c
- | Description: Ring Ring Land's board: laying it out, entering it, walking round the 32-cell ring that sel_c and sel_d track by button or on its own, and the meter catching up on show. It also picks what a finished step leads to and lists the cells on screen.
+ | Description: Ring Ring Land's board: laying it out, entering it, walking round the 32-cell ring that sel_c and sel_d track by button or on its own, and the meter catching up on show. It also picks what a finished step leads to, lists the cells on screen and draws them.
  | Author: suinevere
  | Dependencies: game.h
- | Globals: sel_a, sel_c, sel_d, sel_b, sel_e, walk_busy, walk_frame, walk_kind, cell_saved, facing_saved, meter, meter_shown, meter_delay, meter_max, scene_id, mode, mode_done, mode_phase, mode_wait, scratch_kinds, btn_prev, step_result, odds_set, steps, walk_left, walk_back, walk_behind, anim, cell_arg, cell_type, bonus_done, lap_mark, seed, board_steps, board_args, board_arg_set, board_arg_kinds
+ | Globals: sel_a, sel_c, sel_d, sel_b, sel_e, walk_busy, walk_frame, walk_kind, cell_saved, facing_saved, meter, meter_shown, meter_delay, meter_max, scene_id, mode, mode_done, mode_phase, mode_wait, scratch_kinds, btn_prev, step_result, odds_set, steps, walk_left, walk_back, walk_behind, anim, cell_arg, cell_type, bonus_done, lap_mark, seed, board_steps, board_args, board_arg_set, board_arg_kinds, scratch_lo, scratch_hi, board_list
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -721,4 +721,116 @@ uint8_t game_board_fill(void) {
     set_cell_arg(BOARD_TWIN, ram_cell_arg(8u));
     set_cell_type(BOARD_TWIN, ram_cell_type(8u));
     return kinds;
+}
+
+/*----------------------
+ | BOARD_LIST
+ | Description: Address of board_list, which game_board_gather fills.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define BOARD_LIST 0x464u
+
+/*----------------------
+ | game_board_draw
+ | Description: Steps the animations and draws the board around the walker: lists the cells on screen from the walker's cell, offset by the step in progress (or the reel game's slide in mode 11), draws their tiles, then each cell's item, its character and the walker, which goes in front of the cells below its step.
+ | Author: suinevere
+ | Dependencies: game_anims_tick, game_nibble, game_mirror_direction, game_board_gather, game_sprite_info, game_sprite_draw, game_anim_draw
+ | Globals: sel_c, sel_d, sel_e, mode, mode_done, mode_phase, scratch_lo, scratch_hi, walk_busy, walk_frame, walk_kind, cell_saved, cell_arg, cell_type, board_list
+ | Params: N/A
+ | Returns: the entry count in the low byte and the walker's front threshold, 16-bit signed, above it
+ ----------------------*/
+uint32_t game_board_draw(void) {
+    static const uint8_t bits[4] = { 1u, 2u, 4u, 8u }, ahead[4] = { 8u, 4u, 2u, 1u };
+    uint8_t exits, facing, turn = 0, count, i, cell, arg, type, step, kind, walker;
+    int16_t x = 0, y = 0, below = 0;
+    int8_t ex, ey;
+    SpriteInfo tile, s;
+    game_anims_tick();
+    exits = game_nibble(ram_sel_c());
+    if (ram_mode() == 11u && ram_mode_done() >= 10u) {
+        x = (int8_t)ram_scratch_lo();
+        y = (int8_t)ram_scratch_hi();
+    } else if (ram_walk_busy() != 0u) {
+        step = (uint8_t)(ram_walk_frame() >> 1);
+        kind = ram_walk_kind();
+        if (kind >= 2u) {
+            y = step;
+        } else {
+            turn = ram_sel_d();
+            if (kind == 1u) {
+                turn = exits == 0x0Fu ? (uint8_t)game_mirror_direction(turn) : (uint8_t)(exits & ~turn);
+            }
+            if ((turn & 3u) == 0u) {
+                y = (int16_t)-step;
+                if (step >= 4u) {
+                    below = (int16_t)(8 - step);
+                }
+            } else {
+                y = step;
+                if (step < 4u) {
+                    below = step;
+                }
+            }
+            x = (turn & 5u) ? (int16_t)(step * 2) : (int16_t)-(step * 2);
+        }
+    }
+    set_board_list(0, (uint8_t)y);
+    set_board_list(1, (uint8_t)x);
+    set_board_list(2, ram_sel_c());
+    count = 1;
+    if (exits == 0x0Fu) {
+        count = game_board_gather(x, y, 8u, 0x82u, 2u, count, BOARD_LIST);
+        count = game_board_gather(x, y, 8u, 4u, 2u, count, BOARD_LIST);
+        count = game_board_gather(x, y, 0x18u, 0x81u, 2u, count, BOARD_LIST);
+        count = game_board_gather(x, y, 0x18u, 8u, 2u, count, BOARD_LIST);
+    } else {
+        facing = ram_sel_d();
+        for (i = 0; i < 4u; i++) {
+            if (exits & bits[i]) {
+                count = game_board_gather(x, y, ram_sel_c(), (uint8_t)((facing & bits[i]) ? ahead[i] : (0x80u | ahead[i])),
+                                          (uint8_t)((turn & bits[i]) ? 3u : 2u), count, BOARD_LIST);
+            }
+        }
+    }
+    tile = game_sprite_info(0, 0, 0);
+    for (i = 0; i < count; i++) {
+        game_sprite_draw((int16_t)(tile.x + (int8_t)ram_board_list((uint8_t)(i * 3u + 1u))),
+                         (int16_t)(tile.y + (int8_t)ram_board_list((uint8_t)(i * 3u))), tile.width, tile.height, tile.bitmap, tile.flags);
+    }
+    walker = ram_sel_e();
+    for (i = 0; i < count; i++) {
+        ey = (int8_t)ram_board_list((uint8_t)(i * 3u));
+        ex = (int8_t)ram_board_list((uint8_t)(i * 3u + 1u));
+        cell = ram_board_list((uint8_t)(i * 3u + 2u));
+        if (walker != 0u && ey > below) {
+            game_anim_draw(0, 0, 0);
+            walker = 0;
+        }
+        arg = ram_cell_arg(cell);
+        if (arg != 0xFFu) {
+            s = game_sprite_info(ex, ey, (uint16_t)(arg + 1u));
+            game_sprite_draw(s.x, s.y, s.width, s.height, s.bitmap, s.flags);
+        }
+        type = ram_cell_type(cell);
+        if (type != 0xFFu && type != 0x10u) {
+            game_anim_draw(ex, ey, type);
+        }
+        if (ram_sel_e() == 0u) {
+            below = ram_cell_saved();
+            if (cell == ram_cell_saved()) {
+                game_anim_draw(ex, ey, 0);
+                if (ram_mode() == 11u && ram_mode_done() >= 10u) {
+                    game_anim_draw(ex, (int16_t)(ey - ram_mode_phase()), 1);
+                }
+            }
+        }
+    }
+    if (walker != 0u) {
+        game_anim_draw(0, 0, 0);
+    }
+    return count | ((uint32_t)(uint16_t)below << 8);
 }

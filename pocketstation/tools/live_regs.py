@@ -264,7 +264,7 @@ def statement(line: str, hooks: dict, last: dict, tables) -> Node:
 
 """----------------------
  | saved_regs
- | Description: Registers a routine pushes and pops on the stack; they leave with the values they came in with.
+ | Description: Registers a routine pushes and pops on the stack and does not assign again after its last pop; they leave with the values they came in with.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -277,7 +277,8 @@ def saved_regs(body: str) -> int:
     popped = {int(r) for r in re.findall(r"c->r\[(\d+)\] = psk_r32\(a\b", blocks)}
     m = 0
     for r in pushed & popped:
-        if r < 13:
+        last_pop = max(x.start() for x in re.finditer(r"c->r\[%d\] = psk_r32\(a\b" % r, body))
+        if r < 13 and not re.search(r"c->r\[%d\] = (?!psk_r32\(a\b)" % r, body[last_pop + 1:]):
             m |= 1 << r
     return m
 
@@ -357,14 +358,14 @@ def build(body: str, hooks: dict, tables) -> list:
 
 """----------------------
  | flow
- | Description: Backward dataflow over one routine; out_at_return gives what is live at a return, into(t) what a call or continuation target needs.
+ | Description: Backward dataflow over one routine; out_at_return gives what is live at a return, into(t) what a call or continuation target needs, kill(t) what it writes on every path.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: nodes -- statement graph; out_at_return -- mask; into -- name to mask
+ | Params: nodes -- statement graph; out_at_return -- mask; into -- name to mask; kill -- name to the mask it always writes
  | Returns: list of per-node live-before masks, plus the live-after mask of every node
  ----------------------"""
-def flow(nodes, out_at_return, into):
+def flow(nodes, out_at_return, into, kill=lambda t: 0):
     live = [0] * (len(nodes) + 1)
     after_of = [0] * len(nodes)
     again = True
@@ -376,7 +377,7 @@ def flow(nodes, out_at_return, into):
                 if n.dest is None:
                     after = ALL
                 elif n.dest:
-                    after = out_at_return
+                    after = out_at_return & ~common_kill(n.dest, kill)
                     for t in n.dest:
                         after |= into(t)
                 else:
@@ -388,7 +389,7 @@ def flow(nodes, out_at_return, into):
             if n.calls is None:
                 before = ALL
             else:
-                before = after
+                before = after & ~common_kill(n.calls, kill)
                 for t in n.calls:
                     before |= into(t)
             v = (before & ~n.kills) | n.reads
@@ -397,6 +398,65 @@ def flow(nodes, out_at_return, into):
                 live[i] = v
                 again = True
     return live, after_of
+
+
+"""----------------------
+ | common_kill
+ | Description: What every one of a call's or continuation's possible targets writes on all of its paths.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: targets -- routine names; kill -- name to mask
+ | Returns: mask, 0 for no targets
+ ----------------------"""
+def common_kill(targets, kill):
+    m = None
+    for t in targets:
+        m = kill(t) if m is None else m & kill(t)
+    return m or 0
+
+
+"""----------------------
+ | must_writes
+ | Description: Forward must-analysis over one routine: the registers and flags written on every path from entry to a return, through calls and continuations by kill(t).
+ | Author: suinevere
+ | Dependencies: common_kill
+ | Globals: N/A
+ | Params: nodes -- statement graph; kill -- name to mask
+ | Returns: mask
+ ----------------------"""
+def must_writes(nodes, kill):
+    n = len(nodes)
+    preds = [[] for _ in range(n + 1)]
+    for i, node in enumerate(nodes):
+        for s in node.succ:
+            preds[s].append(i)
+    out = [ALL] * n
+    again = True
+    while again:
+        again = False
+        for i, node in enumerate(nodes):
+            into = 0 if i == 0 else ALL
+            for p in preds[i]:
+                into &= out[p]
+            if i == 0:
+                into = 0
+            v = into | node.kills
+            if node.calls:
+                v |= common_kill(node.calls, kill)
+            if v != out[i]:
+                out[i] = v
+                again = True
+    result = ALL
+    for i, node in enumerate(nodes):
+        if node.exit:
+            result &= out[i] | (common_kill(node.dest, kill) if node.dest else 0)
+    if preds[n]:
+        end = ALL
+        for p in preds[n]:
+            end &= out[p]
+        result &= end
+    return result
 
 
 """----------------------
@@ -416,6 +476,16 @@ def analyse(src: str, hooks: dict, tables, roots: set) -> Result:
         saved[m.group(1)] = saved_regs(m.group(2))
         for n in graphs[m.group(1)]:
             n.writes &= ~saved[m.group(1)]
+    kills = {n: ALL for n in graphs}
+    changed = True
+    while changed:
+        changed = False
+        for name, nodes in graphs.items():
+            v = must_writes(nodes, lambda t: kills.get(t, 0)) & ~saved[name] & ~SP
+            if v != kills[name]:
+                kills[name] = v
+                changed = True
+    kill = lambda t: kills.get(t, 0)
     reached = set()
     for nodes in graphs.values():
         for n in nodes:
@@ -426,7 +496,7 @@ def analyse(src: str, hooks: dict, tables, roots: set) -> Result:
     while changed:
         changed = False
         for name, nodes in graphs.items():
-            live, _ = flow(nodes, SP, lambda t: inputs.get(t, ALL))
+            live, _ = flow(nodes, SP, lambda t: inputs.get(t, ALL), kill)
             if live[0] != inputs[name]:
                 inputs[name] = live[0]
                 changed = True
@@ -436,7 +506,7 @@ def analyse(src: str, hooks: dict, tables, roots: set) -> Result:
     while changed:
         changed = False
         for name, nodes in graphs.items():
-            live, after_of = flow(nodes, (live_out[name] & ~saved[name]) | SP, lambda t: inputs.get(t, ALL))
+            live, after_of = flow(nodes, (live_out[name] & ~saved[name]) | SP, lambda t: inputs.get(t, ALL), kill)
             for i, n in enumerate(nodes):
                 for t in (n.calls or ()):
                     if t in live_out and live_out[t] | after_of[i] != live_out[t]:

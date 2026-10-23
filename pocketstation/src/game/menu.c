@@ -1,9 +1,9 @@
 /*----------------------
  | menu.c
- | Description: Ring Ring Land's menu choices: two yes/no toggles and a three-row cursor, each blinking while it waits for a press.
+ | Description: Ring Ring Land's menu choices: two yes/no toggles, a two-row and a three-row cursor, each blinking while it waits for a press.
  | Author: suinevere
  | Dependencies: game.h
- | Globals: btn_new, btn_press, sel_a, sel_b, mode_done, mode_phase, mode_wait, anim
+ | Globals: btn_new, btn_press, sel_a, sel_b, mode_done, mode_phase, mode_wait, anim, bag_count, bag_full, mode
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -120,4 +120,36 @@ void game_menu_pick_row(void) {
     }
     set_mode_done(row);
     picked();
+}
+
+/*----------------------
+ | game_menu_pick_two
+ | Description: The two-row choice: up and down move mode_done between rows 0 and 1, otherwise it blinks; a press goes to mode 2 on row 0, or on row 1 to mode 14 with bag_full cleared when items are held, with sound 3 either way.
+ | Author: suinevere
+ | Dependencies: picked, blink, game_sound_begin
+ | Globals: btn_new, mode_done, mode, bag_count, bag_full, mode_phase, mode_wait
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void game_menu_pick_two(void) {
+    uint8_t buttons = ram_btn_new(), row = ram_mode_done();
+    if ((buttons & BTN_UP) && row != 0u) {
+        set_mode_done((uint8_t)(row - 1u));
+        picked();
+    } else if ((buttons & BTN_DOWN) && row != 1u) {
+        set_mode_done((uint8_t)(row + 1u));
+        picked();
+    } else {
+        blink();
+    }
+    if (!(ram_btn_new() & BTN_FIRE)) {
+        return;
+    }
+    if (ram_mode_done() == 0u) {
+        set_mode(2);
+    } else if (ram_bag_count() != 0u) {
+        set_bag_full(0);
+        set_mode(14);
+    }
+    game_sound_begin(3);
 }

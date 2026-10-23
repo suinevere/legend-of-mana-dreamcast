@@ -3,7 +3,7 @@
  | Description: Ring Ring Land's three spinning reels: loading strips from the card, speeding, turning and stopping them, shuffling and picking strip symbols and stops, drawing them and paying out results.
  | Author: suinevere
  | Dependencies: game.h, rrl_rom.h
- | Globals: fb, walk_busy, walk_kind, walk_frame, reel_slide, bag_kind_count, reel_phase, reel_count, reel_len, reel_speed_a, reel_speed_b, reel_speed_c, reel_pos_a, reel_pos_b, reel_pos_c, strip_a, strip_b, strip_c, reel_len_b, mode_wait, strip_c_len, lap_mark, seed, scratch_kinds, scratch_first, scratch_count, scratch_lo, scratch_hi, payout_unit, steps, points, lap_points, marker
+ | Globals: fb, walk_busy, walk_kind, walk_frame, reel_slide, bag_kind_count, reel_phase, reel_count, reel_len, reel_speed_a, reel_speed_b, reel_speed_c, reel_pos_a, reel_pos_b, reel_pos_c, strip_a, strip_b, strip_c, reel_len_b, mode_wait, strip_c_len, lap_mark, seed, scratch_kinds, scratch_first, scratch_count, scratch_lo, scratch_hi, payout_unit, steps, points, lap_points, marker, reel_delay, walk_left, walk_back, btn_new
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -695,4 +695,240 @@ uint32_t game_payout(void) {
     set_scratch_hi((uint8_t)(won >> 8));
     set_lap_points((uint16_t)(ram_lap_points() + won));
     return won;
+}
+
+/*----------------------
+ | WAIT16
+ | Description: mode_wait read as a 16-bit word with the byte above it, as reel A's spin times its 300-frame top speed.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define WAIT16 0x3D6u
+
+/*----------------------
+ | game_reel_spin_step
+ | Description: One frame of reel A's spin, by reel_phase: 0 slides the window in, 1 speeds up to 0x80 and holds it 300 frames (2) or until a press, 3 spins on a random 1-14 frames, 4 slows to 0x30, 5 stops on a symbol boundary, 6 waits 90 frames or a press, then moves on two phases with reels left or else sets walk_kind 3, and 7 slides the window out and turns the symbol into the walk. The reel then advances by its speed, wrapping over its strip.
+ | Author: suinevere
+ | Dependencies: game_strip_next_symbol, game_sound_begin, game_random, game_divide
+ | Globals: reel_phase, reel_count, reel_slide, reel_delay, reel_len, reel_speed_a, reel_pos_a, strip_a, mode_wait, btn_new, walk_left, walk_back, walk_kind
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void game_reel_spin_step(void) {
+    uint8_t phase = ram_reel_phase(), next = 0, pressed = ram_btn_new() & 1u, r;
+    uint32_t speed, stride, rem, pos;
+    switch (phase) {
+    case 0:
+        set_reel_slide((uint8_t)(ram_reel_slide() + 1u));
+        next = ram_reel_slide() == 12u;
+        break;
+    case 7:
+        set_reel_slide((uint8_t)(ram_reel_slide() - 1u));
+        if (ram_reel_slide() == 0u) {
+            set_walk_left(game_strip_next_symbol(ram_reel_len(), ram_reel_pos_a(), 0x544u));
+            set_walk_back(0);
+            next = 1;
+        }
+        break;
+    case 1:
+        speed = ram_reel_speed_a() + 4u;
+        if (speed < 0x80u) {
+            set_reel_speed_a((uint16_t)speed);
+        } else {
+            set_reel_speed_a(0x80u);
+            psk_w16(WAIT16, 300u);
+            next = 1;
+        }
+        break;
+    case 2:
+        if (pressed) {
+            game_sound_begin(3);
+        } else {
+            psk_w16(WAIT16, (uint16_t)(psk_r16(WAIT16) - 1u));
+            if (psk_r16(WAIT16) != 0u) {
+                break;
+            }
+        }
+        r = (uint8_t)game_random(0x1Eu);
+        set_reel_delay(r > 15u ? (uint8_t)(r - 15u) : 1u);
+        next = 1;
+        break;
+    case 3:
+        set_reel_delay((uint8_t)(ram_reel_delay() - 1u));
+        next = ram_reel_delay() == 0u;
+        break;
+    case 4:
+        if (ram_reel_speed_a() <= 0x30u) {
+            next = 1;
+        } else {
+            set_reel_speed_a((uint16_t)(ram_reel_speed_a() - 6u));
+        }
+        break;
+    case 6:
+        if (!pressed) {
+            set_mode_wait((uint8_t)(ram_mode_wait() - 1u));
+            if (ram_mode_wait() != 0u) {
+                break;
+            }
+        }
+        if (ram_reel_count() != 0u) {
+            next = 2;
+        } else {
+            set_walk_kind(3);
+            next = 1;
+        }
+        break;
+    default:
+        break;
+    }
+    if (next) {
+        set_reel_phase((uint8_t)(phase + next));
+    }
+    speed = ram_reel_speed_a();
+    if (speed == 0u) {
+        return;
+    }
+    stride = ram_reel_len() * 640u;
+    if (ram_reel_phase() == 5u) {
+        game_divide(ram_reel_pos_a(), 640u, &rem);
+        if (rem <= speed) {
+            set_reel_phase(6);
+            set_reel_speed_a(0);
+            set_mode_wait(0x5A);
+            speed = rem;
+        }
+    }
+    pos = ram_reel_pos_a();
+    pos = pos >= speed ? pos - speed : pos - speed + stride;
+    set_reel_pos_a((uint16_t)pos);
+}
+
+/*----------------------
+ | wait16_done
+ | Description: Counts the 16-bit wait down.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: mode_wait
+ | Params: N/A
+ | Returns: 1 when it reached 0, else 0
+ ----------------------*/
+static uint8_t wait16_done(void) {
+    psk_w16(WAIT16, (uint16_t)(psk_r16(WAIT16) - 1u));
+    return psk_r16(WAIT16) == 0u;
+}
+
+/*----------------------
+ | game_reel_pair_spin_step
+ | Description: One frame of reels A and B spinning together, by reel_phase: 0 speeds A to 0x80, 2 speeds B to 0x70, each held 10 frames (1, 3) before 300 frames at speed, 4 runs out the wait or a press, 5 spins on a random 1-14 frames, 6 slows both to 0x30 and stops each on a symbol boundary, and 7 waits 90 frames or a press. A turns backward outside phases 2-3 and B forward from phase 2, each wrapping over its strip.
+ | Author: suinevere
+ | Dependencies: wait16_done, game_sound_begin, game_random, game_divide
+ | Globals: reel_phase, reel_delay, reel_len, reel_len_b, reel_speed_a, reel_speed_b, reel_pos_a, reel_pos_b, mode_wait, btn_new
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void game_reel_pair_spin_step(void) {
+    uint8_t phase = ram_reel_phase(), next = 0, pressed = ram_btn_new() & 1u, r;
+    uint32_t speed, stride, rem, pos;
+    switch (phase) {
+    case 0:
+        speed = ram_reel_speed_a() + 4u;
+        if (speed < 0x80u) {
+            set_reel_speed_a((uint16_t)speed);
+        } else {
+            set_reel_speed_a(0x80u);
+            psk_w16(WAIT16, 10u);
+            next = 1;
+        }
+        break;
+    case 2:
+        speed = ram_reel_speed_b() + 6u;
+        if (speed < 0x70u) {
+            set_reel_speed_b((uint16_t)speed);
+        } else {
+            set_reel_speed_b(0x70u);
+            psk_w16(WAIT16, 10u);
+            next = 1;
+        }
+        break;
+    case 1:
+    case 3:
+        if (wait16_done()) {
+            psk_w16(WAIT16, 300u);
+            next = 1;
+        }
+        break;
+    case 4:
+        if (pressed) {
+            game_sound_begin(3);
+        } else if (!wait16_done()) {
+            break;
+        }
+        r = (uint8_t)game_random(0x1Eu);
+        set_reel_delay(r > 15u ? (uint8_t)(r - 15u) : 1u);
+        next = 1;
+        break;
+    case 5:
+        set_reel_delay((uint8_t)(ram_reel_delay() - 1u));
+        next = ram_reel_delay() == 0u;
+        break;
+    case 6:
+        if (ram_reel_speed_a() > 0x30u) {
+            set_reel_speed_a((uint16_t)(ram_reel_speed_a() - 6u));
+        }
+        if (ram_reel_speed_b() > 0x30u) {
+            set_reel_speed_b((uint16_t)(ram_reel_speed_b() - 8u));
+        }
+        break;
+    case 7:
+        if (!pressed) {
+            set_mode_wait((uint8_t)(ram_mode_wait() - 1u));
+            next = ram_mode_wait() == 0u;
+        } else {
+            next = 1;
+        }
+        break;
+    default:
+        break;
+    }
+    if (next) {
+        set_reel_phase((uint8_t)(phase + 1u));
+    }
+    phase = ram_reel_phase();
+    speed = ram_reel_speed_a();
+    if (speed != 0u && phase != 2u && phase != 3u) {
+        stride = ram_reel_len() * 640u;
+        if (phase == 6u && speed <= 0x30u) {
+            game_divide(ram_reel_pos_a(), 640u, &rem);
+            if (rem <= speed) {
+                speed = rem;
+                set_reel_speed_a(0);
+            }
+        }
+        pos = ram_reel_pos_a();
+        pos = pos >= speed ? pos - speed : pos - speed + stride;
+        set_reel_pos_a((uint16_t)pos);
+    }
+    speed = ram_reel_speed_b();
+    if (speed != 0u && phase >= 2u) {
+        stride = ram_reel_len_b() * 640u;
+        if (phase == 6u && speed <= 0x30u) {
+            game_divide(ram_reel_pos_b(), 640u, &rem);
+            if (640u - rem <= speed) {
+                speed = 640u - rem;
+                set_reel_speed_b(0);
+            }
+        }
+        pos = ram_reel_pos_b() + speed;
+        if (pos >= stride) {
+            pos -= stride;
+        }
+        set_reel_pos_b((uint16_t)pos);
+    }
+    if (ram_reel_phase() == 6u && ram_reel_speed_a() == 0u && ram_reel_speed_b() == 0u) {
+        set_reel_phase(7);
+        set_mode_wait(0x5A);
+    }
 }

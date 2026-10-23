@@ -190,3 +190,90 @@ void saver(PskCpu *c) {
     a = live_regs.analyse(src, {0x02000000: "caller", 0x02000100: "clobber", 0x02000200: "saver"},
                           tables=lambda b: [], roots={"caller"})
     assert live_regs.names(a.outputs["clobber"]) == []
+
+
+KILL_SRC = """
+void caller(PskCpu *c) {
+    psk_call(c, 0x02000101u, 0x02000020u);
+    psk_call(c, 0x02000201u, 0x02000030u);
+    psk_w8(c->r[2], 0u);
+    c->r[15] = psk_bx(c->r[14]);
+    return;
+}
+
+void early(PskCpu *c) {
+    c->r[2] = 0x00000001u;
+    c->r[15] = psk_bx(c->r[14]);
+    return;
+}
+
+void always(PskCpu *c) {
+    psk_sub_flags(c, c->r[0], 0x00000001u);
+    if (psk_cond(c, PSK_EQ)) {
+        goto a_02000210;
+    }
+    c->r[2] = 0x00000003u;
+    goto a_02000214;
+a_02000210:
+    c->r[2] = 0x00000004u;
+a_02000214:
+    c->r[15] = psk_bx(c->r[14]);
+    return;
+}
+
+void sometimes(PskCpu *c) {
+    psk_sub_flags(c, c->r[0], 0x00000001u);
+    if (psk_cond(c, PSK_EQ)) {
+        goto a_02000210;
+    }
+    c->r[2] = 0x00000003u;
+a_02000210:
+    c->r[15] = psk_bx(c->r[14]);
+    return;
+}
+"""
+
+
+def kill_analysis(second):
+    hooks = {0x02000000: "caller", 0x02000100: "early", 0x02000200: second}
+    return live_regs.analyse(KILL_SRC, hooks, tables=lambda b: [], roots={"caller"})
+
+
+def test_a_register_a_callee_writes_on_every_path_is_dead_before_the_call():
+    a = kill_analysis("always")
+    assert live_regs.names(a.outputs["early"]) == []
+    assert live_regs.names(a.outputs["always"]) == ["r2"]
+
+
+def test_a_register_a_callee_writes_on_some_paths_stays_live_through_the_call():
+    a = kill_analysis("sometimes")
+    assert live_regs.names(a.outputs["early"]) == ["r2"]
+
+
+def test_a_register_written_after_its_pop_is_not_saved():
+    src = """
+void caller(PskCpu *c) {
+    psk_call(c, 0x02000101u, 0x02000020u);
+    psk_w8(c->r[3], 0u);
+    c->r[15] = psk_bx(c->r[14]);
+    return;
+}
+
+void popper(PskCpu *c) {
+    {
+        uint32_t a = c->r[13];
+        psk_w32(a - 4u, c->r[3]);
+        c->r[13] = a - 4u;
+    }
+    {
+        uint32_t a = c->r[13];
+        c->r[3] = psk_r32(a);
+        c->r[13] = a + 4u;
+    }
+    c->r[3] = psk_ldr(c->r[0]);
+    c->r[15] = psk_bx(c->r[14]);
+    return;
+}
+"""
+    a = live_regs.analyse(src, {0x02000000: "caller", 0x02000100: "popper"}, tables=lambda b: [], roots={"caller"})
+    assert live_regs.names(a.outputs["popper"]) == ["r3"]

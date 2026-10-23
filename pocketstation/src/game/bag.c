@@ -1,9 +1,9 @@
 /*----------------------
  | bag.c
- | Description: Ring Ring Land's item list: adding items (which picks the next mode), removing them, summing their kinds, finding items of the lowest kind and revealing the list.
+ | Description: Ring Ring Land's item list: adding items (which picks the next mode), removing them, summing their kinds, finding items of the lowest kind, revealing the list and its trade menu.
  | Author: suinevere
  | Dependencies: game.h
- | Globals: bag_count, bag_items, bag_cursor, bag_full, mode, scratch_kinds, bag_kind_count, scratch_first, scratch_lo, scratch_count, bag_nth_index, meter, meter_shown, meter_delay, sound_req, mode_done, scene_id, mode_wait, mode_phase, walk_frame, anim, reel_phase, reel_count, reel_len, strip_a
+ | Globals: bag_count, bag_items, bag_cursor, bag_full, mode, scratch_kinds, bag_kind_count, scratch_first, scratch_lo, scratch_count, bag_nth_index, meter, meter_shown, meter_delay, sound_req, mode_done, scene_id, mode_wait, mode_phase, walk_frame, anim, reel_phase, reel_count, reel_len, strip_a, btn_new, btn_press, mode_phase, scratch_count, scratch_wait, scene_id
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -226,4 +226,207 @@ void game_bag_reveal(void) {
         set_scene_id(1);
     }
     bag_reveal_next();
+}
+
+/*----------------------
+ | MENU_BLINK
+ | Description: Frames between the item menu's blink toggles.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define MENU_BLINK 12u
+
+/*----------------------
+ | menu_moved
+ | Description: After the item menu's cursor moved: requests sound 0 and shows the cursor for a fresh blink.
+ | Author: suinevere
+ | Dependencies: game_sound_request
+ | Globals: mode_phase, mode_wait
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void menu_moved(void) {
+    game_sound_request(0);
+    set_mode_phase(0);
+    set_mode_wait(MENU_BLINK);
+}
+
+/*----------------------
+ | menu_blink
+ | Description: Counts the item menu's blink down, flipping mode_phase each time it runs out.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: mode_phase, mode_wait
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void menu_blink(void) {
+    uint8_t wait = (uint8_t)(ram_mode_wait() - 1u);
+    if (wait == 0u) {
+        set_mode_phase((uint8_t)(ram_mode_phase() ^ 1u));
+        wait = MENU_BLINK;
+    }
+    set_mode_wait(wait);
+}
+
+/*----------------------
+ | menu_restart
+ | Description: Shows the item menu's cursor for a fresh blink without a sound.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: mode_phase, mode_wait
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void menu_restart(void) {
+    set_mode_phase(0);
+    set_mode_wait(MENU_BLINK);
+}
+
+/*----------------------
+ | menu_row
+ | Description: Moves the item menu's yes/no row (scene_id) up to 0 or down to 1 on a press.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: scene_id
+ | Params: press -- buttons pressed or repeating
+ | Returns: 1 when it moved, else 0
+ ----------------------*/
+static uint8_t menu_row(uint8_t press) {
+    uint8_t row = ram_scene_id();
+    if ((press & BTN_UP) && row != 0u) {
+        set_scene_id(0);
+        return 1;
+    }
+    if ((press & BTN_DOWN) && row != 1u) {
+        set_scene_id(1);
+        return 1;
+    }
+    return 0;
+}
+
+/*----------------------
+ | game_bag_menu_step
+ | Description: One frame of the item menu, by mode_done: 0 picks a kind with left and right (up or down leaves to mode 1 unless the list is full), 1 picks an item of that kind (up or down goes back), 2 asks whether to trade it and 3 whether to give up, the last with its own 20-frame blink. A press confirms: a traded item is removed, the state block saved and the menu rebuilt, giving up drops one item and returns to mode 3. Only the cycle-timed runs open the menu.
+ | Author: suinevere
+ | Dependencies: menu_moved, menu_blink, menu_restart, menu_row, game_sound_begin, game_bag_count_first, game_bag_find_nth, game_bag_remove, game_save, game_bag_kinds
+ | Globals: btn_new, btn_press, mode, mode_done, mode_phase, mode_wait, bag_full, bag_kind_count, bag_count, bag_nth_index, scratch_first, scratch_kinds, scratch_lo, scratch_count, scratch_wait, scene_id
+ | Params: N/A
+ | Returns: 0x100 plus the kind cursor kept across a trade's rebuild, else 0
+ ----------------------*/
+uint32_t game_bag_menu_step(void) {
+    uint8_t press = ram_btn_press(), fresh = ram_btn_new(), state = ram_mode_done(), moved = 0, k;
+    uint32_t kept = 0, count;
+    if (state == 1u) {
+        if (fresh & (BTN_UP | BTN_DOWN)) {
+            set_mode_done(0);
+            game_sound_begin(3);
+            menu_restart();
+            return 0;
+        }
+        if (ram_scratch_lo() != 1u) {
+            k = ram_scratch_count();
+            if (press & BTN_LEFT) {
+                set_scratch_count((uint8_t)((k == 0u ? ram_scratch_lo() : k) - 1u));
+                moved = 1;
+            } else if (press & BTN_RIGHT) {
+                k++;
+                set_scratch_count(k == ram_scratch_lo() ? 0u : k);
+                moved = 1;
+            }
+            if (moved) {
+                game_bag_find_nth();
+            }
+        }
+    } else if (state == 2u) {
+        moved = menu_row(press);
+    } else if (state == 3u) {
+        if (menu_row(press)) {
+            set_scratch_wait(20);
+            moved = 1;
+        } else {
+            k = (uint8_t)(ram_scratch_wait() - 1u);
+            set_scratch_wait(k == 0u ? 20u : k);
+        }
+    } else {
+        if (ram_bag_full() == 0u && (fresh & (BTN_UP | BTN_DOWN))) {
+            set_mode(1);
+            game_sound_begin(3);
+            return 0;
+        }
+        if (ram_bag_kind_count() != 1u && (press & (BTN_LEFT | BTN_RIGHT))) {
+            k = ram_scratch_first();
+            do {
+                if (press & BTN_LEFT) {
+                    k = (uint8_t)((k == 0u ? 4u : k) - 1u);
+                } else if (++k == 4u) {
+                    k = 0;
+                }
+            } while (((1u << k) & ram_scratch_kinds()) == 0u);
+            set_scratch_first(k);
+            game_bag_count_first();
+            moved = 1;
+        }
+    }
+    if (moved) {
+        menu_moved();
+    } else {
+        menu_blink();
+    }
+    if (!(ram_btn_new() & BTN_FIRE)) {
+        return 0;
+    }
+    game_sound_begin(3);
+    state = ram_mode_done();
+    if (state == 1u) {
+        set_mode_done(2);
+        set_scene_id(1);
+    } else if (state == 2u) {
+        if (ram_scene_id() == 0u) {
+            game_bag_remove(ram_bag_nth_index(), ram_bag_full());
+            if (ram_bag_full() == 1u) {
+                set_mode(3);
+                return 0;
+            }
+            game_save();
+            if (ram_bag_count() == 0u) {
+                set_mode(1);
+                return 0;
+            }
+            k = ram_scratch_first();
+            kept = 0x100u | k;
+            game_bag_kinds();
+            count = ram_scratch_lo() - 1u;
+            if (count == 0u) {
+                set_mode_done(0);
+                menu_restart();
+                return kept;
+            }
+            if (ram_scratch_count() == count) {
+                set_scratch_count((uint8_t)(count - 1u));
+            }
+            set_scratch_lo((uint8_t)count);
+            set_scratch_first(k);
+            game_bag_find_nth();
+        }
+        set_mode_done(1);
+    } else if (state == 3u) {
+        if (ram_scene_id() == 0u) {
+            set_mode_done(0);
+        } else {
+            set_bag_count(ram_bag_count() - 1u);
+            set_mode(3);
+            return 0;
+        }
+    } else {
+        set_mode_done(1);
+        set_scratch_count(0);
+        game_bag_count_first();
+        game_bag_find_nth();
+    }
+    menu_restart();
+    return kept;
 }

@@ -559,7 +559,14 @@ static void io_write(uint32_t addr, uint32_t v) {
  | Params: addr -- address
  | Returns: the value
  ----------------------*/
+#ifdef GAME_TRACE_READS
+uint8_t psk_host_read_map[0x800];
+#endif
+
 uint8_t psk_r8(uint32_t addr) {
+#ifdef GAME_TRACE_READS
+    if (addr < 0x800u) psk_host_read_map[addr] = 1u;
+#endif
     if (addr < 0x800u) return h.ram[addr];
     uint8_t *f = flash_byte(addr);
     if (f) return *f;

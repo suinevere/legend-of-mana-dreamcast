@@ -1,14 +1,15 @@
 /*----------------------
  | sound.c
- | Description: Ring Ring Land's sample player: starting and stopping a sound, and the Timer 2 interrupt that feeds one sample per tick to the DAC and chains to the next sound.
+ | Description: Ring Ring Land's sample player: setting it up, starting, queueing and stopping a sound, and the Timer 2 interrupt that feeds one sample per tick to the DAC and chains to the next sound.
  | Author: suinevere
- | Dependencies: game.h, psk_cpu.h
- | Globals: snd_start, snd_pos, snd_len, snd_playing, snd_next, snd_mode
+ | Dependencies: game.h, psk_cpu.h, psk_swi.h
+ | Globals: snd_start, snd_pos, snd_len, snd_playing, snd_next, snd_mode, sound_req, docked, com_flags
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 #include "game.h"
 #include "psk_cpu.h"
+#include "psk_swi.h"
 
 /*----------------------
  | ROM_SOUNDS
@@ -148,4 +149,90 @@ void game_sound_stop(void) {
     if (playing == 0xFFu) {
         game_sound_off();
     }
+}
+
+/*----------------------
+ | SOUND_FIQ_ENTRY
+ | Description: Address of the Timer 2 sample interrupt, which game_sound_init installs as handler 13.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SOUND_FIQ_ENTRY 0x02003B64u
+
+/*----------------------
+ | game_sound_init
+ | Description: Takes snd_mode from bits 18-19 of the kernel's user-interface status, clears the playing, queued and requested sounds, switches the speaker off and readies Timer 2 with its sample interrupt.
+ | Author: suinevere
+ | Dependencies: psk_swi.h, game_sound_off, game_timer_reset, game_set_irq_handler
+ | Globals: snd_mode, snd_playing, snd_next, sound_req
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void game_sound_init(void) {
+    uint32_t status = psk_ldr(psk_swi(0x13u, 0, 0, 0));
+    set_snd_mode((uint8_t)((status >> 18) & 3u));
+    set_snd_playing(0xFFu);
+    set_snd_next(0xFFu);
+    set_sound_req(0xFFu);
+    game_sound_off();
+    game_timer_reset(2u, 0x47u, 0);
+    game_set_irq_handler(13u, SOUND_FIQ_ENTRY);
+}
+
+/*----------------------
+ | game_sound_begin
+ | Description: Stops all sound when docked or the kernel's flag bit 0 is set; otherwise readies Timer 2 at reload 500 when nothing is playing and starts or queues sound id.
+ | Author: suinevere
+ | Dependencies: game_sound_stop, game_timer_setup, game_sound_start
+ | Globals: docked, com_flags, snd_playing
+ | Params: id -- sound id
+ | Returns: N/A
+ ----------------------*/
+void game_sound_begin(uint8_t id) {
+    if (ram_docked() != 0u || (psk_ldr(ram_com_flags()) & 1u) != 0u) {
+        game_sound_stop();
+        return;
+    }
+    if (ram_snd_playing() == 0xFFu) {
+        game_timer_setup(2u, 500u, 0, 0);
+    }
+    game_sound_start(id);
+}
+
+/*----------------------
+ | game_sound_play_waiting
+ | Description: Plays the requested sound to its end at clock speed 6 before going on: stops all sound when docked or the kernel's flag bit 0 is set, cuts any sound playing, readies Timer 2 at reload 0x47 and waits, dropping back to clock speed 5 when it ends or stopping it if docked meanwhile.
+ | Author: suinevere
+ | Dependencies: psk_swi.h, game_sound_stop, game_timer_setup, game_sound_start
+ | Globals: sound_req, docked, com_flags, snd_playing
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void game_sound_play_waiting(void) {
+    uint8_t id = ram_sound_req();
+    set_sound_req(0xFFu);
+    if (id == 0xFFu) {
+        return;
+    }
+    if (ram_docked() != 0u || (psk_ldr(ram_com_flags()) & 1u) != 0u) {
+        game_sound_stop();
+        return;
+    }
+    if (ram_snd_playing() != 0xFFu) {
+        game_sound_stop();
+    }
+    psk_swi(0x04u, 6u, 0, 0);
+    game_timer_setup(2u, 0x47u, 0, 0);
+    game_sound_start(id);
+    while (ram_docked() == 0u) {
+        if (ram_snd_playing() == 0xFFu) {
+            psk_swi(0x04u, 5u, 0, 0);
+            return;
+        }
+        psk_idle();
+    }
+    game_sound_stop();
 }

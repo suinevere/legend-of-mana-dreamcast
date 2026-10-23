@@ -82,7 +82,9 @@ def split():
     for p in glob.glob(os.path.join(COVERAGE, "*.txt")):
         with open(p) as f:
             cov.update(int(x, 16) for x in f.read().split())
-    return psk_split.split(psk, cov), cov
+    s = psk_split.split(psk, cov)
+    psk_split.write_listings(s, psk, os.path.join(REPO, "pocketstation", "build", "asm"))
+    return s, cov
 
 
 def returns_through_lr(start):

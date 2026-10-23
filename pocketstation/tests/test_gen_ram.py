@@ -1,8 +1,8 @@
 """----------------------
  | test_gen_ram.py
- | Description: Tests the RAM map generator (accessors, overlap check, field list) and the call graph tool.
+ | Description: Tests the RAM map generator (accessors at both address spaces, overlap checks, field list), the VMU packer and the call graph tool.
  | Author: suinevere
- | Dependencies: pocketstation/tools/gen_ram.py, pocketstation/tools/callgraph.py
+ | Dependencies: pocketstation/tools/gen_ram.py, pocketstation/tools/pack_ram.py, pocketstation/tools/callgraph.py
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -20,6 +20,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "pocketstation", "tools"))
 import callgraph  # noqa: E402
 import gen_ram  # noqa: E402
+import pack_ram  # noqa: E402
 
 MAP = """
 # test map
@@ -61,14 +62,111 @@ def test_overlapping_fields_are_rejected(tmp_path):
 
 def test_fields_json_lists_both_addresses(tmp_path):
     fields = json.loads(gen(tmp_path, "fields", MAP))
-    assert fields[0] == {"name": "seed", "type": "u16", "count": 1, "ps": 0x3C4, "vmu": 0x010}
+    assert fields[0] == {"name": "seed", "type": "u16", "count": 1, "ps": 0x3C4, "vmu": 0x010, "vmu_type": "u16",
+                         "conv": None}
+
+
+VMU_MAP = """
+0x3C4 u16 seed 0x010 random seed
+0x3C6 u8 btn - kernel-only
+0x3CC u8 idle_lo 0x020 low byte
+0x3CD u8 repeat_up + high byte
+0x208 u32[13] irq_handler 0x030:u8:handler slots
+0x5C4 u32 snd_start 0x040:u16:file sample start
+0x464 u8[32] board_list 0x100 board
+- u8[32] stack 0x3E0 C stack
+"""
+
+
+def test_vmu_accessors_use_vmu_offsets_through_vmu_r8(tmp_path):
+    out = gen(tmp_path, "vmu", VMU_MAP)
+    assert '#include "vmu_hw.h"' in out and "psk_" not in out
+    assert "static inline uint16_t ram_seed(void) { return vmu_r16(0x010u); }" in out
+    assert "static inline void set_seed(uint16_t v) { vmu_w16(0x010u, v); }" in out
+    assert "static inline uint8_t ram_board_list(uint8_t i) { return vmu_r8(0x100u + VMU_IX(\"board_list\", i, 32u)); }" in out
+    assert "#define RAM_BOARD_LIST 0x100u" in out
+
+
+def test_vmu_glue_places_a_field_right_after_the_one_before(tmp_path):
+    out = gen(tmp_path, "vmu", VMU_MAP)
+    assert "static inline uint8_t ram_repeat_up(void) { return vmu_r8(0x021u); }" in out
+
+
+def test_vmu_type_override_and_dropped_fields(tmp_path):
+    out = gen(tmp_path, "vmu", VMU_MAP)
+    assert "static inline uint8_t ram_irq_handler(uint8_t i) { return vmu_r8(0x030u + VMU_IX(\"irq_handler\", i, 13u)); }" in out
+    assert "static inline uint16_t ram_snd_start(void) { return vmu_r16(0x040u); }" in out
+    assert "ram_btn(" not in out and "ram_stack" not in out
+
+
+def test_vmu_fields_json_carries_type_and_conversion(tmp_path):
+    fields = {f["name"]: f for f in json.loads(gen(tmp_path, "fields", VMU_MAP))}
+    assert fields["irq_handler"]["vmu_type"] == "u8" and fields["irq_handler"]["conv"] == "handler"
+    assert fields["repeat_up"]["vmu"] == 0x21 and fields["btn"]["vmu"] is None
+
+
+@pytest.mark.parametrize("text", [
+    "0x200 u16 a 0x010 x\n0x300 u8 b 0x011 y\n",
+    "0x200 u8[8] a 0x3FC x\n",
+    "0x200 u8 a + x\n",
+    "0x200 u8 a - x\n0x201 u8 b + y\n",
+])
+def test_vmu_overlap_overflow_and_dangling_glue_are_rejected(tmp_path, text):
+    with pytest.raises(SystemExit):
+        gen(tmp_path, "vmu", text)
+
+
+PACK_MAP = """0x200 u8[2] arr 0x000 a
+0x202 u8 cold 0x002 x
+0x203 u16 warm 0x003 y
+0x205 u8 warm_hi + y high
+0x206 u8 gone - z
+- u8[4] stack 0x006 s
+"""
+
+
+def test_pack_keeps_glued_runs_whole_and_puts_the_hottest_scalars_first():
+    fields = {f.name: f for f in gen_ram.parse(pack_ram.pack(PACK_MAP, None))}
+    assert [fields[n].vmu for n in ("cold", "warm", "warm_hi", "arr", "stack")] == [0, 1, 3, 4, 6]
+    counts = [0] * 0x400
+    counts[0] = counts[1] = 900
+    counts[3] = counts[4] = counts[5] = 50
+    fields = {f.name: f for f in gen_ram.parse(pack_ram.pack(PACK_MAP, counts))}
+    assert [fields[n].vmu for n in ("warm", "warm_hi", "cold", "arr", "stack")] == [0, 2, 3, 4, 6]
+    assert fields["gone"].vmu is None
 
 
 def test_the_repository_map_generates():
     assert gen_ram.main(["ps", os.path.join(REPO, "pocketstation", "src", "game", "ram_map.txt"), os.devnull]) == 0
 
 
+def test_vmu_ram_fits():
+    path = os.path.join(REPO, "pocketstation", "src", "game", "ram_map.txt")
+    assert gen_ram.main(["vmu", path, os.devnull]) == 0
+    with open(path) as f:
+        fields = gen_ram.parse(f.read())
+    placed = [f for f in fields if f.vmu is not None]
+    assert max(f.vmu + f.vmu_size for f in placed) <= 0x400
+    assert all(f.vmu is not None for f in fields if f.name not in ("free", "kernel_calls", "com_flags"))
+
+
 @pytest.mark.skipif(not os.path.exists(callgraph.CARD), reason="no reference card")
 def test_call_levels_follow_calls_continuations_and_tables():
     levels = collections.Counter(level for level, _, _, _ in callgraph.levels())
     assert [levels[n] for n in range(14)] == [49, 48, 37, 21, 17, 10, 9, 7, 2, 3, 2, 4, 1, 1]
+
+
+def doc_table_of(lang):
+    with open(os.path.join(REPO, "docs", lang, "technical", "reference", "ring-ring-land-ram.md"), encoding="utf-8") as f:
+        text = f.read()
+    body = text.split("-->\n", 1)[1].split("<!-- end of ram table -->", 1)[0]
+    return body.splitlines()
+
+
+def test_reference_docs_carry_the_generated_ram_table():
+    with open(os.path.join(REPO, "pocketstation", "src", "game", "ram_map.txt")) as f:
+        table = gen_ram.doc_table(gen_ram.parse(f.read())).splitlines()
+    assert doc_table_of("en") == table
+    jp = doc_table_of("jp")
+    assert len(jp) == len(table)
+    assert [r.split(" | ")[:3] for r in jp[2:]] == [r.split(" | ")[:3] for r in table[2:]]

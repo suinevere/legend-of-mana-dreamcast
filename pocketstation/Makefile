@@ -1,10 +1,10 @@
 #----------------------
 # | Makefile
-# | Description: Fetches and patches the pinned PocketStation core, then builds the OpenPSK launcher ROM and the reference runner.
+# | Description: Fetches and patches the pinned PocketStation core, then builds the OpenPSK launcher ROM, the reference runner, the structured game's runners and the VMU-shaped game's runner.
 # | Author: suinevere
 # | Dependencies: kernel/Makefile, runner/Makefile, runner/core.patch
 # | Globals: N/A
-# | Params: target -- all (default), vendor, kernel, runner, host, game, game-host, clean
+# | Params: target -- all (default), vendor, kernel, runner, host, game, game-host, game-alone, game-reads, vmu-host, vmu-counts, clean
 # | Returns: N/A
 #----------------------
 CORE_URL    := https://github.com/pcsx-redux/pocketstation.git
@@ -50,8 +50,34 @@ game: vendor $(RAM_H)
 game-host: $(RAM_H)
 	$(MAKE) -C runner host $(GAME_ARGS) HOST_BIN=../build/rrl_host-game HOST_OUT=../build/host-game
 
+GAME_ALONE_ARGS = CSRCS="$(addprefix ../,$(wildcard src/game/*.c))"
+
+game-alone: $(RAM_H)
+	$(MAKE) -C runner game-alone $(GAME_ALONE_ARGS)
+
+game-reads: $(RAM_H)
+	$(MAKE) -C runner game-alone $(GAME_ALONE_ARGS) GAME_HOST_BIN=../build/game_host-reads GAME_HOST_OUT=../build/game-reads GAME_DEFS=-DGAME_TRACE_READS
+
+VMU_RAM_H = build/vmu/gen/rrl_ram.h
+VMU_SRCS  = $(wildcard src/vmu/*.c) runner/vmu_runner.c
+VMU_CC    = cc -O2 -std=c11 -Wall -Wextra -Werror -Isrc/vmu -Ibuild/vmu/gen
+
+$(VMU_RAM_H): src/game/ram_map.txt tools/gen_ram.py
+	mkdir -p build/vmu/gen
+	python3 tools/gen_ram.py vmu src/game/ram_map.txt $@
+
+build/vmu_runner: $(VMU_RAM_H) $(VMU_SRCS) $(wildcard src/vmu/*.h)
+	$(VMU_CC) -DVMU_CHECK_BOUNDS $(VMU_SRCS) -o $@
+
+build/vmu_runner-counts: $(VMU_RAM_H) $(VMU_SRCS) $(wildcard src/vmu/*.h)
+	$(VMU_CC) -DVMU_CHECK_BOUNDS -DVMU_COUNT_ACCESS $(VMU_SRCS) -o $@
+
+vmu-host: build/vmu_runner
+
+vmu-counts: build/vmu_runner-counts
+
 clean:
 	$(MAKE) -C kernel clean
 	$(MAKE) -C runner clean
 
-.PHONY: all vendor kernel runner host game game-host clean
+.PHONY: all vendor kernel runner host game game-host game-alone game-reads vmu-host vmu-counts clean

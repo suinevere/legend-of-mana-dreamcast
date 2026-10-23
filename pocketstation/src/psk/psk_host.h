@@ -136,4 +136,17 @@ void psk_host_run(PskCpu *c, uint32_t ret, uint32_t sp);
 void psk_host_load_entry(const uint8_t *wram, const uint32_t *w, uint32_t n);
 uint8_t *psk_host_card(void);
 
+#ifdef GAME_TRACE_READS
+/*----------------------
+ | psk_host_read_map
+ | Description: One byte per work-RAM address, set to 1 once psk_r8 has read it; only in GAME_TRACE_READS builds.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+extern uint8_t psk_host_read_map[0x800];
+#endif
+
 #endif

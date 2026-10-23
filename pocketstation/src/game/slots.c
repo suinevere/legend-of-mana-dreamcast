@@ -131,3 +131,40 @@ SpriteInfo game_marker_frame(uint8_t slot) {
     s.bitmap += size;
     return s;
 }
+
+/*----------------------
+ | ROM_ANIM_HOLD
+ | Description: Frames each animation id holds a frame, one byte per id.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define ROM_ANIM_HOLD 0x0200A7B0u
+
+/*----------------------
+ | game_anims_tick
+ | Description: Counts down every animation slot in use; when a slot's count runs out its frame bit flips and the count restarts at its id's hold time.
+ | Author: suinevere
+ | Dependencies: rrl_ram.h
+ | Globals: anim
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void game_anims_tick(void) {
+    uint8_t slot, at, id, left;
+    for (slot = 0; slot < 10u; slot++) {
+        at = (uint8_t)(slot * 4u);
+        id = ram_anim(at);
+        if (id == 0xFFu) {
+            continue;
+        }
+        left = (uint8_t)(ram_anim((uint8_t)(at + 3u)) - 1u);
+        if (left == 0u) {
+            set_anim((uint8_t)(at + 2u), (uint8_t)(ram_anim((uint8_t)(at + 2u)) ^ 1u));
+            left = psk_r8(ROM_ANIM_HOLD + id);
+        }
+        set_anim((uint8_t)(at + 3u), left);
+    }
+}

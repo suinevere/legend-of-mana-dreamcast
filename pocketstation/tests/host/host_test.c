@@ -15,7 +15,7 @@
 #include "psk_hw.h"
 #include "psk_swi.h"
 
-const PskHookEntry psk_hooks[] = {{0u, 0, 0, 0, 0}};
+const PskHookEntry psk_hooks[] = {{0u, 0, 0, 0, 0, 0u}};
 const int psk_hook_count = 0;
 
 static unsigned char card[0x20000];

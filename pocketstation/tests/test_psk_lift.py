@@ -2,7 +2,7 @@
  | test_psk_lift.py
  | Description: Tests the raw-bit ARM/Thumb lifter on hand-encoded instructions and on every RES1506 function.
  | Author: suinevere
- | Dependencies: pocketstation/tools/psk_lift.py, pocketstation/tools/psk_file.py, pytest
+ | Dependencies: pocketstation/tools/psk_lift.py, pocketstation/tools/psk_file.py, pocketstation/tools/psk_split.py, pytest
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -21,6 +21,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "pocketstation", "tools"))
 import psk_file  # noqa: E402
 import psk_lift  # noqa: E402
+import psk_split  # noqa: E402
 
 RES = os.path.join(REPO, psk_file.RES_PATH)
 BASE = 0x02000000
@@ -119,7 +120,9 @@ def test_header_block_and_signature():
 def test_every_res1506_function_lifts_and_compiles(tmp_path):
     with open(RES, "rb") as f:
         psk = psk_file.parse(f.read())
-    funcs = psk_lift.read_functions(os.path.join(REPO, "pocketstation", "build", "functions.txt"))
+    build = os.path.join(REPO, "pocketstation", "build")
+    assert psk_split.main(["--res", RES, "--build", build]) == 0
+    funcs = psk_lift.read_functions(os.path.join(build, "functions.txt"))
     assert len(funcs) == 210
     text = ['#include "rrl.h"']
     for start, end, is_thumb in funcs:

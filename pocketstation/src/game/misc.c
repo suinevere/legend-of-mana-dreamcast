@@ -1,9 +1,9 @@
 /*----------------------
  | misc.c
- | Description: Ring Ring Land's small helpers: sound on/off and requests, the quit power-down, saving the state block to flash, digit placement, mirrored directions and the app's byte and nibble tables.
+ | Description: Ring Ring Land's small helpers: sound on/off and requests, the quit power-down, standby, the dock screen and interrupt, saving the state block to flash, digit placement, mirrored directions and the app's byte and nibble tables.
  | Author: suinevere
  | Dependencies: game.h, psk_cpu.h, psk_swi.h, rrl_rom.h
- | Globals: sound_req
+ | Globals: sound_req, docked, kernel_calls
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -44,6 +44,17 @@
  | Returns: N/A
  ----------------------*/
 #define SAVE_SECTOR 6u
+
+/*----------------------
+ | CLOCK_STOP
+ | Description: Writing 1 stops the CPU clock until an enabled interrupt.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define CLOCK_STOP 0x0B000004u
 
 /*----------------------
  | IRDA_MODE
@@ -204,4 +215,82 @@ uint32_t game_power_down(void) {
         }
         psk_idle();
     }
+}
+
+/*----------------------
+ | game_standby
+ | Description: Standby after inactivity: silences the sound, stops timers 1 and 2, parks the sound and infrared hardware, switches the LCD off and stops the clock until a button wakes line 9, then restarts timer 1. The runner cannot sample a stopped clock: converted from the listing and unverified.
+ | Author: suinevere
+ | Dependencies: game_sound_stop, game_timer_run
+ | Globals: N/A
+ | Params: N/A
+ | Returns: the mode timer 1 restarts with
+ ----------------------*/
+uint32_t game_standby(void) {
+    game_sound_stop();
+    game_timer_run(1u, 0);
+    game_timer_run(2u, 0);
+    psk_w32(SOUND_BASE, 2u);
+    psk_w32(SOUND_BASE + 4u, 0x62u);
+    psk_w32(SOUND_BASE + 0x10u, 0);
+    psk_w32(SOUND_BASE + 0x20u, 4u);
+    psk_w32(IRDA_MODE, 2u);
+    psk_w32(LCD_MODE, psk_ldr(LCD_MODE) & ~0x48u);
+    psk_w32(INT_MASK_CLR, 0x200u);
+    psk_w32(CLOCK_STOP, 1u);
+    psk_w32(INT_MASK_SET, 0x200u);
+    return game_timer_run(1u, 1u);
+}
+
+/*----------------------
+ | game_dock_screen
+ | Description: While docked, or as the dock line rises (then with Timer 2, its interrupt and the sound hardware stopped and the clock at speed 2), shows the kernel's dock picture for 90 ticks of Timer 1 and quits to the kernel. No script docks: converted from the listing and unverified.
+ | Author: suinevere
+ | Dependencies: psk_swi.h, game_timer_run, game_timer_irq, game_fb_clear, game_sprite_draw, game_fb_present, game_ticks_start, game_wait_ticks, game_dock_quit
+ | Globals: docked
+ | Params: N/A
+ | Returns: what game_dock_quit returns, 0 when not docked
+ ----------------------*/
+uint32_t game_dock_screen(void) {
+    uint32_t status;
+    if (ram_docked() == 0u) {
+        if ((psk_ldr(INT_INPUT) & 0x400u) == 0u) {
+            return 0;
+        }
+        game_timer_run(2u, 0);
+        game_timer_irq(2u, 0);
+        psk_w32(SOUND_BASE, 2u);
+        psk_w32(SOUND_BASE + 4u, 0x62u);
+        psk_w32(SOUND_BASE + 0x10u, 0);
+        psk_swi(0x04u, 2u, 0, 0);
+    }
+    game_fb_clear();
+    status = psk_swi(0x13u, 0, 0, 0);
+    game_sprite_draw(0x18, 0, 8, 8, 0x04000000u + psk_ldrh(status + 4u) + 0x80u, 0);
+    game_fb_present();
+    game_ticks_start(1u, 0x7A1u, 0);
+    game_wait_ticks(1u, 0);
+    game_wait_ticks(1u, 0x5Au);
+    return game_dock_quit();
+}
+
+/*----------------------
+ | game_dock_irq
+ | Description: The line-10 (dock) interrupt handler: marks the app docked, stops Timer 2 and its interrupt, parks the sound and infrared hardware and calls the kernel's system call 4 with 2. No script docks: converted from the listing and unverified.
+ | Author: suinevere
+ | Dependencies: psk_hw.h, game_timer_run, game_timer_irq
+ | Globals: docked, kernel_calls
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void game_dock_irq(void) {
+    uint32_t entry = ram_kernel_calls() + 0x10u;
+    set_docked(1);
+    game_timer_run(2u, 0);
+    game_timer_irq(2u, 0);
+    psk_w32(SOUND_BASE, 2u);
+    psk_w32(SOUND_BASE + 4u, 0x62u);
+    psk_w32(SOUND_BASE + 0x10u, 0);
+    psk_w32(IRDA_MODE, 2u);
+    psk_call_arm(psk_ldr(entry), 2u, entry, psk_ldr(entry), 0);
 }
