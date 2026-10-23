@@ -34,4 +34,15 @@ extern const SpuBackend aica_backend;
  ----------------------*/
 void aica_init(void);
 
+/*----------------------
+ | aica_monitor_service
+ | Description: Once per tick: refreshes the cached EG level of the next few keyed channels, then preselects the following one so the next tick's first read needs no settling wait.
+ | Author: suinevere
+ | Dependencies: refresh_level, monitor_select, irq_disable, irq_restore
+ | Globals: s_keyed, s_monitor_next
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void aica_monitor_service(void);
+
 #endif

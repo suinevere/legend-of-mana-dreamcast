@@ -55,5 +55,5 @@ wait 600
 fieldmovie
 wait 150
 capture field-movie-playing-full-screen
-wait 1350
+wait 1800
 capture field-movie-full-screen

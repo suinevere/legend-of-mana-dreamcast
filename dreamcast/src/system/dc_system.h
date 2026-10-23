@@ -45,9 +45,9 @@ void dc_print(int x, int y, const char *text);
 
 /*----------------------
  | dc_log
- | Description: Writes a printf-style line to KallistiOS dbgio, prefixed "LOM: ".
+ | Description: Writes a printf-style line, prefixed "LOM: ", to the serial port through a queue drained without waiting (or to dbgio directly when it is not the serial port).
  | Author: suinevere
- | Dependencies: dbglog
+ | Dependencies: dbgio_dev_get, dbglog
  | Globals: N/A
  | Params: format -- printf-style format string, ... -- format arguments
  | Returns: N/A
@@ -75,5 +75,16 @@ void dc_halt(const char *message) __attribute__((noreturn));
  | Returns: microseconds
  ----------------------*/
 unsigned long long dc_time_us(void);
+
+/*----------------------
+ | dc_yield
+ | Description: Feeds queued log bytes to the serial port, then hands the CPU to any other ready thread, such as the disc reader, from the main thread's idle waits.
+ | Author: suinevere
+ | Dependencies: log_ring_drain, thd_pass
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void dc_yield(void);
 
 #endif

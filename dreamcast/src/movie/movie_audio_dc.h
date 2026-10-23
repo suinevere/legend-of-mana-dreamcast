@@ -40,6 +40,17 @@ typedef struct
 void movie_audio_set_ops(const MovieAudioOps *ops);
 
 /*----------------------
+ | movie_audio_set_poll
+ | Description: Registers the function movie_audio_position calls first, so a worker's finished MDEC decode is delivered while the movie loop polls; null for none.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_poll
+ | Params: poll -- function to call, or null
+ | Returns: N/A
+ ----------------------*/
+void movie_audio_set_poll(void (*poll)(void));
+
+/*----------------------
  | movie_audio_start / movie_audio_advance / movie_audio_position / movie_audio_volume / movie_audio_stop
  | Description: akao_start_xa_stream, akao_xa_advance_frame, akao_xa_get_position and akao_set_xa_volume for the MOVIE overlay, plus the stop cdrom_reset calls.
  | Author: suinevere

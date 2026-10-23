@@ -1,8 +1,9 @@
 /*----------------------
  | aica.c
  | Description: SpuBackend on the AICA: uploads into sound RAM, channel key on/off and live register changes over G2, DSP reverb program load and live control, EG, play-position and sample readback through the monitor-select register, and the uploaded noise table.
+ |              The monitor lags its channel select by up to a sample on real hardware, so every read waits it out and EG levels come from a cache refreshed a few channels per tick.
  | Author: suinevere
- | Dependencies: aica.h, aica_regs.h, aica_reverb.h, aica_reverb_program.h, aica_stream.h, spu_noise.h, dc_system.h, dc/g2bus.h, dc/spu.h, arch/irq.h, string.h
+ | Dependencies: aica.h, aica_regs.h, aica_reverb.h, aica_reverb_program.h, aica_stream.h, spu_noise.h, dc_system.h, dc/g2bus.h, dc/spu.h, arch/irq.h, arch/timer.h, string.h
  | Globals: aica_backend
  | Params: N/A
  | Returns: N/A
@@ -10,6 +11,7 @@
 #include <string.h>
 
 #include <arch/irq.h>
+#include <arch/timer.h>
 #include <dc/g2bus.h>
 #include <dc/spu.h>
 
@@ -59,6 +61,18 @@
 #define MONITOR_POSITION 0x14u
 
 /*----------------------
+ | MONITOR_SETTLE_US / MONITOR_READS_PER_TICK
+ | Description: Microseconds a new monitor select needs before its registers show that channel (one 44.1 kHz sample plus margin), and keyed channels whose EG one tick refreshes.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define MONITOR_SETTLE_US 30u
+#define MONITOR_READS_PER_TICK 3
+
+/*----------------------
  | REVERB_RING_REG
  | Description: Common register holding the reverb ring's RBL/RBP.
  | Author: suinevere
@@ -93,6 +107,43 @@
  | Returns: N/A
  ----------------------*/
 static int s_keyed[AICA_CHANNELS];
+
+/*----------------------
+ | s_level
+ | Description: Each keyed channel's PS1 envelope level as last read from the monitor, full from key-on until the first read.
+ | Author: suinevere
+ | Dependencies: AICA_CHANNELS
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_level[AICA_CHANNELS];
+
+/*----------------------
+ | s_monitor_channel / s_monitor_since / s_monitor_next
+ | Description: The channel the monitor last selected (-1 for none), when that select landed, and where the per-tick EG refresh resumes.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_monitor_channel = -1;
+
+/*----------------------
+ | POSITION_REUSE_US / s_position_value / s_position_time
+ | Description: How long a play-position reading is reused (well inside the stream ring's guard), each channel's last reading, and when it was taken (0 for none since key-on).
+ | Author: suinevere
+ | Dependencies: AICA_CHANNELS
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define POSITION_REUSE_US 1000u
+static unsigned s_position_value[AICA_CHANNELS];
+static uint64 s_position_time[AICA_CHANNELS];
+static uint64 s_monitor_since;
+static int s_monitor_next;
 
 /*----------------------
  | s_pcm_offset / s_pcm8
@@ -146,11 +197,30 @@ static void write_reg(uintptr_t address, unsigned value)
 }
 
 /*----------------------
- | monitor_read
- | Description: Selects a channel on the monitor and reads one of its monitor registers, with interrupts off so the select and read stay paired.
+ | monitor_select
+ | Description: Points the monitor at a channel unless it already is, noting when the select reached the AICA; the caller has interrupts off.
  | Author: suinevere
- | Dependencies: write_reg, g2_read_32, irq_disable, irq_restore
- | Globals: N/A
+ | Dependencies: write_reg, g2_fifo_wait, timer_us_gettime64
+ | Globals: s_monitor_channel, s_monitor_since
+ | Params: channel -- 0..63
+ | Returns: N/A
+ ----------------------*/
+static void monitor_select(int channel)
+{
+    if (s_monitor_channel == channel)
+        return;
+    write_reg(COMMON_REG(MONITOR_SELECT), (unsigned)channel << 8);
+    g2_fifo_wait();
+    s_monitor_channel = channel;
+    s_monitor_since = timer_us_gettime64();
+}
+
+/*----------------------
+ | monitor_read
+ | Description: Selects a channel on the monitor, waits until the select has settled and reads one of its monitor registers, with interrupts off so the select and read stay paired.
+ | Author: suinevere
+ | Dependencies: monitor_select, timer_us_gettime64, g2_read_32, irq_disable, irq_restore
+ | Globals: s_monitor_since
  | Params: channel -- 0..63, offset -- MONITOR_EG or MONITOR_POSITION
  | Returns: the register's low 16 bits
  ----------------------*/
@@ -159,7 +229,9 @@ static unsigned monitor_read(int channel, unsigned offset)
     int irq = irq_disable();
     unsigned value;
 
-    write_reg(COMMON_REG(MONITOR_SELECT), (unsigned)channel << 8);
+    monitor_select(channel);
+    while (timer_us_gettime64() - s_monitor_since < MONITOR_SETTLE_US)
+        ;
     value = g2_read_32(COMMON_REG(offset)) & 0xFFFFu;
     irq_restore(irq);
     return value;
@@ -193,7 +265,7 @@ static void write_reverb_coefs(int on, int left, int right)
  | Description: Holds the ARM7 in reset, keys every channel off, sets the master volume to full stereo, loads the Studio Large reverb program onto the DSP with reverb off, and renders and uploads the noise table.
  | Author: suinevere
  | Dependencies: spu_disable, spu_reset_chans, spu_master_mixer, spu_memset, spu_memload, write_reg, write_reverb_coefs, aica_reverb_coef, aica_reverb_madrs, aica_reverb_mpro, spu_noise_render
- | Globals: s_keyed, s_pcm_offset, s_pcm8, s_reverb_on, s_depth_left, s_depth_right, s_noise_table
+ | Globals: s_keyed, s_level, s_monitor_channel, s_monitor_next, s_pcm_offset, s_pcm8, s_reverb_on, s_depth_left, s_depth_right, s_noise_table
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -205,6 +277,10 @@ void aica_init(void)
     spu_reset_chans();
     spu_master_mixer(15, 1);
     memset(s_keyed, 0, sizeof(s_keyed));
+    memset(s_level, 0, sizeof(s_level));
+    memset(s_position_time, 0, sizeof(s_position_time));
+    s_monitor_channel = -1;
+    s_monitor_next = 0;
     memset(s_pcm_offset, 0, sizeof(s_pcm_offset));
     memset(s_pcm8, 0, sizeof(s_pcm8));
     s_reverb_on = 0;
@@ -226,10 +302,41 @@ void aica_init(void)
 }
 
 /*----------------------
- | upload
- | Description: Copies PCM into sound RAM: whole aligned words through spu_memload, anything starting or ending on a halfword word by word with read-modify-write at the edges.
+ | UPLOAD_BOUNCE_WORDS
+ | Description: Words one aligned spu_memload run copies through a stack buffer when the PCM source is only halfword-aligned.
  | Author: suinevere
- | Dependencies: spu_memload, g2_read_32, write_reg
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define UPLOAD_BOUNCE_WORDS 64u
+
+/*----------------------
+ | upload_halfword
+ | Description: Writes one 16-bit sample into sound RAM by read-modify-write of its word.
+ | Author: suinevere
+ | Dependencies: g2_read_32, write_reg
+ | Globals: N/A
+ | Params: offset -- sound RAM byte offset, sample -- the sample
+ | Returns: N/A
+ ----------------------*/
+static void upload_halfword(unsigned offset, short sample)
+{
+    uintptr_t word = AICA_RAM_BASE + (offset & ~3u);
+
+    if (offset & 2u)
+        write_reg(word, (g2_read_32(word) & 0xFFFFu) | ((unsigned)(unsigned short)sample << 16));
+    else
+        write_reg(word, (g2_read_32(word) & 0xFFFF0000u) | (unsigned short)sample);
+}
+
+/*----------------------
+ | upload
+ | Description: Copies PCM into sound RAM: a leading or trailing lone halfword by read-modify-write, everything between as whole words through spu_memload's block writes, via a stack buffer when the source is only halfword-aligned.
+ |              Word-by-word G2 writes each pay a bus lock and FIFO wait, which made movie audio cost several times more on hardware than in Flycast.
+ | Author: suinevere
+ | Dependencies: upload_halfword, spu_memload, memcpy, UPLOAD_BOUNCE_WORDS
  | Globals: N/A
  | Params: aica_offset -- sound RAM byte offset, pcm -- frames, bytes -- byte count
  | Returns: N/A
@@ -237,38 +344,42 @@ void aica_init(void)
 static void upload(unsigned aica_offset, const short *pcm, unsigned bytes)
 {
     unsigned count = bytes / 2u;
-    unsigned i = 0;
 
-    if (((aica_offset | bytes | (unsigned)(uintptr_t)pcm) & 3u) == 0)
+    if (count != 0 && (aica_offset & 2u))
     {
-        spu_memload(aica_offset, (void *)pcm, bytes);
-        return;
+        upload_halfword(aica_offset, pcm[0]);
+        aica_offset += 2u;
+        pcm++;
+        count--;
     }
-    while (i < count)
+    while (count >= 2u)
     {
-        unsigned offset = aica_offset + 2u * i;
-        uintptr_t word = AICA_RAM_BASE + (offset & ~3u);
+        unsigned words = count / 2u;
+        uint32 bounce[UPLOAD_BOUNCE_WORDS];
+        const void *source = pcm;
 
-        if ((offset & 2u) == 0 && i + 1u < count)
+        if ((uintptr_t)pcm & 3u)
         {
-            write_reg(word, (unsigned short)pcm[i] | ((unsigned)(unsigned short)pcm[i + 1u] << 16));
-            i += 2u;
-            continue;
+            if (words > UPLOAD_BOUNCE_WORDS)
+                words = UPLOAD_BOUNCE_WORDS;
+            memcpy(bounce, pcm, words * 4u);
+            source = bounce;
         }
-        if (offset & 2u)
-            write_reg(word, (g2_read_32(word) & 0xFFFFu) | ((unsigned)(unsigned short)pcm[i] << 16));
-        else
-            write_reg(word, (g2_read_32(word) & 0xFFFF0000u) | (unsigned short)pcm[i]);
-        i++;
+        spu_memload(aica_offset, (void *)source, words * 4u);
+        aica_offset += words * 4u;
+        pcm += words * 2u;
+        count -= words * 2u;
     }
+    if (count != 0)
+        upload_halfword(aica_offset, pcm[0]);
 }
 
 /*----------------------
  | key_on
- | Description: Keys a channel off, writes the voice's registers and keys it on, so a voice already sounding restarts like on the PS1.
+ | Description: Keys a channel off, writes the voice's registers and keys it on, so a voice already sounding restarts like on the PS1; its cached level reads full until the next refresh.
  | Author: suinevere
  | Dependencies: aica_channel_words, write_reg
- | Globals: s_keyed, s_pcm_offset, s_pcm8
+ | Globals: s_keyed, s_level, s_position_time, s_pcm_offset, s_pcm8
  | Params: voice -- channel, setup -- voice setup
  | Returns: N/A
  ----------------------*/
@@ -278,6 +389,8 @@ static void key_on(int voice, const SpuVoiceSetup *setup)
     int w;
 
     aica_channel_words(setup, words);
+    s_level[voice] = 0x7FFF;
+    s_position_time[voice] = 0;
     write_reg(CHANNEL_REG(voice, 0), words[0] | AICA_KYONEX);
     for (w = 1; w < AICA_CHANNEL_WORDS; w++)
         write_reg(CHANNEL_REG(voice, w), words[w]);
@@ -380,38 +493,88 @@ static void reverb_clear(void)
 }
 
 /*----------------------
- | envelope
- | Description: A channel's PS1 envelope level from its EG readback; a channel found silent stops counting as keyed and has its key-on bit cleared so another channel's key execute cannot restart it.
+ | refresh_level
+ | Description: Reads a keyed channel's EG into its cached level; a channel found silent stops counting as keyed and has its key-on bit cleared so another channel's key execute cannot restart it.
  | Author: suinevere
  | Dependencies: monitor_read, aica_envelope_level, g2_read_32, write_reg
- | Globals: s_keyed
+ | Globals: s_keyed, s_level
+ | Params: voice -- channel
+ | Returns: N/A
+ ----------------------*/
+static void refresh_level(int voice)
+{
+    int level = aica_envelope_level((unsigned short)monitor_read(voice, MONITOR_EG), 1);
+
+    s_level[voice] = level;
+    if (level == 0)
+    {
+        s_keyed[voice] = 0;
+        write_reg(CHANNEL_REG(voice, 0), g2_read_32(CHANNEL_REG(voice, 0)) & 0xFFFFu & ~AICA_KYONB);
+    }
+}
+
+void aica_monitor_service(void)
+{
+    int irq = irq_disable();
+    int checked = 0;
+    int scanned;
+
+    for (scanned = 0; scanned < AICA_CHANNELS && checked < MONITOR_READS_PER_TICK; scanned++)
+    {
+        int voice = s_monitor_next;
+
+        s_monitor_next = (s_monitor_next + 1) % AICA_CHANNELS;
+        if (!s_keyed[voice])
+            continue;
+        refresh_level(voice);
+        checked++;
+    }
+    for (scanned = 0; scanned < AICA_CHANNELS; scanned++)
+    {
+        int voice = (s_monitor_next + scanned) % AICA_CHANNELS;
+
+        if (s_keyed[voice])
+        {
+            monitor_select(voice);
+            break;
+        }
+    }
+    irq_restore(irq);
+}
+
+/*----------------------
+ | envelope
+ | Description: A channel's PS1 envelope level from the cache aica_monitor_service keeps; 0 once the channel is not keyed.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_keyed, s_level
  | Params: voice -- channel
  | Returns: 0..0x7FFF
  ----------------------*/
 static int envelope(int voice)
 {
-    int level = aica_envelope_level((unsigned short)monitor_read(voice, MONITOR_EG), s_keyed[voice]);
-
-    if (level == 0 && s_keyed[voice])
-    {
-        s_keyed[voice] = 0;
-        write_reg(CHANNEL_REG(voice, 0), g2_read_32(CHANNEL_REG(voice, 0)) & 0xFFFFu & ~AICA_KYONB);
-    }
-    return level;
+    return s_keyed[voice] ? s_level[voice] : 0;
 }
 
 /*----------------------
  | position
- | Description: A channel's play position (CA) in frames from its start address.
+ | Description: A channel's play position (CA) in frames from its start address, reusing a reading under POSITION_REUSE_US old so a caller polling in a loop pays the monitor's settling wait once.
  | Author: suinevere
- | Dependencies: monitor_read
- | Globals: N/A
+ | Dependencies: monitor_read, timer_us_gettime64
+ | Globals: s_position_value, s_position_time
  | Params: voice -- channel
  | Returns: frame index
  ----------------------*/
 static unsigned position(int voice)
 {
-    return monitor_read(voice, MONITOR_POSITION);
+    uint64 now = timer_us_gettime64();
+
+    if (s_position_time[voice] == 0 || now - s_position_time[voice] >= POSITION_REUSE_US)
+    {
+        s_position_value[voice] = monitor_read(voice, MONITOR_POSITION);
+        s_position_time[voice] = now;
+    }
+    return s_position_value[voice];
 }
 
 /*----------------------

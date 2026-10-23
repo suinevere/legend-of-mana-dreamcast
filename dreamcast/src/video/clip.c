@@ -192,7 +192,7 @@ static int finish_poly(const ClipVertF *verts, unsigned n, DcPoly *out)
 
 /*----------------------
  | clip_polygon
- | Description: Clips a triangle or quad to the draw area, reordering a quad's vertices into perimeter order first.
+ | Description: Clips a triangle or quad to the draw area, reordering a quad's vertices into perimeter order first; one wholly inside goes straight to out without the float round trip.
  | Author: suinevere
  | Dependencies: DC_QUAD_PERIM_ORDER, sh_clip, finish_poly
  | Globals: N/A
@@ -203,12 +203,43 @@ static int clip_polygon(const DcPrim *prim, const DcGpuState *state, DcPoly *out
 {
     ClipVertF verts[4];
     ClipVertF result[DC_CLIP_MAX_VERTS];
-    float w = (float)(state->area_x2 - state->area_x1 + 1);
-    float h = (float)(state->area_y2 - state->area_y1 + 1);
+    int wi = state->area_x2 - state->area_x1 + 1;
+    int hi = state->area_y2 - state->area_y1 + 1;
+    float w = (float)wi;
+    float h = (float)hi;
     unsigned n = prim->nverts;
     unsigned i;
     unsigned clipped_n;
 
+    for (i = 0; i < n; i++)
+    {
+        int x = prim->v[i].x - state->area_x1;
+        int y = prim->v[i].y - state->area_y1;
+
+        if (x < 0 || x > wi || y < 0 || y > hi)
+        {
+            break;
+        }
+    }
+    if (i == n)
+    {
+        out->count = n;
+        for (i = 0; i < n; i++)
+        {
+            unsigned src = (prim->shape == DC_SHAPE_QUAD) ? DC_QUAD_PERIM_ORDER[i] : i;
+            const DcVertex *sv = &prim->v[src];
+            DcClipVertex *dv = &out->v[i];
+
+            dv->x = (float)(sv->x - state->area_x1);
+            dv->y = (float)(sv->y - state->area_y1);
+            dv->u = (float)sv->u;
+            dv->v = (float)sv->v;
+            dv->r = sv->r;
+            dv->g = sv->g;
+            dv->b = sv->b;
+        }
+        return (int)n;
+    }
     for (i = 0; i < n; i++)
     {
         unsigned src = (prim->shape == DC_SHAPE_QUAD) ? DC_QUAD_PERIM_ORDER[i] : i;

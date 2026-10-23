@@ -398,12 +398,47 @@ static void settle_previous_scene(void)
 }
 
 /*----------------------
+ | s_pvr_wait_us
+ | Description: Microseconds spent waiting for the PowerVR to finish the previous scene before opening a new one.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned long long s_pvr_wait_us;
+
+unsigned long long pvr_backend_wait_us(void)
+{
+    return s_pvr_wait_us;
+}
+
+/*----------------------
+ | s_render_max_us
+ | Description: Longest PowerVR render KallistiOS reported at any scene start since the last pvr_backend_take_render_max_us.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_render_max_us;
+
+unsigned pvr_backend_take_render_max_us(void)
+{
+    unsigned max = s_render_max_us;
+
+    s_render_max_us = 0;
+    return max;
+}
+
+/*----------------------
  | kos_scene_begin
  | Description: Starts a scene and its translucent list once the TA buffer is free, waiting for the previous flip only when a texture flush is pending; later writes settle lazily.
  | The first scene skips pvr_wait_ready, whose semaphore starts at zero.
  | Author: suinevere
- | Dependencies: pvr_wait_ready, texture_cache_flush_pending, settle_previous_scene, kos_scene_shown, pvr_scene_begin, pvr_list_begin
- | Globals: s_dr_active, s_settle_closed, s_settled
+ | Dependencies: pvr_wait_ready, pvr_get_stats, texture_cache_flush_pending, settle_previous_scene, kos_scene_shown, pvr_scene_begin, pvr_list_begin
+ | Globals: s_dr_active, s_settle_closed, s_settled, s_pvr_wait_us, s_render_max_us
  | Params: scenes_closed -- scenes handed to the PowerVR so far
  | Returns: 1 if every closed scene is confirmed on screen, else 0
  ----------------------*/
@@ -415,7 +450,16 @@ static int kos_scene_begin(unsigned scenes_closed)
     s_settled = 1;
     if (scenes_closed != 0)
     {
+        uint64 t0 = timer_us_gettime64();
+        pvr_stats_t stats;
+
         pvr_wait_ready();
+        s_pvr_wait_us += timer_us_gettime64() - t0;
+        pvr_get_stats(&stats);
+        if (stats.rnd_last_time / 1000u > s_render_max_us)
+        {
+            s_render_max_us = (unsigned)(stats.rnd_last_time / 1000u);
+        }
         s_settled = 0;
         if (texture_cache_flush_pending())
         {
@@ -487,10 +531,66 @@ static int texture_format(const DcSurfaceTexture *tex)
 }
 
 /*----------------------
- | kos_header
- | Description: Compiles and sends a point-sampled, depth-always, unculled polygon header with the pass's blend factors.
+ | HEADER_CACHE_ENTRIES / HeaderCacheEntry / s_header_cache
+ | Description: Compiled polygon headers kept by texture, format, palette slot and blend factors, a header being fully determined by them; direct-mapped, a clash recompiles.
  | Author: suinevere
- | Dependencies: pvr_poly_cxt_txr, pvr_poly_cxt_col, pvr_poly_compile, texture_format, dr_begin, pvr_dr_target, pvr_dr_commit
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define HEADER_CACHE_ENTRIES 256u
+
+typedef struct
+{
+    void *texture;
+    int format;
+    int palette_slot;
+    uint8_t src;
+    uint8_t dst;
+    uint8_t textured;
+    uint8_t valid;
+    pvr_poly_hdr_t hdr;
+} HeaderCacheEntry;
+
+static HeaderCacheEntry s_header_cache[HEADER_CACHE_ENTRIES] __attribute__((aligned(32)));
+
+/*----------------------
+ | header_cache_entry
+ | Description: The cache slot for a texture and blend pass, claimed and marked invalid when it held a different key.
+ | Author: suinevere
+ | Dependencies: s_header_cache
+ | Globals: s_header_cache
+ | Params: tex -- texture, or null for untextured, pass -- blend pass
+ | Returns: the slot
+ ----------------------*/
+static HeaderCacheEntry *header_cache_entry(const DcSurfaceTexture *tex, const BlendPass *pass)
+{
+    void *texture = tex != 0 ? tex->texture : 0;
+    int format = tex != 0 ? tex->format : 0;
+    int slot = tex != 0 ? tex->palette_slot : 0;
+    uintptr_t hash = ((uintptr_t)texture >> 5) ^ ((uintptr_t)format * 31u) ^ ((uintptr_t)slot * 7u) ^ ((uintptr_t)pass->src << 3) ^ ((uintptr_t)pass->dst << 6);
+    HeaderCacheEntry *entry = &s_header_cache[hash & (HEADER_CACHE_ENTRIES - 1u)];
+
+    if (entry->texture != texture || entry->format != format || entry->palette_slot != slot || entry->src != (uint8_t)pass->src ||
+        entry->dst != (uint8_t)pass->dst || entry->textured != (tex != 0))
+    {
+        entry->texture = texture;
+        entry->format = format;
+        entry->palette_slot = slot;
+        entry->src = (uint8_t)pass->src;
+        entry->dst = (uint8_t)pass->dst;
+        entry->textured = (uint8_t)(tex != 0);
+        entry->valid = 0;
+    }
+    return entry;
+}
+
+/*----------------------
+ | kos_header
+ | Description: Sends a point-sampled, depth-always, unculled polygon header with the pass's blend factors, compiling it only the first time its texture and blend are seen.
+ | Author: suinevere
+ | Dependencies: header_cache_entry, pvr_poly_cxt_txr, pvr_poly_cxt_col, pvr_poly_compile, texture_format, dr_begin, pvr_dr_target, pvr_dr_commit
  | Globals: s_dr, s_blend_factor
  | Params: tex -- texture, or null for untextured, pass -- blend pass
  | Returns: N/A
@@ -498,11 +598,22 @@ static int texture_format(const DcSurfaceTexture *tex)
 static void kos_header(const DcSurfaceTexture *tex, const BlendPass *pass)
 {
     pvr_poly_cxt_t cxt;
-    pvr_poly_hdr_t hdr;
-    const uint32_t *src = (const uint32_t *)&hdr;
+    HeaderCacheEntry *entry = header_cache_entry(tex, pass);
+    const uint32_t *src = (const uint32_t *)&entry->hdr;
     uint32_t *dst;
     int i;
 
+    if (entry->valid)
+    {
+        dr_begin();
+        dst = (uint32_t *)pvr_dr_target(s_dr);
+        for (i = 0; i < 8; i++)
+        {
+            dst[i] = src[i];
+        }
+        pvr_dr_commit(dst);
+        return;
+    }
     if (tex != 0)
     {
         int frame = tex->format == TEX_FMT_RGB565_FRAME;
@@ -520,7 +631,8 @@ static void kos_header(const DcSurfaceTexture *tex, const BlendPass *pass)
     cxt.depth.write = PVR_DEPTHWRITE_DISABLE;
     cxt.blend.src = s_blend_factor[pass->src];
     cxt.blend.dst = s_blend_factor[pass->dst];
-    pvr_poly_compile(&hdr, &cxt);
+    pvr_poly_compile(&entry->hdr, &cxt);
+    entry->valid = 1;
     dr_begin();
     dst = (uint32_t *)pvr_dr_target(s_dr);
     for (i = 0; i < 8; i++)
@@ -531,41 +643,45 @@ static void kos_header(const DcSurfaceTexture *tex, const BlendPass *pass)
 }
 
 /*----------------------
- | kos_vertex
- | Description: Sends one strip vertex at z = 1 through the store queues, ending the strip when last is set.
+ | kos_strip
+ | Description: Sends a triangle strip's vertices at z = 1 through the store queues in one loop, ending the strip on the last.
  | Author: suinevere
  | Dependencies: dr_begin, pvr_dr_target, pvr_dr_commit
  | Globals: s_dr
- | Params: x, y -- screen pixels, u, v -- page-normalised texel coordinates, argb -- colour, last -- end of strip
+ | Params: verts -- strip vertices, count -- how many
  | Returns: N/A
  ----------------------*/
-static void kos_vertex(float x, float y, float u, float v, uint32_t argb, int last)
+static void kos_strip(const PvrVertex *verts, unsigned count)
 {
-    pvr_vertex_t *vert;
+    unsigned i;
 
     dr_begin();
-    vert = pvr_dr_target(s_dr);
-    vert->flags = last ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
-    vert->x = x;
-    vert->y = y;
-    vert->z = 1.0f;
-    vert->u = u;
-    vert->v = v;
-    vert->argb = argb;
-    vert->oargb = 0;
-    pvr_dr_commit(vert);
+    for (i = 0; i < count; i++)
+    {
+        pvr_vertex_t *vert = pvr_dr_target(s_dr);
+
+        vert->flags = i + 1 == count ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
+        vert->x = verts[i].x;
+        vert->y = verts[i].y;
+        vert->z = 1.0f;
+        vert->u = verts[i].u;
+        vert->v = verts[i].v;
+        vert->argb = verts[i].argb;
+        vert->oargb = 0;
+        pvr_dr_commit(vert);
+    }
 }
 
 /*----------------------
  | s_kos_backend
  | Description: The KallistiOS hooks pvr_submit_init binds.
  | Author: suinevere
- | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex, kos_scene_shown
+ | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_vertex, kos_scene_shown, kos_frame_texture };
+static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown, kos_frame_texture };
 
 /*----------------------
  | pvr_backend_frame_pixels

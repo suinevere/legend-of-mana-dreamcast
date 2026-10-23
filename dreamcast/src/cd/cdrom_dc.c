@@ -27,6 +27,7 @@
 #include "resource_index.h"
 #include "overlay_loader_dc.h"
 #include "dc_system.h"
+#include "disc_fs_kos.h"
 
 /*----------------------
  | RESOURCE_INDEX_MAX
@@ -376,7 +377,7 @@ static void flush_pending_callback_read(void)
  | cdrom_init
  | Description: Loads RESINDEX.BIN from the disc root and makes CDROM_RESIDENT_RESOURCES resident; the Dreamcast disc needs no further drive setup.
  | Author: suinevere
- | Dependencies: dc_file_read, resource_index_load, cdrom_make_resident, dc_halt
+ | Dependencies: dc_file_read, resource_index_load, cdrom_make_resident, disc_fs_kos_status, dc_halt
  | Globals: s_index_blob
  | Params: N/A
  | Returns: N/A
@@ -388,7 +389,10 @@ void cdrom_init(void)
 
     if (len < 0 || resource_index_load(s_index_blob, len) < 0)
     {
-        dc_halt("RESINDEX.BIN missing; run tools/convert_disc.py");
+        static char message[192];
+
+        snprintf(message, sizeof(message), "RESINDEX.BIN missing\n%s", disc_fs_kos_status());
+        dc_halt(message);
     }
     for (i = 0; i < (int)(sizeof(CDROM_RESIDENT_RESOURCES) / sizeof(CDROM_RESIDENT_RESOURCES[0])); i++)
     {
@@ -599,6 +603,22 @@ s32 cdrom_can_queue_resource(s32 resource_index)
 }
 
 /*----------------------
+ | s_process_poll
+ | Description: Called first by cdrom_process_state to deliver work a worker finished, such as an MDEC decode, since the movie loop calls it between vblanks; null for none.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void (*s_process_poll)(void);
+
+void cdrom_dc_set_poll(void (*poll)(void))
+{
+    s_process_poll = poll;
+}
+
+/*----------------------
  | cdrom_process_state
  | Description: Services a pending cdrom_queue_read_with_callback read, if any, by invoking the caller's callback now.
  | Author: suinevere
@@ -609,6 +629,10 @@ s32 cdrom_can_queue_resource(s32 resource_index)
  ----------------------*/
 u32 cdrom_process_state(void)
 {
+    if (s_process_poll != 0)
+    {
+        s_process_poll();
+    }
     flush_pending_callback_read();
     cd_stream_service(vsync_count());
     return 0;

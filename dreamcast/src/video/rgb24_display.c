@@ -39,6 +39,7 @@ static unsigned row_byte(const uint16_t *row, unsigned row_bytes, unsigned offse
 /*----------------------
  | rgb24_to_rgb565
  | Description: Reads R, G, B bytes per pixel from the mirror starting at halfword column x_hw and writes RGB565; rows inside the mirror are read straight through, rows crossing its edge byte by byte with wrapping.
+ |              Word-aligned rows convert four pixels from three little-endian words, since the per-byte loop cost a 24-bit movie about 10 ms a frame.
  | Author: suinevere
  | Dependencies: row_byte
  | Globals: N/A
@@ -61,7 +62,27 @@ void rgb24_to_rgb565(const uint16_t *vram, unsigned vram_pitch_hw, unsigned x_hw
         {
             const uint8_t *src = (const uint8_t *)row + at;
 
-            for (p = 0; p < width_px; p++, src += 3)
+            p = 0;
+            if (((uintptr_t)src & 3u) == 0 && ((uintptr_t)out & 3u) == 0)
+            {
+                const uint32_t *word = (const uint32_t *)src;
+                uint32_t *pair = (uint32_t *)out;
+
+                for (; p + 4u <= width_px; p += 4u, word += 3, pair += 2)
+                {
+                    uint32_t a = word[0];
+                    uint32_t b = word[1];
+                    uint32_t c = word[2];
+
+                    __builtin_prefetch(word + 16);
+                    pair[0] = ((a & 0xF8u) << 8) | ((a >> 5) & 0x7E0u) | ((a >> 19) & 0x1Fu) |
+                              ((((a >> 16) & 0xF800u) | ((b << 3) & 0x7E0u) | ((b >> 11) & 0x1Fu)) << 16);
+                    pair[1] = ((b >> 8) & 0xF800u) | ((b >> 21) & 0x7E0u) | ((c >> 3) & 0x1Fu) |
+                              (((c & 0xF800u) | ((c >> 13) & 0x7E0u) | (c >> 27)) << 16);
+                }
+                src += p * 3u;
+            }
+            for (; p < width_px; p++, src += 3)
             {
                 out[p] = (uint16_t)(((unsigned)(src[0] >> 3) << 11) | ((unsigned)(src[1] >> 2) << 5) | (unsigned)(src[2] >> 3));
             }

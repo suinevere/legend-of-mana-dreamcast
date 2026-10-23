@@ -322,15 +322,15 @@ static void send_header(const DcSurfaceTexture *tex, const BlendPass *pass)
  | Description: Sends a clipped polygon as one triangle strip at 2x from the draw area's origin, with texel coordinates normalised to the page and a fixed alpha.
  | Vertices are white for a coverage pass, or the tint above 1.0 for an excess pass.
  | Author: suinevere
- | Dependencies: clip_strip_order, blend_vertex_colour, blend_excess_colour, PvrBackend.vertex
+ | Dependencies: clip_strip_order, blend_vertex_colour, blend_excess_colour, PvrBackend.strip
  | Globals: s_backend, s_origin_x, s_origin_y, s_scene_has_prims
  | Params: poly -- clipped polygon, alpha -- vertex alpha 0-255, textured -- primitive samples a texture, raw -- texture is untinted, cover -- draw white coverage instead of the vertex colour, excess -- draw the tint blend_vertex_colour clamps away
  | Returns: N/A
  ----------------------*/
 static void send_strip(const DcPoly *poly, uint8_t alpha, int textured, int raw, int cover, int excess)
 {
-    uint8_t (*colour)(uint8_t, int, int) = excess ? blend_excess_colour : blend_vertex_colour;
     uint8_t order[8];
+    PvrVertex verts[8];
     unsigned n = clip_strip_order(poly->count, order);
     unsigned i;
 
@@ -338,17 +338,31 @@ static void send_strip(const DcPoly *poly, uint8_t alpha, int textured, int raw,
     for (i = 0; i < n; i++)
     {
         const DcClipVertex *cv = &poly->v[order[i]];
-        uint32_t argb = ((uint32_t)alpha << 24) | ((uint32_t)colour(cv->r, textured, raw) << 16) |
-                        ((uint32_t)colour(cv->g, textured, raw) << 8) | colour(cv->b, textured, raw);
+        uint32_t argb = (uint32_t)alpha << 24;
+
+        if (excess)
+        {
+            argb |= ((uint32_t)blend_excess_colour(cv->r, textured, raw) << 16) | ((uint32_t)blend_excess_colour(cv->g, textured, raw) << 8) |
+                    blend_excess_colour(cv->b, textured, raw);
+        }
+        else
+        {
+            argb |= ((uint32_t)blend_vertex_colour(cv->r, textured, raw) << 16) | ((uint32_t)blend_vertex_colour(cv->g, textured, raw) << 8) |
+                    blend_vertex_colour(cv->b, textured, raw);
+        }
 
         if (cover)
         {
             argb |= 0x00FFFFFFu;
         }
 
-        s_backend->vertex((cv->x + s_origin_x) * PVR_SCALE, (cv->y + s_origin_y) * PVR_SCALE,
-                          cv->u / PVR_PAGE_TEXELS, cv->v / PVR_PAGE_TEXELS, argb, i + 1 == n);
+        verts[i].x = (cv->x + s_origin_x) * PVR_SCALE;
+        verts[i].y = (cv->y + s_origin_y) * PVR_SCALE;
+        verts[i].u = cv->u / PVR_PAGE_TEXELS;
+        verts[i].v = cv->v / PVR_PAGE_TEXELS;
+        verts[i].argb = argb;
     }
+    s_backend->strip(verts, n);
 }
 
 /*----------------------
@@ -568,7 +582,7 @@ void pvr_submit_rect(int x, int y, int w, int h, uint16_t ps1_colour)
  | pvr_submit_rgb24
  | Description: Closes any open scene, loads the frame into its texture, and shows it as one opaque full-screen quad in a scene of its own.
  | Author: suinevere
- | Dependencies: pvr_submit_flip, PvrBackend.frame_texture, open_scene, send_header, PvrBackend.vertex
+ | Dependencies: pvr_submit_flip, PvrBackend.frame_texture, open_scene, send_header, PvrBackend.strip
  | Globals: s_backend, s_scene_has_prims
  | Params: pixels -- RGB565 rows at a 512-pixel pitch, width, height -- frame size in pixels
  | Returns: N/A
@@ -579,6 +593,8 @@ void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height)
     const DcSurfaceTexture *tex;
     float u = (float)width / RGB24_TEXTURE_WIDTH;
     float v = (float)height / RGB24_TEXTURE_HEIGHT;
+    PvrVertex quad[4] = { { 0.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFFFFu }, { 640.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFFFFu },
+                          { 0.0f, 480.0f, 0.0f, 0.0f, 0xFFFFFFFFu }, { 640.0f, 480.0f, 0.0f, 0.0f, 0xFFFFFFFFu } };
 
     pvr_submit_flip();
     tex = s_backend->frame_texture(pixels, width, height);
@@ -588,10 +604,11 @@ void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height)
     }
     open_scene();
     send_header(tex, &pass);
-    s_backend->vertex(0.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFFFFu, 0);
-    s_backend->vertex(640.0f, 0.0f, u, 0.0f, 0xFFFFFFFFu, 0);
-    s_backend->vertex(0.0f, 480.0f, 0.0f, v, 0xFFFFFFFFu, 0);
-    s_backend->vertex(640.0f, 480.0f, u, v, 0xFFFFFFFFu, 1);
+    quad[1].u = u;
+    quad[2].v = v;
+    quad[3].u = u;
+    quad[3].v = v;
+    s_backend->strip(quad, 4);
     s_scene_has_prims = 1;
     pvr_submit_flip();
 }

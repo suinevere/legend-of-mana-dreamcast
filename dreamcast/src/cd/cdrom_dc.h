@@ -59,6 +59,17 @@ FILE *cdrom_dc_open_resource(int resource_index, unsigned *size_bytes);
 int cdrom_dc_read_sectors(int resource_index, unsigned first, unsigned count, void *dst);
 
 /*----------------------
+ | cdrom_dc_set_poll
+ | Description: Registers the function cdrom_process_state calls first, so a worker's finished MDEC decode is delivered while the movie loop polls; null for none.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_process_poll
+ | Params: poll -- function to call, or null
+ | Returns: N/A
+ ----------------------*/
+void cdrom_dc_set_poll(void (*poll)(void));
+
+/*----------------------
  | cdrom_dc_vsync_tick
  | Description: Delivers the stream sectors due by now; VSync calls it once per wait.
  | Author: suinevere

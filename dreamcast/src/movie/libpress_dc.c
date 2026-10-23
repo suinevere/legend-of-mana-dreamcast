@@ -1,6 +1,7 @@
 /*----------------------
  | libpress_dc.c
  | Description: libpress on the Dreamcast: DecDCTvlc2 decodes a whole frame in software and DecDCTout runs the MDEC emulator, with callbacks delivered without re-entry.
+ |              With a runner installed, DecDCTout decodes on a worker the way the PS1's MDEC runs beside the CPU, and libpress_dc_poll delivers the output callback on the caller's thread.
  | Author: suinevere
  | Dependencies: libpress.h, mdec.h, str_vlc.h, dc_system.h
  | Globals: s_in, s_out_callback, s_in_callback_fn, s_in_callback, s_callback_pending, s_vlc_size, s_frame_open, s_frame_us, s_stat_frames, s_stat_us, s_stat_max, s_log_frames, s_log_us, s_log_max
@@ -76,6 +77,26 @@ static void (*s_in_callback_fn)(void);
  ----------------------*/
 static int s_in_callback;
 static int s_callback_pending;
+
+/*----------------------
+ | s_start / s_wait / s_job_out / s_job_count / s_job_mb_bytes / s_job_us / s_job_busy / s_job_done
+ | Description: The installed runner's start and wait hooks, and the decode in flight on s_in: its output, macroblock count and size, its time, and whether it is running or finished but not yet delivered.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void (*s_start)(void (*job)(void));
+static void (*s_wait)(void);
+static uint8_t *s_job_out;
+static unsigned s_job_count;
+static unsigned s_job_mb_bytes;
+static unsigned s_job_us;
+static volatile int s_job_busy;
+static volatile int s_job_done;
+
+static void wait_job(void);
 
 /*----------------------
  | s_vlc_size
@@ -171,15 +192,16 @@ void libpress_dc_stats(unsigned *frames, unsigned *us_avg, unsigned *us_max)
 
 /*----------------------
  | DecDCTReset
- | Description: Builds the MDEC tables and drops the pending input; mode 0 also clears both callbacks.
+ | Description: Waits out a decode in flight, then builds the MDEC tables and drops the pending input and any undelivered completion; mode 0 also clears both callbacks.
  | Author: suinevere
- | Dependencies: mdec_init_tables
+ | Dependencies: wait_job, mdec_init_tables
  | Globals: s_in, s_out_callback, s_in_callback_fn, s_callback_pending
  | Params: mode -- 0 full reset, 1 cancel the current decode
  | Returns: N/A
  ----------------------*/
 void DecDCTReset(int mode)
 {
+    wait_job();
     mdec_init_tables();
     s_in.src = 0;
     s_in.end = 0;
@@ -252,15 +274,16 @@ int DecDCTvlc2(u_long *bitstream, u_long *dst, DECDCTTAB table)
 
 /*----------------------
  | DecDCTin
- | Description: Starts an MDEC input command; mode bit 0 selects 24-bit output, bit 1 sets bit 15 of 15-bit pixels.
+ | Description: Waits out a decode in flight, then starts an MDEC input command; mode bit 0 selects 24-bit output, bit 1 sets bit 15 of 15-bit pixels.
  | Author: suinevere
- | Dependencies: mdec_begin
+ | Dependencies: wait_job, mdec_begin
  | Globals: s_in, s_in_callback_fn
  | Params: buf -- MDEC command and run-length codes, mode -- output mode
  | Returns: N/A
  ----------------------*/
 void DecDCTin(u_long *buf, int mode)
 {
+    wait_job();
     mdec_begin(&s_in, (const uint32_t *)buf, mode & 1, (mode >> 1) & 1);
     if (s_in_callback_fn != 0)
     {
@@ -269,28 +292,55 @@ void DecDCTin(u_long *buf, int mode)
 }
 
 /*----------------------
- | DecDCTout
- | Description: Decodes size words of macroblocks into buf, then runs the output callback; a call from inside the callback only marks it pending.
+ | decode_job
+ | Description: Decodes the job's macroblocks into its output and marks it done; runs on the worker when a runner is installed.
  | Author: suinevere
  | Dependencies: mdec_decode_macroblock, dc_time_us
- | Globals: s_in, s_frame_us, s_callback_pending, s_in_callback, s_out_callback
- | Params: buf -- output, size -- words to fill
+ | Globals: s_in, s_job_out, s_job_count, s_job_mb_bytes, s_job_us, s_job_done
+ | Params: N/A
  | Returns: N/A
  ----------------------*/
-void DecDCTout(u_long *buf, int size)
+static void decode_job(void)
 {
     uint64_t t0 = dc_time_us();
-    unsigned mb_bytes = s_in.depth24 ? MDEC_MB_BYTES_24 : MDEC_MB_BYTES_15;
-    unsigned count = (unsigned)size * 4u / mb_bytes;
-    uint8_t *out = (uint8_t *)buf;
     unsigned i;
 
-    for (i = 0; i < count; i++)
+    for (i = 0; i < s_job_count; i++)
     {
-        mdec_decode_macroblock(&s_in, out + i * mb_bytes);
+        mdec_decode_macroblock(&s_in, s_job_out + i * s_job_mb_bytes);
     }
-    s_frame_us += (unsigned)(dc_time_us() - t0);
+    s_job_us = (unsigned)(dc_time_us() - t0);
+    s_job_done = 1;
+}
+
+/*----------------------
+ | finish_job
+ | Description: Retires a decode the worker finished: adds its time and marks its output callback pending.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_job_done, s_job_busy, s_job_us, s_frame_us, s_callback_pending
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void finish_job(void)
+{
+    s_job_done = 0;
+    s_job_busy = 0;
+    s_frame_us += s_job_us;
     s_callback_pending = 1;
+}
+
+/*----------------------
+ | drain
+ | Description: Runs the output callback while one is pending; does nothing from inside the callback, whose own decodes stay pending for the next drain.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_callback_pending, s_in_callback, s_out_callback
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void drain(void)
+{
     if (s_in_callback)
     {
         return;
@@ -305,13 +355,90 @@ void DecDCTout(u_long *buf, int size)
 }
 
 /*----------------------
- | DecDCTinSync / DecDCToutSync
- | Description: Decoding finishes inside the calls that start it, so there is never anything to wait for.
+ | wait_job
+ | Description: Waits for a decode in flight to finish and retires it, leaving its callback pending.
  | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: mode -- ignored
- | Returns: 0
+ | Dependencies: finish_job
+ | Globals: s_job_busy, s_job_done, s_wait
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void wait_job(void)
+{
+    while (s_job_busy && !s_job_done)
+    {
+        if (s_wait != 0)
+        {
+            s_wait();
+        }
+    }
+    if (s_job_done)
+    {
+        finish_job();
+    }
+}
+
+void libpress_dc_poll_wait(void)
+{
+    if (s_job_busy && !s_job_done && s_wait != 0)
+    {
+        s_wait();
+    }
+    libpress_dc_poll();
+}
+
+void libpress_dc_poll(void)
+{
+    if (s_job_done)
+    {
+        finish_job();
+    }
+    drain();
+}
+
+void libpress_dc_set_runner(void (*start)(void (*job)(void)), void (*wait)(void))
+{
+    wait_job();
+    s_start = start;
+    s_wait = wait;
+}
+
+/*----------------------
+ | DecDCTout
+ | Description: Decodes size words of macroblocks into buf: on the runner's worker when one is installed, its callback left for libpress_dc_poll, else at once followed by the callback.
+ |              A decode still in flight is waited out first and its callback left pending, never run here, since the callback itself starts the next decode.
+ |              One started from inside the callback (a movie decoding in slices) runs at once, as before, so a chain of slices is not paced by the polls.
+ | Author: suinevere
+ | Dependencies: wait_job, decode_job, finish_job, drain
+ | Globals: s_in, s_job_out, s_job_count, s_job_mb_bytes, s_job_busy, s_start, s_in_callback
+ | Params: buf -- output, size -- words to fill
+ | Returns: N/A
+ ----------------------*/
+void DecDCTout(u_long *buf, int size)
+{
+    wait_job();
+    s_job_mb_bytes = s_in.depth24 ? MDEC_MB_BYTES_24 : MDEC_MB_BYTES_15;
+    s_job_count = (unsigned)size * 4u / s_job_mb_bytes;
+    s_job_out = (uint8_t *)buf;
+    s_job_busy = 1;
+    if (s_start != 0 && !s_in_callback)
+    {
+        s_start(decode_job);
+        return;
+    }
+    decode_job();
+    finish_job();
+    drain();
+}
+
+/*----------------------
+ | DecDCTinSync / DecDCToutSync
+ | Description: Input is taken at once; output in mode 0 waits for a decode in flight and runs its callback, in mode 1 polls and reports whether one is still running.
+ | Author: suinevere
+ | Dependencies: wait_job, drain, libpress_dc_poll
+ | Globals: s_job_busy
+ | Params: mode -- 0 wait, 1 poll
+ | Returns: 0 when idle, 1 while a mode 1 poll finds the decode running
  ----------------------*/
 int DecDCTinSync(int mode)
 {
@@ -321,8 +448,14 @@ int DecDCTinSync(int mode)
 
 int DecDCToutSync(int mode)
 {
-    (void)mode;
-    return 0;
+    if (mode == 0)
+    {
+        wait_job();
+        drain();
+        return 0;
+    }
+    libpress_dc_poll();
+    return s_job_busy ? 1 : 0;
 }
 
 /*----------------------
@@ -344,16 +477,20 @@ int DecDCTinCallback(void (*func)())
 
 /*----------------------
  | DecDCToutCallback
- | Description: Installs the callback DecDCTout runs once its output is written.
+ | Description: Installs the callback DecDCTout runs once its output is written, after a decode in flight has finished and reached the callback it started under, as the synchronous decoder always guaranteed.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: wait_job, drain
  | Globals: s_out_callback
  | Params: func -- callback or NULL
  | Returns: the previous callback
  ----------------------*/
 int DecDCToutCallback(void (*func)())
 {
-    int previous = (int)(intptr_t)s_out_callback;
+    int previous;
+
+    wait_job();
+    drain();
+    previous = (int)(intptr_t)s_out_callback;
 
     s_out_callback = (void (*)(void))func;
     return previous;

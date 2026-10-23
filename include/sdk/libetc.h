@@ -18,7 +18,20 @@
 #define PADR2      (1 << 1)
 #define PADselect  (1 << 8)
 
+/*----------------------
+ | getScratchAddr
+ | Description: Address of a word in the scratchpad; port builds define SCRATCHPAD_ADDRESS to their own buffer, the PS1 keeps 0x1F800000.
+ | Author: suinevere
+ | Dependencies: SCRATCHPAD_ADDRESS (port prefix)
+ | Globals: N/A
+ | Params: offset -- word offset
+ | Returns: u_long pointer
+ ----------------------*/
+#ifdef SCRATCHPAD_ADDRESS
+#define getScratchAddr(offset) ((u_long *)(SCRATCHPAD_ADDRESS + (offset) * 4))
+#else
 #define getScratchAddr(offset) ((u_long *)(0x1f800000 + (offset) * 4))
+#endif
 
 int CheckCallback(void);
 int ResetCallback(void);

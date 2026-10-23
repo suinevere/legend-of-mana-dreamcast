@@ -21,4 +21,15 @@
  ----------------------*/
 char *dc_exception_format_halt(char *out, int out_size, const char *name, unsigned long pc, unsigned long pr, unsigned long address);
 
+/*----------------------
+ | dc_exception_format_registers
+ | Description: Writes the sixteen general registers three to a line ("R0 xxxxxxxx R1 xxxxxxxx R2 xxxxxxxx"), lines separated by newlines, truncated to fit.
+ | Author: suinevere
+ | Dependencies: snprintf
+ | Globals: N/A
+ | Params: out -- buffer, out_size -- its size, r -- r0..r15
+ | Returns: out
+ ----------------------*/
+char *dc_exception_format_registers(char *out, int out_size, const unsigned long r[16]);
+
 #endif

@@ -16,8 +16,23 @@
 #include "blend.h"
 
 /*----------------------
+ | PvrVertex
+ | Description: One strip vertex in screen pixels with page-normalised texel coordinates and its colour.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct
+{
+    float x, y, u, v;
+    uint32_t argb;
+} PvrVertex;
+
+/*----------------------
  | PvrBackend
- | Description: Starts and finishes a scene, sets the background, and writes a polygon header or one strip vertex in screen pixels with page-normalised texel coordinates.
+ | Description: Starts and finishes a scene, sets the background, and writes a polygon header or a whole triangle strip of PvrVertex in one call.
  | scene_begin returns 0 when the previous flip is not yet confirmed, leaving a pending texture flush for later; scene_shown checks the same without waiting.
  | frame_texture loads the RGB565 rows (512-pixel pitch) of a 24-bit display frame into a texture of its own and returns it, or NULL when texture memory has no room.
  | Author: suinevere
@@ -32,10 +47,32 @@ typedef struct
     void (*scene_finish)(void);
     void (*background)(uint8_t r, uint8_t g, uint8_t b);
     void (*header)(const DcSurfaceTexture *tex, const BlendPass *pass);
-    void (*vertex)(float x, float y, float u, float v, uint32_t argb, int last);
+    void (*strip)(const PvrVertex *verts, unsigned count);
     int (*scene_shown)(unsigned scenes_closed);
     const DcSurfaceTexture *(*frame_texture)(const uint16_t *pixels, unsigned width, unsigned height);
 } PvrBackend;
+
+/*----------------------
+ | pvr_backend_wait_us
+ | Description: Microseconds the KallistiOS backend has spent waiting for the PowerVR to finish a scene before opening the next, for the speed readout.
+ | Author: suinevere
+ | Dependencies: pvr_backend_kos.c
+ | Globals: s_pvr_wait_us
+ | Params: N/A
+ | Returns: the total since start-up
+ ----------------------*/
+unsigned long long pvr_backend_wait_us(void);
+
+/*----------------------
+ | pvr_backend_take_render_max_us
+ | Description: The longest PowerVR render the KallistiOS backend has seen since the last call, then starts a new period, for the speed readout.
+ | Author: suinevere
+ | Dependencies: pvr_backend_kos.c
+ | Globals: s_render_max_us
+ | Params: N/A
+ | Returns: microseconds
+ ----------------------*/
+unsigned pvr_backend_take_render_max_us(void);
 
 /*----------------------
  | pvr_backend_frame_pixels

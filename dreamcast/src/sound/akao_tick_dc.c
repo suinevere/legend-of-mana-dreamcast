@@ -51,9 +51,9 @@ static int s_started;
 
 /*----------------------
  | tick_irq
- | Description: TMU1 underflow: clears the timer, runs AKAO's tick and flushes its SPU register changes to the AICA.
+ | Description: TMU1 underflow: clears the timer, refreshes some cached AICA envelope levels, runs AKAO's tick and flushes its SPU register changes to the AICA.
  | Author: suinevere
- | Dependencies: timer_clear, spu_voice_flush
+ | Dependencies: timer_clear, aica_monitor_service, spu_voice_flush
  | Globals: s_tick, s_ticks
  | Params: source / context / data -- unused
  | Returns: N/A
@@ -64,6 +64,7 @@ static void tick_irq(irq_t source, irq_context_t *context, void *data)
     (void)context;
     (void)data;
     timer_clear(TMU1);
+    aica_monitor_service();
     if (s_tick != NULL)
         s_tick();
     spu_voice_flush();

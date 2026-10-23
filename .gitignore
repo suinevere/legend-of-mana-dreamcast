@@ -46,6 +46,7 @@ dreamcast/gen/
 dreamcast/cd/data/
 dreamcast/*.elf
 dreamcast/*.cdi
+dreamcast/gdi/
 
 # Downloaded Flycast emulator used by the Dreamcast boot-check runner
 tools/flycast/

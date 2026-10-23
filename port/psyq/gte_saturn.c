@@ -813,10 +813,101 @@ void gte_saturn_set_back_color(int32_t r, int32_t g, int32_t b)
 }
 
 /*----------------------
+ | gte_ir_sf1
+ | Description: Saturates a shifted MAC value into IR1-IR3 for an lm=0 command, flagging when it saturates.
+ | Author: suinevere
+ | Dependencies: gte_set_flag
+ | Globals: lom_gte
+ | Params: index -- 1..3, value -- shifted MAC
+ | Returns: N/A
+ ----------------------*/
+static inline void gte_ir_sf1(int index, int64_t value)
+{
+    if (value < -0x8000)
+    {
+        gte_set_flag(25 - index);
+        value = -0x8000;
+    }
+    else if (value > 0x7FFF)
+    {
+        gte_set_flag(25 - index);
+        value = 0x7FFF;
+    }
+    lom_gte.ir[index] = (int16_t)value;
+}
+
+/*----------------------
+ | gte_tr_unchecked
+ | Description: Whether every TR term is below 2^30 in magnitude, so gte_matrix_vector would skip its 44-bit checks and gte_rtp_fast gives the same result.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: lom_gte
+ | Params: N/A
+ | Returns: 1 when gte_rtp_fast applies, else 0
+ ----------------------*/
+static inline int gte_tr_unchecked(void)
+{
+    return lom_gte.tr[0] < 0x40000000 && lom_gte.tr[0] > -0x40000000 && lom_gte.tr[1] < 0x40000000 && lom_gte.tr[1] > -0x40000000 &&
+           lom_gte.tr[2] < 0x40000000 && lom_gte.tr[2] > -0x40000000;
+}
+
+/*----------------------
+ | gte_rtp_fast
+ | Description: gte_rtp(slot, 1, 0, depth_cue) unrolled for a TR gte_tr_unchecked accepts; with sf=1 the RTP IR3 quirk value equals the shifted MAC3, so every step is fixed arithmetic.
+ | Author: suinevere
+ | Dependencies: gte_ir_sf1, gte_clamp, gte_divide, gte_mac0
+ | Globals: lom_gte
+ | Params: slot -- V0..V2, depth_cue -- compute IR0
+ | Returns: N/A
+ ----------------------*/
+static void gte_rtp_fast(int slot, int depth_cue)
+{
+    const int16_t *v = lom_gte.v[slot];
+    int64_t s1 = ((int64_t)lom_gte.tr[0] << 12) + (int32_t)(lom_gte.rt[0][0] * v[0]) + (int32_t)(lom_gte.rt[0][1] * v[1]) +
+                 (int32_t)(lom_gte.rt[0][2] * v[2]);
+    int64_t s2 = ((int64_t)lom_gte.tr[1] << 12) + (int32_t)(lom_gte.rt[1][0] * v[0]) + (int32_t)(lom_gte.rt[1][1] * v[1]) +
+                 (int32_t)(lom_gte.rt[1][2] * v[2]);
+    int64_t s3 = ((int64_t)lom_gte.tr[2] << 12) + (int32_t)(lom_gte.rt[2][0] * v[0]) + (int32_t)(lom_gte.rt[2][1] * v[1]) +
+                 (int32_t)(lom_gte.rt[2][2] * v[2]);
+    int64_t x;
+    int64_t y;
+    uint32_t n;
+
+    s1 >>= 12;
+    s2 >>= 12;
+    s3 >>= 12;
+    lom_gte.mac[1] = (int32_t)(uint32_t)s1;
+    lom_gte.mac[2] = (int32_t)(uint32_t)s2;
+    lom_gte.mac[3] = (int32_t)(uint32_t)s3;
+    gte_ir_sf1(1, s1);
+    gte_ir_sf1(2, s2);
+    gte_ir_sf1(3, s3);
+    lom_gte.sz[0] = lom_gte.sz[1];
+    lom_gte.sz[1] = lom_gte.sz[2];
+    lom_gte.sz[2] = lom_gte.sz[3];
+    lom_gte.sz[3] = (uint16_t)gte_clamp(s3, 0, 0xFFFF, GTE_FLAG_SZ_OTZ);
+    n = gte_divide(lom_gte.h, lom_gte.sz[3]);
+    x = gte_mac0((int64_t)n * lom_gte.ir[1] + lom_gte.ofx);
+    lom_gte.sxy[0][0] = lom_gte.sxy[1][0];
+    lom_gte.sxy[0][1] = lom_gte.sxy[1][1];
+    lom_gte.sxy[1][0] = lom_gte.sxy[2][0];
+    lom_gte.sxy[1][1] = lom_gte.sxy[2][1];
+    lom_gte.sxy[2][0] = (int16_t)gte_clamp(x >> 16, -0x400, 0x3FF, GTE_FLAG_SX);
+    y = gte_mac0((int64_t)n * lom_gte.ir[2] + lom_gte.ofy);
+    lom_gte.sxy[2][1] = (int16_t)gte_clamp(y >> 16, -0x400, 0x3FF, GTE_FLAG_SY);
+    if (depth_cue)
+    {
+        int64_t cue = gte_mac0((int64_t)n * lom_gte.dqa + lom_gte.dqb);
+
+        lom_gte.ir[0] = (int16_t)gte_clamp(cue >> 12, 0, 0x1000, GTE_FLAG_IR0);
+    }
+}
+
+/*----------------------
  | gte_saturn_rtps
  | Description: RTPS (sf=1, lm=0): perspective-transforms V0 with depth cueing.
  | Author: suinevere
- | Dependencies: gte_rtp
+ | Dependencies: gte_tr_unchecked, gte_rtp_fast, gte_rtp
  | Globals: lom_gte
  | Params: N/A
  | Returns: N/A
@@ -824,7 +915,14 @@ void gte_saturn_set_back_color(int32_t r, int32_t g, int32_t b)
 void gte_saturn_rtps(void)
 {
     gte_begin();
-    gte_rtp(0, 1, 0, 1);
+    if (gte_tr_unchecked())
+    {
+        gte_rtp_fast(0, 1);
+    }
+    else
+    {
+        gte_rtp(0, 1, 0, 1);
+    }
     gte_finish();
 }
 
@@ -832,7 +930,7 @@ void gte_saturn_rtps(void)
  | gte_saturn_rtpt
  | Description: RTPT (sf=1, lm=0): perspective-transforms V0, V1, V2 in order, depth cueing only the last.
  | Author: suinevere
- | Dependencies: gte_rtp
+ | Dependencies: gte_tr_unchecked, gte_rtp_fast, gte_rtp
  | Globals: lom_gte
  | Params: N/A
  | Returns: N/A
@@ -840,9 +938,18 @@ void gte_saturn_rtps(void)
 void gte_saturn_rtpt(void)
 {
     gte_begin();
-    gte_rtp(0, 1, 0, 0);
-    gte_rtp(1, 1, 0, 0);
-    gte_rtp(2, 1, 0, 1);
+    if (gte_tr_unchecked())
+    {
+        gte_rtp_fast(0, 0);
+        gte_rtp_fast(1, 0);
+        gte_rtp_fast(2, 1);
+    }
+    else
+    {
+        gte_rtp(0, 1, 0, 0);
+        gte_rtp(1, 1, 0, 0);
+        gte_rtp(2, 1, 0, 1);
+    }
     gte_finish();
 }
 

@@ -2,11 +2,12 @@
  | dc_exception.c
  | Description: Installs an SH-4 exception trap that reports the fault and halts, for address-error and illegal-instruction exceptions.
  | Author: suinevere
- | Dependencies: dc_exception.h, dc_system.h, dc_exception_format.h, arch/irq.h
+ | Dependencies: dc_exception.h, dc_system.h, dc_exception_format.h, arch/irq.h, stdio.h
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#include <stdio.h>
 #include <arch/irq.h>
 #include "dc_exception.h"
 #include "dc_exception_format.h"
@@ -25,9 +26,9 @@
 
 /*----------------------
  | dc_exception_handler
- | Description: Formats the faulting exception's name, PC, PR and address, then halts.
+ | Description: Formats the faulting exception's name, PC, PR and address, the build's date and time, and r0..r15, then halts.
  | Author: suinevere
- | Dependencies: dc_exception_format_halt, dc_halt
+ | Dependencies: dc_exception_format_halt, dc_exception_format_registers, dc_halt
  | Globals: N/A
  | Params: source -- exception code that fired, context -- CPU state at the fault, data -- unused
  | Returns: N/A
@@ -35,7 +36,11 @@
 static void dc_exception_handler(irq_t source, irq_context_t *context, void *data)
 {
     const char *name;
-    char message[64];
+    static char head[64];
+    static char registers[256];
+    static char message[400];
+    unsigned long r[16];
+    int i;
     unsigned long address = *(volatile unsigned long *)DC_EXCEPTION_TEA_ADDR;
 
     (void)data;
@@ -58,7 +63,11 @@ static void dc_exception_handler(irq_t source, irq_context_t *context, void *dat
             break;
     }
 
-    dc_exception_format_halt(message, sizeof message, name, context->pc, context->pr, address);
+    for (i = 0; i < 16; i++)
+        r[i] = context->r[i];
+    dc_exception_format_halt(head, sizeof head, name, context->pc, context->pr, address);
+    dc_exception_format_registers(registers, sizeof registers, r);
+    snprintf(message, sizeof message, "%s\nBUILD " __DATE__ " " __TIME__ "\n%s", head, registers);
     dc_halt(message);
 }
 

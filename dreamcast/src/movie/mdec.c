@@ -1,6 +1,6 @@
 /*----------------------
  | mdec.c
- | Description: Software PS1 MDEC following psx-spx's rl_decode_block and yuv_to_rgb, with libjpeg's fast integer IDCT in place of the hardware's matrix passes.
+ | Description: Software PS1 MDEC following psx-spx's rl_decode_block and yuv_to_rgb, with libjpeg's float AAN IDCT in place of the hardware's matrix passes.
  | Author: suinevere
  | Dependencies: mdec.h, math.h, string.h
  | Globals: s_zagzig, s_default_quant, s_quant, s_scale
@@ -63,11 +63,22 @@ static int16_t s_scale[64];
 static uint8_t s_clamp[2 * CLAMP_BIAS];
 
 /*----------------------
+ | s_prescale
+ | Description: Per raster position, the AAN scale of its row and column over 8, folding the IDCT's prescale and final descale into one multiply at dequantisation.
+ | Author: suinevere
+ | Dependencies: mdec_init_tables
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static float s_prescale[64];
+
+/*----------------------
  | mdec_init_tables
- | Description: Builds the zigzag quant table and the DCT basis scaled to signed 16 bits, rounded down as psx-spx lists it.
+ | Description: Builds the zigzag quant table and the DCT basis scaled to signed 16 bits, rounded down as psx-spx lists it, and the AAN prescale per coefficient.
  | Author: suinevere
  | Dependencies: cos, floor
- | Globals: s_quant, s_scale, s_clamp
+ | Globals: s_quant, s_scale, s_prescale, s_clamp
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -88,6 +99,13 @@ void mdec_init_tables(void)
 
             s_scale[k * 8 + n] = (int16_t)(r > 32767 ? 32767 : r);
         }
+    }
+    for (k = 0; k < 64; k++)
+    {
+        double row = (k >> 3) == 0 ? 1.0 : cos((k >> 3) * 3.14159265358979323846 / 16.0) * 1.41421356237309504880;
+        double col = (k & 7) == 0 ? 1.0 : cos((k & 7) * 3.14159265358979323846 / 16.0) * 1.41421356237309504880;
+
+        s_prescale[k] = (float)(row * col / 8.0);
     }
     for (k = 0; k < 2 * CLAMP_BIAS; k++)
     {
@@ -157,136 +175,172 @@ static int signed10(int v)
 }
 
 /*----------------------
- | IDCT_CONST_BITS / IDCT_PASS1_BITS / IDCT_FIX_*
- | Description: Fixed-point scale of libjpeg's accurate integer IDCT and its rotation constants (value * 2^13).
+ | AAN_SQRT2 / AAN_C2 / AAN_C6_PLUS / AAN_C6_MINUS / OUTPUT_BIAS
+ | Description: libjpeg jidctflt's AAN rotation constants, and the bias that makes truncation round non-negative.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define IDCT_CONST_BITS 13
-#define IDCT_PASS1_BITS 2
-#define IDCT_FIX_0_298631336 2446
-#define IDCT_FIX_0_390180644 3196
-#define IDCT_FIX_0_541196100 4433
-#define IDCT_FIX_0_765366865 6270
-#define IDCT_FIX_0_899976223 7373
-#define IDCT_FIX_1_175875602 9633
-#define IDCT_FIX_1_501321110 12299
-#define IDCT_FIX_1_847759065 15137
-#define IDCT_FIX_1_961570560 16069
-#define IDCT_FIX_2_053119869 16819
-#define IDCT_FIX_2_562915447 20995
-#define IDCT_FIX_3_072711026 25172
+#define AAN_SQRT2 1.414213562f
+#define AAN_C2 1.847759065f
+#define AAN_C6_PLUS 1.082392200f
+#define AAN_C6_MINUS 2.613125930f
+#define OUTPUT_BIAS 8192.5f
 
 /*----------------------
  | idct_1d
- | Description: One 8-point Loeffler IDCT along a stride, as libjpeg's jidctint does it, rounding its outputs down by shift.
+ | Description: One 8-point AAN IDCT along a stride, as libjpeg's jidctflt does it, in place; five multiplies against the integer version's twelve, on the pipelined FPU.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: in -- 8 inputs at in[0], in[stride], ..., out -- 8 outputs at the same stride, stride -- element step, shift -- descale bits, pre -- input shift for the DC-only shortcut
+ | Params: v -- 8 values at v[0], v[stride], ..., stride -- element step
  | Returns: N/A
  ----------------------*/
-static void idct_1d(const int32_t *in, int32_t *out, int stride, int shift, int pre)
+static inline void idct_1d(float *v, int stride)
 {
-    int32_t tmp0, tmp1, tmp2, tmp3, tmp10, tmp11, tmp12, tmp13, z1, z2, z3, z4, z5;
-    int32_t round = (int32_t)1 << (shift - 1);
-    int i;
+    float tmp0, tmp1, tmp2, tmp3, tmp4, tmp5, tmp6, tmp7, tmp10, tmp11, tmp12, tmp13, z5, z10, z11, z12, z13;
 
-    if (in[stride] == 0 && in[2 * stride] == 0 && in[3 * stride] == 0 && in[4 * stride] == 0 && in[5 * stride] == 0 &&
-        in[6 * stride] == 0 && in[7 * stride] == 0)
-    {
-        int32_t dc = pre >= 0 ? in[0] << pre : (in[0] + ((int32_t)1 << (-pre - 1))) >> -pre;
-
-        for (i = 0; i < 8; i++)
-        {
-            out[i * stride] = dc;
-        }
-        return;
-    }
-    z2 = in[2 * stride];
-    z3 = in[6 * stride];
-    z1 = (z2 + z3) * IDCT_FIX_0_541196100;
-    tmp2 = z1 - z3 * IDCT_FIX_1_847759065;
-    tmp3 = z1 + z2 * IDCT_FIX_0_765366865;
-    tmp0 = (in[0] + in[4 * stride]) * ((int32_t)1 << IDCT_CONST_BITS);
-    tmp1 = (in[0] - in[4 * stride]) * ((int32_t)1 << IDCT_CONST_BITS);
-    tmp10 = tmp0 + tmp3;
-    tmp13 = tmp0 - tmp3;
-    tmp11 = tmp1 + tmp2;
-    tmp12 = tmp1 - tmp2;
-    tmp0 = in[7 * stride];
-    tmp1 = in[5 * stride];
-    tmp2 = in[3 * stride];
-    tmp3 = in[stride];
-    z1 = tmp0 + tmp3;
-    z2 = tmp1 + tmp2;
-    z3 = tmp0 + tmp2;
-    z4 = tmp1 + tmp3;
-    z5 = (z3 + z4) * IDCT_FIX_1_175875602;
-    tmp0 *= IDCT_FIX_0_298631336;
-    tmp1 *= IDCT_FIX_2_053119869;
-    tmp2 *= IDCT_FIX_3_072711026;
-    tmp3 *= IDCT_FIX_1_501321110;
-    z1 *= -IDCT_FIX_0_899976223;
-    z2 *= -IDCT_FIX_2_562915447;
-    z3 = z3 * -IDCT_FIX_1_961570560 + z5;
-    z4 = z4 * -IDCT_FIX_0_390180644 + z5;
-    tmp0 += z1 + z3;
-    tmp1 += z2 + z4;
-    tmp2 += z2 + z3;
-    tmp3 += z1 + z4;
-    out[0] = (tmp10 + tmp3 + round) >> shift;
-    out[7 * stride] = (tmp10 - tmp3 + round) >> shift;
-    out[stride] = (tmp11 + tmp2 + round) >> shift;
-    out[6 * stride] = (tmp11 - tmp2 + round) >> shift;
-    out[2 * stride] = (tmp12 + tmp1 + round) >> shift;
-    out[5 * stride] = (tmp12 - tmp1 + round) >> shift;
-    out[3 * stride] = (tmp13 + tmp0 + round) >> shift;
-    out[4 * stride] = (tmp13 - tmp0 + round) >> shift;
+    tmp10 = v[0] + v[4 * stride];
+    tmp11 = v[0] - v[4 * stride];
+    tmp13 = v[2 * stride] + v[6 * stride];
+    tmp12 = (v[2 * stride] - v[6 * stride]) * AAN_SQRT2 - tmp13;
+    tmp0 = tmp10 + tmp13;
+    tmp3 = tmp10 - tmp13;
+    tmp1 = tmp11 + tmp12;
+    tmp2 = tmp11 - tmp12;
+    z13 = v[5 * stride] + v[3 * stride];
+    z10 = v[5 * stride] - v[3 * stride];
+    z11 = v[stride] + v[7 * stride];
+    z12 = v[stride] - v[7 * stride];
+    tmp7 = z11 + z13;
+    tmp11 = (z11 - z13) * AAN_SQRT2;
+    z5 = (z10 + z12) * AAN_C2;
+    tmp10 = AAN_C6_PLUS * z12 - z5;
+    tmp12 = z5 - AAN_C6_MINUS * z10;
+    tmp6 = tmp12 - tmp7;
+    tmp5 = tmp11 - tmp6;
+    tmp4 = tmp10 + tmp5;
+    v[0] = tmp0 + tmp7;
+    v[7 * stride] = tmp0 - tmp7;
+    v[stride] = tmp1 + tmp6;
+    v[6 * stride] = tmp1 - tmp6;
+    v[2 * stride] = tmp2 + tmp5;
+    v[5 * stride] = tmp2 - tmp5;
+    v[4 * stride] = tmp3 + tmp4;
+    v[3 * stride] = tmp3 - tmp4;
 }
 
 /*----------------------
  | idct
- | Description: The orthonormal 2-D IDCT the MDEC's two matrix passes compute (each pass is the 1-D IDCT times one half), done with libjpeg's fast integer algorithm; differs from the hardware only in rounding.
+ | Description: The 2-D IDCT of prescaled coefficients, rounded to the nearest integer; columns holding nothing beyond DC skip their pass, and a block whose terms all sit in column 0 fills each row from its first value.
  | Author: suinevere
  | Dependencies: idct_1d
  | Globals: N/A
- | Params: blk -- 64 coefficients in raster order, replaced by samples
+ | Params: coef -- 64 prescaled coefficients in raster order, left all zero, ac_cols -- bit c set when column c has a term below row 0, any_cols -- bit c set when column c has any term, blk -- receives the 64 samples
  | Returns: N/A
  ----------------------*/
-static void idct(int32_t blk[64])
+static void idct(float coef[64], unsigned ac_cols, unsigned any_cols, int32_t blk[64])
 {
-    int32_t ws[64];
-    int i;
+    float ws[64];
+    int i, c;
 
-    for (i = 0; i < 8; i++)
+    for (c = 0; c < 8; c++)
     {
-        idct_1d(&blk[i], &ws[i], 8, IDCT_CONST_BITS - IDCT_PASS1_BITS, IDCT_PASS1_BITS);
+        if (ac_cols & (1u << c))
+        {
+            for (i = 0; i < 8; i++)
+            {
+                ws[i * 8 + c] = coef[i * 8 + c];
+            }
+            idct_1d(&ws[c], 8);
+        }
+        else
+        {
+            float dc = coef[c];
+
+            for (i = 0; i < 8; i++)
+            {
+                ws[i * 8 + c] = dc;
+            }
+        }
     }
     for (i = 0; i < 8; i++)
     {
-        idct_1d(&ws[i * 8], &blk[i * 8], 1, IDCT_CONST_BITS + IDCT_PASS1_BITS + 3, -(IDCT_PASS1_BITS + 3));
+        float *row = &ws[i * 8];
+        int32_t *out = &blk[i * 8];
+
+        if (any_cols != 1u)
+        {
+            idct_1d(row, 1);
+            for (c = 0; c < 8; c++)
+            {
+                out[c] = (int32_t)(row[c] + OUTPUT_BIAS) - 8192;
+            }
+        }
+        else
+        {
+            int32_t v = (int32_t)(row[0] + OUTPUT_BIAS) - 8192;
+
+            for (c = 0; c < 8; c++)
+            {
+                out[c] = v;
+            }
+        }
     }
 }
 
 /*----------------------
- | decode_block
- | Description: Dequantises one block's run-length codes into raster order and runs the IDCT.
+ | s_coef / s_coef_written / s_coef_count
+ | Description: Prescaled coefficient workspace kept all zero between blocks, the raster positions the current block wrote, and how many, so a block clears only what it set instead of all 64.
  | Author: suinevere
- | Dependencies: signed10, idct
- | Globals: s_quant, s_zagzig
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static float s_coef[64];
+static uint8_t s_coef_written[64];
+static int s_coef_count;
+
+/*----------------------
+ | clear_coefficients
+ | Description: Zeroes the positions the last block wrote, returning the workspace to all zero.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_coef, s_coef_written, s_coef_count
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void clear_coefficients(void)
+{
+    int i;
+
+    for (i = 0; i < s_coef_count; i++)
+    {
+        s_coef[s_coef_written[i]] = 0;
+    }
+    s_coef_count = 0;
+}
+
+/*----------------------
+ | decode_block
+ | Description: Dequantises one block's run-length codes into raster order and runs the IDCT; a block holding only its DC term is filled straight with the value the IDCT would give every pixel.
+ | Author: suinevere
+ | Dependencies: signed10, idct, clear_coefficients
+ | Globals: s_quant, s_zagzig, s_prescale, s_coef, s_coef_written, s_coef_count
  | Params: s -- stream, blk -- 64 outputs
  | Returns: 0, or -1 when the stream ends inside the block
  ----------------------*/
 static int decode_block(MdecStream *s, int32_t blk[64])
 {
     int k = 0;
-    int q, val, n;
+    int q, val, n, at;
+    int dc_val = 0;
+    unsigned ac_cols = 0;
+    unsigned any_cols = 0;
 
-    memset(blk, 0, 64 * sizeof(int32_t));
     do
     {
         if (s->src >= s->end)
@@ -304,9 +358,21 @@ static int decode_block(MdecStream *s, int32_t blk[64])
             val = signed10(n & 0x3FF) * 2;
         }
         val = val < -0x400 ? -0x400 : (val > 0x3FF ? 0x3FF : val);
-        blk[q ? s_zagzig[k] : k] = val;
+        at = q ? s_zagzig[k] : k;
+        s_coef[at] = (float)val * s_prescale[at];
+        s_coef_written[s_coef_count++] = (uint8_t)at;
+        any_cols |= 1u << (at & 7);
+        if (at >= 8)
+        {
+            ac_cols |= 1u << (at & 7);
+        }
+        if (at == 0)
+        {
+            dc_val = val;
+        }
         if (s->src >= s->end)
         {
+            clear_coefficients();
             return -1;
         }
         n = *s->src++;
@@ -317,7 +383,21 @@ static int decode_block(MdecStream *s, int32_t blk[64])
         }
         val = (signed10(n & 0x3FF) * s_quant[k] * q + 4) / 8;
     }
-    idct(blk);
+    if (s_coef_count == 1 && s_coef_written[0] == 0)
+    {
+        int32_t dc = (dc_val + 4) >> 3;
+        int i;
+
+        for (i = 0; i < 64; i++)
+        {
+            blk[i] = dc;
+        }
+    }
+    else
+    {
+        idct(s_coef, ac_cols, any_cols, blk);
+    }
+    clear_coefficients();
     return 0;
 }
 

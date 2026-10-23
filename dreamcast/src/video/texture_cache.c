@@ -231,7 +231,7 @@ static unsigned s_memo_epoch;
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static uint16_t s_scratch[TEXTURE_PAGE_TEXELS];
+static uint16_t s_scratch[TEXTURE_PAGE_TEXELS] __attribute__((aligned(32)));
 
 /*----------------------
  | spread_bits
@@ -485,10 +485,83 @@ static void entry_colours(const TextureEntry *e, uint16_t *colours)
 }
 
 /*----------------------
+ | build_region_pairs
+ | Description: build_region for even bounds, two rows at a time: a 2x2 texel block is four consecutive twiddled slots, so it lands in one or two aligned stores instead of four scattered ones.
+ | Author: suinevere
+ | Dependencies: page_row, page_words_wide, ps1_to_argb1555
+ | Globals: s_scratch, s_twiddle_u, s_twiddle_v
+ | Params: e -- entry, u0, u1, v0, v1 -- even texel bounds, colours -- entry_colours output for an expansion
+ | Returns: N/A
+ ----------------------*/
+static void build_region_pairs(const TextureEntry *e, int u0, int u1, int v0, int v1, const uint16_t *colours)
+{
+    uint8_t *bytes = (uint8_t *)s_scratch;
+    uint16_t tmp0[TEXTURE_PAGE_SIZE];
+    uint16_t tmp1[TEXTURE_PAGE_SIZE];
+    int words = page_words_wide(e->depth);
+    int expand = e->kind == ENTRY_EXPANSION;
+    int u;
+    int v;
+
+    for (v = v0; v < v1; v += 2)
+    {
+        const uint16_t *r0 = page_row(e->tpage_x, e->tpage_y, v, words, tmp0);
+        const uint16_t *r1 = page_row(e->tpage_x, e->tpage_y, v + 1, words, tmp1);
+        unsigned tv = s_twiddle_v[v];
+
+        for (u = u0; u < u1; u += 2)
+        {
+            unsigned t = s_twiddle_u[u] | tv;
+            uint32_t *wide = (uint32_t *)&s_scratch[t];
+            unsigned a;
+            unsigned b;
+            unsigned c;
+            unsigned d;
+
+            if (e->depth == DC_DEPTH_15)
+            {
+                wide[0] = (uint32_t)ps1_to_argb1555(r0[u]) | ((uint32_t)ps1_to_argb1555(r1[u]) << 16);
+                wide[1] = (uint32_t)ps1_to_argb1555(r0[u + 1]) | ((uint32_t)ps1_to_argb1555(r1[u + 1]) << 16);
+                continue;
+            }
+            if (e->depth == DC_DEPTH_8)
+            {
+                a = r0[u >> 1] & 0xFFu;
+                c = r0[u >> 1] >> 8;
+                b = r1[u >> 1] & 0xFFu;
+                d = r1[u >> 1] >> 8;
+            }
+            else
+            {
+                unsigned shift = (unsigned)(u & 3) * 4u;
+
+                a = (r0[u >> 2] >> shift) & 0xFu;
+                c = (r0[u >> 2] >> (shift + 4u)) & 0xFu;
+                b = (r1[u >> 2] >> shift) & 0xFu;
+                d = (r1[u >> 2] >> (shift + 4u)) & 0xFu;
+            }
+            if (expand)
+            {
+                wide[0] = (uint32_t)colours[a] | ((uint32_t)colours[b] << 16);
+                wide[1] = (uint32_t)colours[c] | ((uint32_t)colours[d] << 16);
+            }
+            else if (e->depth == DC_DEPTH_8)
+            {
+                *(uint32_t *)&bytes[t] = a | (b << 8) | (c << 16) | (d << 24);
+            }
+            else
+            {
+                *(uint16_t *)&bytes[t >> 1] = (uint16_t)(a | (b << 4) | (c << 8) | (d << 12));
+            }
+        }
+    }
+}
+
+/*----------------------
  | build_region
  | Description: Writes texels u0..u1-1 of rows v0..v1-1 into s_scratch at their twiddled places: packed indices for a paletted page, ARGB1555 for 15bpp or an expansion.
  | Author: suinevere
- | Dependencies: twiddle_tables, page_row, page_words_wide, ps1_to_argb1555
+ | Dependencies: twiddle_tables, page_row, page_words_wide, ps1_to_argb1555, build_region_pairs
  | Globals: s_scratch, s_twiddle_u, s_twiddle_v
  | Params: e -- entry, u0, u1, v0, v1 -- texel bounds, colours -- entry_colours output for an expansion
  | Returns: N/A
@@ -503,6 +576,11 @@ static void build_region(const TextureEntry *e, int u0, int u1, int v0, int v1, 
     int v;
 
     twiddle_tables();
+    if (((u0 | u1 | v0 | v1) & 1) == 0)
+    {
+        build_region_pairs(e, u0, u1, v0, v1, colours);
+        return;
+    }
     for (v = v0; v < v1; v++)
     {
         const uint16_t *row = page_row(e->tpage_x, e->tpage_y, v, words, tmp);

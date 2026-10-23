@@ -1,0 +1,50 @@
+# Skipping the FMV after the first artifact: the new-game path through placing the mailbox, then Start while scene 857's movie plays, which halted on real hardware inside field_build_render_records.
+wait 250
+wait state 2
+wait 600
+press DOWN 6
+wait 30
+press CROSS 6
+wait state 7
+wait 240
+mash CIRCLE 30 state 2
+wait 600
+press UP 6
+wait 30
+press CROSS 6
+wait 240
+press CROSS 6
+wait 180
+press CROSS 6
+wait state 3
+wait 300
+press CROSS 6
+wait state 5
+wait 180
+press CROSS 6
+wait 120
+press CROSS 6
+wait 120
+press CROSS 6
+wait 120
+mash CROSS 40 state 1
+wait 10
+wait 215
+wait 45
+wait 180
+press CROSS 6
+wait 30
+press CROSS 6
+wait 300
+wait 150
+wait 120
+wait 140
+mash CROSS 40 marker field scene 857
+wait 180
+wait 120
+capture movie-skip-before
+press START 6
+wait 600
+capture movie-skip-after
+wait 600
+capture movie-skip-later

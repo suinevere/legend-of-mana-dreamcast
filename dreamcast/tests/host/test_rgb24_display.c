@@ -97,6 +97,48 @@ static void test_rows_land_at_pitch(void)
 }
 
 /*----------------------
+ | test_matches_per_byte_formula
+ | Description: Noise converted at aligned, odd and wrapping origins and widths not a multiple of four matches the per-byte RGB565 formula everywhere.
+ | Author: suinevere
+ | Dependencies: rgb24_to_rgb565
+ | Globals: s_vram, s_dst
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_matches_per_byte_formula(void)
+{
+    static const unsigned cases[][4] = {{0, 0, 320, 240}, {2, 5, 318, 7}, {1, 9, 255, 3}, {6, 510, 101, 4}, {980, 0, 30, 2}};
+    const uint8_t *bytes = (const uint8_t *)s_vram;
+    unsigned seed = 12345u;
+    unsigned i, c, r, p;
+
+    for (i = 0; i < sizeof(s_vram) / sizeof(s_vram[0]); i++)
+    {
+        seed = seed * 1103515245u + 12345u;
+        s_vram[i] = (uint16_t)(seed >> 8);
+    }
+    for (c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+    {
+        unsigned x_hw = cases[c][0], y = cases[c][1], w = cases[c][2], h = cases[c][3];
+
+        memset(s_dst, 0, sizeof(s_dst));
+        rgb24_to_rgb565(s_vram, 1024, x_hw, y, w, h, s_dst, 512);
+        for (r = 0; r < h; r++)
+        {
+            const uint8_t *row = bytes + ((y + r) % 512u) * 2048u;
+
+            for (p = 0; p < w; p++)
+            {
+                unsigned at = x_hw * 2u + p * 3u;
+                unsigned red = row[at % 2048u], green = row[(at + 1u) % 2048u], blue = row[(at + 2u) % 2048u];
+
+                CHECK(s_dst[r * 512 + p] == (uint16_t)(((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)));
+            }
+        }
+    }
+}
+
+/*----------------------
  | main
  | Description: Runs every rgb24_display test and prints ok when all pass.
  | Author: suinevere
@@ -111,6 +153,7 @@ int main(void)
     test_blue_and_white();
     test_wraps_at_vram_edges();
     test_rows_land_at_pitch();
+    test_matches_per_byte_formula();
     if (!s_fail)
     {
         printf("ok\n");

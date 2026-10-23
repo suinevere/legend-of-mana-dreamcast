@@ -71,6 +71,17 @@ void cd_stream_start(unsigned total_sectors, CdStreamCallback callback, unsigned
 void cd_stream_service(unsigned now_vbl);
 
 /*----------------------
+ | cd_stream_stalls
+ | Description: Services since the last call that had a due sector the disc reader had not delivered yet, then starts counting again.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_stalls
+ | Params: N/A
+ | Returns: the count
+ ----------------------*/
+unsigned cd_stream_stalls(void);
+
+/*----------------------
  | CdGetSector
  | Description: Copies the next words of the sector being delivered.
  | Author: suinevere

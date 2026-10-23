@@ -78,7 +78,7 @@ endif
 # | Returns: N/A
 #----------------------
 KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c \
-	src/sound/aica.c src/sound/akao_tick_dc.c
+	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/system/perf_hud.c src/movie/movie_decode_kos.c
 
 #----------------------
 # | PORT_SOURCES
@@ -90,7 +90,7 @@ KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/sys
 # | Returns: N/A
 #----------------------
 PORT_SOURCES = ../port/boot/overlay_header.c ../port/boot/resource_index.c ../port/input/pad_publish.c \
-	../port/system/vsync_pacer.c ../port/psyq/gte_saturn.c ../port/psyq/libgte_tables.c ../port/stubs/main_stubs.c \
+	../port/system/vsync_pacer.c ../port/psyq/gte_saturn.c ../port/psyq/libgte_tables.c ../port/psyq/libc_rand.c ../port/stubs/main_stubs.c \
 	../port/sound/spu_shadow.c \
 	../port/sound/spu_sample_map.c \
 	../port/sound/aica_convert.c \
@@ -386,17 +386,19 @@ OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/O
 # | CFLAGS
 # | Description: US region and Dreamcast-target defines, plus an include path for every src subfolder, the port/ folders, the decomp's include, the generated gen/ headers and EXTRA_CFLAGS.
 # |              Raises RESOURCE_INDEX_MAX past Saturn's 256 default to 6144, covering the table's 5811 entries.
+# |              -fno-strict-aliasing because the decomp type-puns like the PS1's GCC allowed: field_build_render_records read a stale scene->seqs past its FieldLink* store.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-CFLAGS += -std=gnu11 -O2 -Wall -DVERSION_US -DLOM_DREAMCAST -DRESOURCE_INDEX_MAX=6144 $(patsubst %,-I%,$(shell find src -type d)) -I../port/boot -I../port/input -I../port/system -I../port/sound -I../include -Igen $(EXTRA_CFLAGS)
+CFLAGS += -std=gnu11 -O2 -fno-strict-aliasing -Wall -DVERSION_US -DLOM_DREAMCAST -DRESOURCE_INDEX_MAX=6144 $(patsubst %,-I%,$(shell find src -type d)) -I../port/boot -I../port/input -I../port/system -I../port/sound -I../include -Igen $(EXTRA_CFLAGS)
 
 #----------------------
 # | DECOMP_FLAGS / DECOMP_STD
 # | Description: The decomp prefix and include paths (the Psy-Q headers after newlib's, so its <strings.h> keeps libc's prototypes), and the Saturn DECOMP_STD warning set minus -Wreturn-mismatch, which GCC 13 lacks, for every source that sees PS1 types.
+# |              Those sources build with -MD, not -MMD, because -idirafter makes include/sdk a system directory whose headers -MMD leaves out of the dependency files.
 # | Author: suinevere
 # | Dependencies: ../port/psyq/lom_prefix.h, saturn/makefile (DECOMP_STD)
 # | Globals: N/A
@@ -444,7 +446,7 @@ KOS_LIBKALLISTI = $(KOS_BASE)/lib/dreamcast/libkallisti.a
 #----------------------
 TOOLCHAIN_LIBS = $(shell kos-cc -print-file-name=libc.a) $(shell kos-cc -print-file-name=libm.a) $(shell kos-cc -print-libgcc-file-name)
 
-.PHONY: all clean pending test-image
+.PHONY: all clean pending test-image gdi
 
 #----------------------
 # | all
@@ -463,7 +465,7 @@ $(MAIN_OBJS) $(OVERLAY_OBJS): | $(PRE_BUILD_STAMP)
 
 $(OBJDIR)/%.o: src/%.c
 	@mkdir -p $(dir $@)
-	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MMD -MP -c $< -o $@
+	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MD -MP -c $< -o $@
 
 $(patsubst src/%.c,$(OBJDIR)/%.o,$(filter-out src/main.c,$(KOS_SOURCES))): $(OBJDIR)/%.o: src/%.c
 	@mkdir -p $(dir $@)
@@ -485,7 +487,7 @@ $(OBJDIR)/main.o: src/main.c
 
 $(OBJDIR)/port/%.o: ../port/%.c
 	@mkdir -p $(dir $@)
-	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MMD -MP -c $< -o $@
+	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MD -MP -c $< -o $@
 
 #----------------------
 # | build/port/psyq/gte_saturn.o
@@ -670,7 +672,7 @@ build/decomp/overlays/field/actors/field_actor_hud_effects.o: DECOMP_STD += -DLO
 
 build/decomp/%.o: ../src/%.c
 	@mkdir -p $(dir $@)
-	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MMD -MP -c $< -o $@
+	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MD -MP -c $< -o $@
 
 #----------------------
 # | build/overlays/%.o
@@ -683,7 +685,7 @@ build/decomp/%.o: ../src/%.c
 #----------------------
 build/overlays/%.o: src/overlays/%.c
 	@mkdir -p $(dir $@)
-	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MMD -MP -c $< -o $@
+	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MD -MP -c $< -o $@
 
 build/ovl/%_vectors.o: gen/%_vectors.s
 	@mkdir -p $(dir $@)
@@ -700,7 +702,7 @@ build/ovl/%_vectors.o: gen/%_vectors.s
 #----------------------
 build/ovl/wmap_function_tables.o: src/wmap/wmap_function_tables.c
 	@mkdir -p $(dir $@)
-	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MMD -MP -c $< -o $@
+	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MD -MP -c $< -o $@
 
 #----------------------
 # | build/ovl/field_function_tables.o
@@ -713,7 +715,7 @@ build/ovl/wmap_function_tables.o: src/wmap/wmap_function_tables.c
 #----------------------
 build/ovl/field_function_tables.o: src/field/field_function_tables.c
 	@mkdir -p $(dir $@)
-	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MMD -MP -c $< -o $@
+	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MD -MP -c $< -o $@
 
 $(OBJDIR)/gen/dc_pending.o: gen/dc_pending.c
 	@mkdir -p $(dir $@)
@@ -911,7 +913,6 @@ $(OBJDIR)/cd-data/.stamp: $(PRE_BUILD_STAMP) $(OVERLAY_CODE)
 # | $(CDI)
 # | Description: Packs the linked ELF and this build's staged cd-data tree into a bootable MIL-CD image, so KallistiOS sees them under /cd (overlays in /cd/OVL).
 # |              -N drops mkdcdisc's data-track padding, which only speeds up loading on real GD-ROM drives and costs nothing this build needs.
-# |              Flycast boots the unpadded disc; GDEMU behavior on real hardware is unverified.
 # | Author: suinevere
 # | Dependencies: $(TARGET), mkdcdisc, $(OBJDIR)/cd-data/.stamp
 # | Globals: N/A
@@ -922,8 +923,22 @@ $(CDI): $(TARGET) $(OBJDIR)/cd-data/.stamp
 	mkdcdisc -e $(TARGET) -o $(CDI) -D $(OBJDIR)/cd-data -n "Legend of Mana" -N --allow-overwrite
 
 #----------------------
+# | gdi
+# | Description: Packs the same ELF and cd-data tree into a GD-ROM image in gdi/ (disc.gdi plus its tracks), the folder layout GDEMU and MODE load.
+# | Author: suinevere
+# | Dependencies: $(TARGET), mkdcdisc, $(OBJDIR)/cd-data/.stamp
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+gdi: $(TARGET) $(OBJDIR)/cd-data/.stamp
+	rm -rf gdi
+	mkdir -p gdi
+	mkdcdisc -e $(TARGET) -o gdi/disc.gdi -D $(OBJDIR)/cd-data -n "Legend of Mana" --allow-overwrite
+
+#----------------------
 # | clean
-# | Description: Removes build output, the linked ELF, the packed overlay code files and both disc images, including the test-image build directory.
+# | Description: Removes build output, the linked ELF, the packed overlay code files the disc images and the GDI folder, including the test-image build directory.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -931,7 +946,7 @@ $(CDI): $(TARGET) $(OBJDIR)/cd-data/.stamp
 # | Returns: N/A
 #----------------------
 clean:
-	rm -rf build build-test
+	rm -rf build build-test gdi
 	rm -f lom.elf lom.cdi lom_test.elf lom_test.cdi $(PADSEL_IMAGES) cd/data/OVL/OVL*C.BIN
 
 #----------------------
@@ -957,7 +972,7 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = card_save card_load pet_send pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
+PADSEL_SCRIPTS = card_save card_load movie_skip pet_send pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*
@@ -1009,14 +1024,14 @@ pending: $(PRE_BUILD_STAMP) $(MAIN_OBJS) $(OVERLAY_OBJS) $(KOS_CDROM_PATCH_OBJS)
 
 #----------------------
 # | gen/dc_pending.c / gen/dc_pending.ld / gen/<overlay>_pending.ld
-# | Description: Generated by the pending recipe when missing, since dreamcast/gen is not committed; make pending refreshes them.
+# | Description: Generated by the pending recipe when missing or stale against any compiled object, since dreamcast/gen is not committed.
 # | Author: suinevere
-# | Dependencies: pending
+# | Dependencies: pending, MAIN_OBJS, OVERLAY_OBJS, KOS_CDROM_PATCH_OBJS
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-gen/dc_pending.c: | $(PRE_BUILD_STAMP)
+gen/dc_pending.c: $(MAIN_OBJS) $(OVERLAY_OBJS) $(KOS_CDROM_PATCH_OBJS) | $(PRE_BUILD_STAMP)
 	$(MAKE) pending
 
 gen/dc_pending.ld $(foreach o,$(OVERLAY_NAMES),gen/$(o)_pending.ld): gen/dc_pending.c ;

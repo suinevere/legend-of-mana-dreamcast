@@ -226,7 +226,17 @@ static const DcSurfaceTexture *fake_frame_texture(const uint16_t *pixels, unsign
     return &s_frame_texture;
 }
 
-static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_vertex, fake_scene_shown, fake_frame_texture };
+static void fake_strip(const PvrVertex *verts, unsigned count)
+{
+    unsigned i;
+
+    for (i = 0; i < count; i++)
+    {
+        fake_vertex(verts[i].x, verts[i].y, verts[i].u, verts[i].v, verts[i].argb, i + 1 == count);
+    }
+}
+
+static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_strip, fake_scene_shown, fake_frame_texture };
 
 static void *fake_alloc(unsigned bytes)
 {

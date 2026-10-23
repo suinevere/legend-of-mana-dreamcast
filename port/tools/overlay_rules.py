@@ -53,6 +53,7 @@ OverlaySpec.__new__.__defaults__ = (0, None, (), None)
 # | FUNCTION_TABLES
 # | Description: Per overlay name, the function-pointer tables (name, entry count) defined in generated C from their PS1 entries instead of linked as raw overlay data.
 # |              g_field_object_flag_handlers mixes built-in animation ids below TABLE_LITERAL_LIMIT with handler pointers, so detection skips it and it is listed here.
+# |              g_wmap_effect35_emitter_b_steps is followed by non-pointer data before the next symbol, so detection skips it too.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -68,7 +69,7 @@ FUNCTION_TABLES = {
              ("D_800D6028", 8), ("D_800D6048", 18), ("D_800D6090", 4), ("D_800D60A0", 6), ("D_800D60B8", 4),
              ("D_800D60C8", 4), ("D_800D60D8", 4), ("D_800D60E8", 6), ("D_800D6100", 8), ("D_800D6120", 6),
              ("D_800D6138", 6), ("g_wmap_view_sequence_steps", 2), ("g_wmap_land_focus_steps", 10),
-             ("g_wmap_land_entry_steps", 4), ("g_wmap_land_return_steps", 6), ("g_wmap_special_travel_steps", 20),
+             ("g_wmap_effect35_emitter_b_steps", 6), ("g_wmap_land_entry_steps", 4), ("g_wmap_land_return_steps", 6), ("g_wmap_special_travel_steps", 20),
              ("g_wmap_special_return_steps", 14), ("g_wmap_land_effect_13_sequence_9_steps", 6)),
 }
 
@@ -853,17 +854,31 @@ def target_spec(spec, target):
 
 
 #----------------------
-# | relocate_wmap_pointers
-# | Description: WMAP pointer rule for a little-endian target: relocates the three input-script pointers, the only packed-range pointers its Home path reads.
+# | WMAP_SFX_BUFFERS
+# | Description: Entries in g_wmap_sfx_buffers (0xFC bytes), each a PS1 pointer to an AKAO sound inside WMAP's packed range.
 # | Author: suinevere
-# | Dependencies: relocate_words, target_spec, OVERLAYS
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+WMAP_SFX_BUFFERS = 0xFC // 4
+
+
+#----------------------
+# | relocate_wmap_pointers
+# | Description: WMAP pointer rule for a little-endian target: relocates the three input-script pointers and the sound table, without which every map sound fails AKAO's header check.
+# | Author: suinevere
+# | Dependencies: relocate_words, target_spec, OVERLAYS, WMAP_SFX_BUFFERS
 # | Globals: N/A
 # | Params: buf -- packed bytearray, off -- symbol name to packed offset, target -- targets.Target
 # | Returns: N/A
 #----------------------
 def relocate_wmap_pointers(buf, off, target):
     scripts = off("g_wmap_input_scripts")
-    relocate_words(buf, [scripts + i * 4 for i in range(3)], target_spec(OVERLAYS[3], target), target)
+    sounds = off("g_wmap_sfx_buffers")
+    positions = [scripts + i * 4 for i in range(3)] + [sounds + i * 4 for i in range(WMAP_SFX_BUFFERS)]
+    relocate_words(buf, positions, target_spec(OVERLAYS[3], target), target)
 
 
 #----------------------

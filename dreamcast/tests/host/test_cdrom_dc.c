@@ -35,6 +35,11 @@ void dc_halt(const char *message)
     longjmp(s_halt_jump, 1);
 }
 
+const char *disc_fs_kos_status(void)
+{
+    return "host";
+}
+
 void dc_log(const char *format, ...)
 {
     (void)format;

@@ -31,6 +31,57 @@
 static DcVsyncHook s_vsync_hook;
 
 /*----------------------
+ | s_otag_us
+ | Description: Microseconds spent in DrawOTag walking ordering tables and submitting their primitives, for the speed readout.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned long long s_otag_us;
+
+/*----------------------
+ | s_vsync_idle
+ | Description: Called on every pass of VSync's vblank wait, or null.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static DcVsyncHook s_vsync_idle;
+
+/*----------------------
+ | s_async_poll
+ | Description: Called from DrawSync and VSync to deliver work a worker finished, such as an MDEC decode, or null.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static DcVsyncHook s_async_poll;
+
+/*----------------------
+ | idle_count
+ | Description: VSync's wait clock: runs the idle hook, then reads the vblank count.
+ | Author: suinevere
+ | Dependencies: vsync_count
+ | Globals: s_vsync_idle
+ | Params: N/A
+ | Returns: the vblank count
+ ----------------------*/
+static unsigned idle_count(void)
+{
+    if (s_vsync_idle != 0)
+    {
+        s_vsync_idle();
+    }
+    return vsync_count();
+}
+
+/*----------------------
  | s_vsync_wait_us
  | Description: Microseconds VSync has spent waiting for vblanks since start-up, the main thread's idle time.
  | Author: suinevere
@@ -281,14 +332,17 @@ static void sync_flip(void)
  | DrawOTag
  | Description: Decodes the chain in OT order and submits every primitive to the PowerVR, then runs the DrawSync callback as the PS1 does when drawing ends.
  | Author: suinevere
- | Dependencies: gpu_decode_ot, submit_sink
- | Globals: s_gpu_state, s_draw_sync_callback
+ | Dependencies: gpu_decode_ot, submit_sink, dc_time_us
+ | Globals: s_gpu_state, s_draw_sync_callback, s_otag_us
  | Params: ot -- first packet of the chain
  | Returns: N/A
  ----------------------*/
 void DrawOTag(u_long *ot)
 {
+    unsigned long long t0 = dc_time_us();
+
     gpu_decode_ot(&s_gpu_state, ot, submit_sink, 0);
+    s_otag_us += dc_time_us() - t0;
     if (s_draw_sync_callback != 0)
     {
         s_draw_sync_callback();
@@ -346,14 +400,18 @@ unsigned dc_frame_primitives(void)
  | DrawSync
  | Description: No queued GPU work to wait for, but presents a scene drawn into the currently displayed area now instead of waiting for the next VSync flip.
  | Author: suinevere
- | Dependencies: sync_flip
- | Globals: N/A
+ | Dependencies: s_async_poll, sync_flip
+ | Globals: s_async_poll
  | Params: mode -- ignored
  | Returns: 0
  ----------------------*/
 int DrawSync(int mode)
 {
     (void)mode;
+    if (s_async_poll != 0)
+    {
+        s_async_poll();
+    }
     sync_flip();
     return 0;
 }
@@ -363,8 +421,8 @@ int DrawSync(int mode)
  | Description: Flips an open PowerVR scene on the waiting modes (0 and above 1) and paces the game on the shared vblank counter.
  | Then delivers due CD stream sectors and runs the hook unless this was a counter read; VSync(1) returns at once on the PS1 and games call it mid-frame, so it never flips.
  | Author: suinevere
- | Dependencies: pvr_submit_flip, vsync_wait, vsync_count, cdrom_dc_vsync_tick
- | Globals: s_vsync_hook
+ | Dependencies: pvr_submit_flip, vsync_wait, idle_count, s_async_poll, cdrom_dc_vsync_tick
+ | Globals: s_vsync_hook, s_async_poll
  | Params: mode -- PS1 VSync mode
  | Returns: vblank count for mode < 0, else 0
  ----------------------*/
@@ -378,9 +436,13 @@ int VSync(int mode)
         pvr_submit_flip();
     }
     t0 = dc_time_us();
-    result = vsync_wait(mode, vsync_count);
+    result = vsync_wait(mode, idle_count);
     s_vsync_wait_us += dc_time_us() - t0;
 
+    if (s_async_poll != 0)
+    {
+        s_async_poll();
+    }
     if (mode >= 0)
     {
         cdrom_dc_vsync_tick();
@@ -418,6 +480,21 @@ unsigned long long vsync_wait_us(void)
 void dc_set_vsync_hook(DcVsyncHook hook)
 {
     s_vsync_hook = hook;
+}
+
+unsigned long long dc_otag_us(void)
+{
+    return s_otag_us;
+}
+
+void dc_set_vsync_idle(DcVsyncHook idle)
+{
+    s_vsync_idle = idle;
+}
+
+void dc_set_async_poll(DcVsyncHook poll)
+{
+    s_async_poll = poll;
 }
 
 /*----------------------

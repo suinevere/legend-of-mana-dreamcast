@@ -2,13 +2,14 @@
  | dc_system.c
  | Description: Boot-time video setup, BIOS-font text, serial logging and the on-screen/serial halt for the Dreamcast port.
  | Author: suinevere
- | Dependencies: dc_system.h, dc_video_mode.h, dc/video.h, dc/biosfont.h, dc/maple.h, dc/maple/controller.h, dc/flashrom.h, kos/dbglog.h, kos/thread.h, arch/irq.h, arch/timer.h, pad_script.h (LOM_PAD_SCRIPT)
+ | Dependencies: dc_system.h, dc_video_mode.h, log_ring.h, dc/video.h, dc/biosfont.h, dc/maple.h, dc/maple/controller.h, dc/flashrom.h, kos/dbglog.h, kos/thread.h, arch/irq.h, arch/timer.h, string.h, pad_script.h (LOM_PAD_SCRIPT)
  | Globals: s_video_hz
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
 #include <arch/irq.h>
 #include <dc/biosfont.h>
 #include <dc/video.h>
@@ -16,10 +17,12 @@
 #include <dc/maple/controller.h>
 #include <dc/flashrom.h>
 #include <kos/dbglog.h>
+#include <kos/dbgio.h>
 #include <kos/thread.h>
 #include <arch/timer.h>
 #include "dc_system.h"
 #include "dc_video_mode.h"
+#include "log_ring.h"
 
 #ifdef LOM_PAD_SCRIPT
 #include "pad_script.h"
@@ -129,11 +132,79 @@ void dc_print(int x, int y, const char *text)
 }
 
 /*----------------------
- | dc_log
- | Description: Writes a printf-style line to KallistiOS dbgio, prefixed "LOM: ".
+ | SCIF_FTDR / SCIF_FSR / SCIF_FDR / SCIF_TX_FIFO
+ | Description: The serial port's transmit data, status and FIFO-count registers, and the transmit FIFO's depth.
  | Author: suinevere
- | Dependencies: dbglog
+ | Dependencies: N/A
  | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SCIF_FTDR (*(volatile uint8_t *)0xFFE8000C)
+#define SCIF_FSR (*(volatile uint16_t *)0xFFE80010)
+#define SCIF_FDR (*(volatile uint16_t *)0xFFE8001C)
+#define SCIF_TX_FIFO 16u
+
+/*----------------------
+ | s_log_async
+ | Description: Whether dbgio is the serial port so log lines go through the queued ring (-1 until the first log decides).
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_log_async = -1;
+
+/*----------------------
+ | scif_tx_room
+ | Description: Free slots in the serial transmit FIFO.
+ | Author: suinevere
+ | Dependencies: SCIF_FDR, SCIF_TX_FIFO
+ | Globals: N/A
+ | Params: N/A
+ | Returns: free slots, 0 to SCIF_TX_FIFO
+ ----------------------*/
+static unsigned scif_tx_room(void)
+{
+    unsigned used = (SCIF_FDR >> 8) & 0x1Fu;
+
+    return used < SCIF_TX_FIFO ? SCIF_TX_FIFO - used : 0u;
+}
+
+/*----------------------
+ | scif_tx_put
+ | Description: Writes one byte to the serial transmit FIFO and clears its empty flags.
+ | Author: suinevere
+ | Dependencies: SCIF_FTDR, SCIF_FSR
+ | Globals: N/A
+ | Params: c -- byte to send
+ | Returns: N/A
+ ----------------------*/
+static void scif_tx_put(uint8_t c)
+{
+    SCIF_FTDR = c;
+    SCIF_FSR &= 0xFF9Fu;
+}
+
+/*----------------------
+ | s_scif_port
+ | Description: The console's serial port as the log ring's port.
+ | Author: suinevere
+ | Dependencies: scif_tx_room, scif_tx_put, timer_us_gettime64, irq_disable, irq_restore
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const LogPort s_scif_port = { scif_tx_room, scif_tx_put, timer_us_gettime64, irq_disable, irq_restore };
+
+/*----------------------
+ | dc_log
+ | Description: Queues a printf-style line, prefixed "LOM: ", for the serial port and feeds it what the FIFO takes now; a blocking serial write of a probe line had cost the world map a frame every second.
+ |              Goes straight to dbglog when dbgio is not the serial port, and in the test build, whose Flycast screenshots are timed by when each capture line reaches the host.
+ | Author: suinevere
+ | Dependencies: dbgio_dev_get, dbglog, log_ring_bind, log_ring_push
+ | Globals: s_log_async, s_scif_port
  | Params: format -- printf-style format string, ... -- format arguments
  | Returns: N/A
  ----------------------*/
@@ -141,27 +212,81 @@ void dc_log(const char *format, ...)
 {
     char buf[256];
     va_list args;
+    int len;
+
     va_start(args, format);
-    vsnprintf(buf, sizeof buf, format, args);
+    len = snprintf(buf, sizeof buf, "LOM: ");
+    vsnprintf(buf + len, sizeof buf - (size_t)len - 1u, format, args);
     va_end(args);
-    dbglog(DBG_INFO, "LOM: %s\n", buf);
+    if (s_log_async < 0)
+    {
+        const char *dev = dbgio_dev_get();
+
+        s_log_async = dev != NULL && strcmp(dev, "scif") == 0;
+#ifdef LOM_PAD_SCRIPT
+        s_log_async = 0;
+#endif
+        if (s_log_async)
+        {
+            log_ring_bind(&s_scif_port);
+        }
+    }
+    if (!s_log_async)
+    {
+        dbglog(DBG_INFO, "%s\n", buf);
+        return;
+    }
+    len = (int)strlen(buf);
+    buf[len++] = '\n';
+    log_ring_push(buf, (unsigned)len);
 }
 
 /*----------------------
- | dc_halt
- | Description: Logs "LOM HALT: <message>" and prints it on screen once, then spins forever: on a plain empty loop with interrupts disabled if called from interrupt context, otherwise via thd_sleep(1000).
+ | HALT_COLUMN / HALT_ROW / HALT_COLUMNS / HALT_ROWS
+ | Description: Where the halt text starts and how much of it shows, kept inside a TV's visible area.
  | Author: suinevere
- | Dependencies: dbglog, dc_print, thd_sleep, irq_inside_int, irq_disable
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define HALT_COLUMN 4
+#define HALT_ROW 2
+#define HALT_COLUMNS 44
+#define HALT_ROWS 16
+
+/*----------------------
+ | dc_halt
+ | Description: Logs "LOM HALT: <message>" and prints it on screen once, split at newlines and wrapped inside the visible area, then spins forever: on a plain empty loop with interrupts disabled if called from interrupt context, otherwise via thd_sleep(1000).
+ | Author: suinevere
+ | Dependencies: log_ring_flush, dbglog, dc_print, memcpy, thd_sleep, irq_inside_int, irq_disable
  | Globals: N/A
  | Params: message -- halt reason
  | Returns: N/A
  ----------------------*/
 void dc_halt(const char *message)
 {
-    char buf[256];
+    static char buf[512];
+    char line[HALT_COLUMNS + 1];
+    const char *at;
+    int row = HALT_ROW;
+
     snprintf(buf, sizeof buf, "LOM HALT: %s", message);
+    log_ring_flush();
     dbglog(DBG_INFO, "%s\n", buf);
-    dc_print(1, 1, buf);
+    for (at = buf; *at != 0 && row < HALT_ROW + HALT_ROWS; row++)
+    {
+        int n = 0;
+
+        while (at[n] != 0 && at[n] != '\n' && n < HALT_COLUMNS)
+            n++;
+        memcpy(line, at, (size_t)n);
+        line[n] = 0;
+        dc_print(HALT_COLUMN, row, line);
+        at += n;
+        if (*at == '\n')
+            at++;
+    }
     if (irq_inside_int()) {
         irq_disable();
         for (;;) {
@@ -184,4 +309,10 @@ void dc_halt(const char *message)
 unsigned long long dc_time_us(void)
 {
     return timer_us_gettime64();
+}
+
+void dc_yield(void)
+{
+    log_ring_drain();
+    thd_pass();
 }

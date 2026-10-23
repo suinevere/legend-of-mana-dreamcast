@@ -17,8 +17,8 @@ static int s_fail;
 
 static uint32_t s_cmd[1 + 256];
 
-#define VARIED_HASH_15 0xF3C57E3Eu
-#define VARIED_HASH_24 0xA7047607u
+#define VARIED_HASH_15 0x6A1536A8u
+#define VARIED_HASH_24 0x90D5E7B6u
 
 /*----------------------
  | put_block
@@ -213,7 +213,7 @@ static void build_varied(void)
 
 /*----------------------
  | test_varied_output_is_unchanged
- | Description: FNV-1a hashes of 200 varied macroblocks in each output depth match the values the per-pixel reference loop produced, pinning the colour conversion exactly.
+ | Description: FNV-1a hashes of 200 varied macroblocks in each output depth match the values pinned when the float AAN IDCT replaced the integer one, pinning IDCT and colour conversion exactly.
  | Author: suinevere
  | Dependencies: build_varied, mdec_begin, mdec_decode_macroblock
  | Globals: s_cmd, s_fail

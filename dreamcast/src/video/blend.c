@@ -148,49 +148,6 @@ unsigned blend_plan(int textured, int semi, int abr, int clut_stp, int can_cover
 }
 
 /*----------------------
- | blend_vertex_colour
- | Description: Scales one vertex colour channel for a textured primitive, doubling it unless the texture is raw (no tinting).
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- channel value 0-255, textured -- primitive samples a texture, raw -- texture is a raw (untinted) direct texture
- | Returns: scaled channel value 0-255
- ----------------------*/
-uint8_t blend_vertex_colour(uint8_t c, int textured, int raw)
-{
-    unsigned scaled;
-
-    if (!textured)
-    {
-        return c;
-    }
-    if (raw)
-    {
-        return 255;
-    }
-    scaled = (unsigned)c * 2u;
-    return (uint8_t)(scaled > 255u ? 255u : scaled);
-}
-
-/*----------------------
- | blend_excess_colour
- | Description: The part of a textured channel's PS1 tint above 1.0 that blend_vertex_colour clamps away, as an extra-pass vertex colour; zero when nothing is clamped.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: c -- channel value 0-255, textured -- primitive samples a texture, raw -- texture is a raw (untinted) direct texture
- | Returns: excess channel value 0-254
- ----------------------*/
-uint8_t blend_excess_colour(uint8_t c, int textured, int raw)
-{
-    if (!textured || raw || c <= 128u)
-    {
-        return 0;
-    }
-    return (uint8_t)((unsigned)c * 2u - 256u);
-}
-
-/*----------------------
  | blend_excess_pass
  | Description: The pass that adds a primitive's excess tint after one of its colour passes: the same factors and variant, but adding where the base pass overwrote.
  | Author: suinevere

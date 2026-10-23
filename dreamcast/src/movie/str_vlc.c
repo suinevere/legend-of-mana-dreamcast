@@ -2,11 +2,12 @@
  | str_vlc.c
  | Description: Version-2 STR bitstream decoder: 10-bit DC per block, MPEG-1 Table B.14 AC codes, 6+10-bit escapes, into MDEC run-length halfwords.
  | Author: suinevere
- | Dependencies: str_vlc.h, mdec.h
- | Globals: s_codes, s_lookup
+ | Dependencies: string.h, str_vlc.h, mdec.h
+ | Globals: s_codes, s_short, s_long
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#include <string.h>
 #include "str_vlc.h"
 #include "mdec.h"
 
@@ -102,15 +103,17 @@ static const VlcCode s_codes[] = {
     {"0000000000011011", 31, 1}};
 
 /*----------------------
- | s_lookup
- | Description: Code entry for every value of the next 16 bits: length in bits 0-4, level in 5-10, run in 11-15; zero is invalid.
+ | s_short / s_long
+ | Description: Code entries (length in bits 0-4, level in 5-10, run in 11-15; zero is invalid) by the next 16 bits: s_short by their top 8 when the top 6 are not all zero, s_long by the whole value otherwise.
+ |              Every code not starting 000000 is at most 8 bits, so 2.5 KB replaces a 128 KB table whose random reads missed the cache on real hardware.
  | Author: suinevere
  | Dependencies: str_vlc_init
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static uint16_t s_lookup[65536];
+static uint16_t s_short[256];
+static uint16_t s_long[1024];
 
 /*----------------------
  | BitReader
@@ -131,10 +134,10 @@ typedef struct
 
 /*----------------------
  | str_vlc_init
- | Description: Fills every lookup slot whose top bits match a code with that code's entry.
+ | Description: Fills every lookup slot whose top bits match a code with that code's entry, in s_short or s_long by whether the code starts 000000.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: s_codes, s_lookup
+ | Globals: s_codes, s_short, s_long
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -142,21 +145,32 @@ void str_vlc_init(void)
 {
     unsigned i, len, prefix, first, slot;
 
-    for (i = 0; i < 65536u; i++)
-    {
-        s_lookup[i] = 0;
-    }
+    memset(s_short, 0, sizeof(s_short));
+    memset(s_long, 0, sizeof(s_long));
     for (i = 0; i < sizeof(s_codes) / sizeof(s_codes[0]); i++)
     {
+        uint16_t entry;
+
         prefix = 0;
         for (len = 0; s_codes[i].code[len] != 0; len++)
         {
             prefix = (prefix << 1) | (unsigned)(s_codes[i].code[len] - '0');
         }
+        entry = (uint16_t)(len | ((unsigned)s_codes[i].level << 5) | ((unsigned)s_codes[i].run << 11));
         first = prefix << (16 - len);
-        for (slot = 0; slot < (1u << (16 - len)); slot++)
+        if (first >= 1024u)
         {
-            s_lookup[first + slot] = (uint16_t)(len | ((unsigned)s_codes[i].level << 5) | ((unsigned)s_codes[i].run << 11));
+            for (slot = 0; slot < (1u << (8 - len)); slot++)
+            {
+                s_short[(first >> 8) + slot] = entry;
+            }
+        }
+        else
+        {
+            for (slot = 0; slot < (1u << (16 - len)); slot++)
+            {
+                s_long[first + slot] = entry;
+            }
         }
     }
 }
@@ -205,13 +219,13 @@ static uint32_t take_bits(BitReader *r, int n)
  | Description: Writes one block's DC halfword, its AC codes and its EOB, stopping at limit.
  | Author: suinevere
  | Dependencies: take_bits, peek_bits
- | Globals: s_lookup
+ | Globals: s_short, s_long
  | Params: r -- reader, out -- halfword output, at -- next halfword index, advanced past what was written, limit -- halfwords allowed, qscale -- frame quant scale
  | Returns: 0, 1 at the end-of-frame code, or -1 on an invalid code or reaching limit mid-block
  ----------------------*/
 static int decode_block(BitReader *r, uint16_t *out, unsigned *at, unsigned limit, unsigned qscale)
 {
-    unsigned entry, len, run, level, dc;
+    unsigned entry, len, run, level, dc, peek;
 
     if (*at >= limit)
     {
@@ -229,7 +243,8 @@ static int decode_block(BitReader *r, uint16_t *out, unsigned *at, unsigned limi
         {
             return -1;
         }
-        entry = s_lookup[peek_bits(r, 16)];
+        peek = peek_bits(r, 16);
+        entry = peek >= 1024u ? s_short[peek >> 8] : s_long[peek];
         len = entry & 0x1F;
         run = entry >> 11;
         level = (entry >> 5) & 0x3F;

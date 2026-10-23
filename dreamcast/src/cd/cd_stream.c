@@ -100,13 +100,24 @@ void cd_stream_start(unsigned total_sectors, CdStreamCallback callback, unsigned
 
 /*----------------------
  | cd_stream_service
- | Description: Delivers due, ready sectors in order up to the burst cap; a NULL callback result or the last sector ends the stream.
+ | Description: Delivers due, ready sectors in order up to the burst cap, counting a stall when the next due sector is not read yet; a NULL callback result or the last sector ends the stream.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: all of the above
+ | Globals: all of the above, s_stalls
  | Params: now_vbl -- current vblank count
  | Returns: N/A
  ----------------------*/
+/*----------------------
+ | s_stalls
+ | Description: Services that found a due sector not yet read from the disc, since cd_stream_stalls last reported.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_stalls;
+
 void cd_stream_service(unsigned now_vbl)
 {
     unsigned due, burst = 0;
@@ -124,6 +135,7 @@ void cd_stream_service(unsigned now_vbl)
 
         if (sector == 0)
         {
+            s_stalls++;
             break;
         }
         s_current = sector;
@@ -138,6 +150,14 @@ void cd_stream_service(unsigned now_vbl)
         }
     }
     s_delivering = 0;
+}
+
+unsigned cd_stream_stalls(void)
+{
+    unsigned stalls = s_stalls;
+
+    s_stalls = 0;
+    return stalls;
 }
 
 /*----------------------

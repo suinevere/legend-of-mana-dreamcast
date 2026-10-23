@@ -99,6 +99,17 @@ static const MovieAudioOps s_default_ops = { aica_stream_start, aica_stream_free
  | Returns: N/A
  ----------------------*/
 static const MovieAudioOps *s_ops = &s_default_ops;
+
+/*----------------------
+ | s_poll
+ | Description: Called before each position report to deliver work a worker finished, such as an MDEC decode, since the movie loop polls here between vblanks; null for none.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void (*s_poll)(void);
 static const unsigned char *s_ring;
 static unsigned s_block_count;
 static unsigned s_fill_block;
@@ -295,6 +306,11 @@ static void pump(void)
     }
 }
 
+void movie_audio_set_poll(void (*poll)(void))
+{
+    s_poll = poll;
+}
+
 /*----------------------
  | movie_audio_set_ops
  | Description: Replaces the stream output; NULL restores the AICA stream channel.
@@ -391,6 +407,10 @@ int movie_audio_advance(void)
  ----------------------*/
 int movie_audio_position(void)
 {
+    if (s_poll != 0)
+    {
+        s_poll();
+    }
     pump();
     return s_position;
 }

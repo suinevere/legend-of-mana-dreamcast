@@ -24,7 +24,7 @@
  | Returns: N/A
  ----------------------*/
 #define RING_SECTORS 64
-#define READ_CHUNK 8
+#define READ_CHUNK 16
 
 /*----------------------
  | s_file / s_thread / s_ring
@@ -87,9 +87,9 @@ static void *reader(void *arg)
 
 /*----------------------
  | cd_stream_kos_open
- | Description: Opens a raw resource and starts reading it ahead; a stream already open is closed first.
+ | Description: Opens a raw resource unbuffered, so each chunk reads straight into the ring in one drive command, and starts reading it ahead; a stream already open is closed first.
  | Author: suinevere
- | Dependencies: cd_stream_kos_close, cdrom_dc_open_resource, thd_create
+ | Dependencies: cd_stream_kos_close, cdrom_dc_open_resource, setvbuf, thd_create
  | Globals: s_file, s_thread, s_total, s_produced, s_consumed, s_stop
  | Params: resource_index -- PS1 resource, total_sectors -- receives its length in sectors
  | Returns: 1, or 0 when the resource is not a raw file on this disc
@@ -104,6 +104,7 @@ int cd_stream_kos_open(int resource_index, unsigned *total_sectors)
     {
         return 0;
     }
+    setvbuf(s_file, NULL, _IONBF, 0);
     s_total = size / CDROM_DC_SECTOR_BYTES;
     s_produced = 0;
     s_consumed = 0;

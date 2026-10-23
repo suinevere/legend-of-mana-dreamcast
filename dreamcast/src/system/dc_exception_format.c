@@ -24,3 +24,20 @@ char *dc_exception_format_halt(char *out, int out_size, const char *name, unsign
     snprintf(out, (size_t)out_size, "%s PC=%08lX PR=%08lX ADDR=%08lX", name, pc, pr, address);
     return out;
 }
+
+char *dc_exception_format_registers(char *out, int out_size, const unsigned long r[16])
+{
+    int used = 0;
+    int i;
+
+    out[0] = 0;
+    for (i = 0; i < 16 && used < out_size - 1; i++)
+    {
+        int n = snprintf(out + used, (size_t)(out_size - used), "%sR%d %08lX", i == 0 ? "" : (i % 3 == 0 ? "\n" : " "), i, r[i]);
+
+        if (n < 0)
+            break;
+        used += n;
+    }
+    return out;
+}

@@ -2,7 +2,7 @@
  | main.c
  | Description: Legend of Mana Dreamcast entry point: brings up KallistiOS, the PowerVR, the exception trap, vblank pacing and the overlay arena, then runs the decomp's real game loop.
  | Author: suinevere
- | Dependencies: kos.h, dc_system.h, pvr_submit.h, dc_exception.h, vblank_dc.h, overlay_loader_dc.h, libgpu_dc.h, state_report_dc.h, cd_stream.h, src/main/main.c (main_game_loop)
+ | Dependencies: kos.h, disc_fs_kos.h, libpress_dc.h, movie_audio_dc.h, movie_decode_kos.h, cdrom_dc.h, dc_system.h, pvr_submit.h, dc_exception.h, vblank_dc.h, overlay_loader_dc.h, libgpu_dc.h, state_report_dc.h, cd_stream.h, src/main/main.c (main_game_loop)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -18,6 +18,11 @@
 #include "card_store_kos.h"
 #include "akao_tick_dc.h"
 #include "cd_stream.h"
+#include "disc_fs_kos.h"
+#include "libpress_dc.h"
+#include "movie_audio_dc.h"
+#include "movie_decode_kos.h"
+#include "cdrom_dc.h"
 
 #ifdef LOM_PAD_SCRIPT
 #include "watch.h"
@@ -49,13 +54,14 @@ void (*g_dc_field_movie)(void) = NULL;
  | main
  | Description: Initialises the Dreamcast platform and runs main_game_loop, which never returns on the PS1.
  | Author: suinevere
- | Dependencies: dc_system_init, dc_system_video_hz, cd_stream_set_refresh, pvr_submit_init, dc_exception_install, vblank_dc_install, overlay_loader_init, card_store_kos_init, akao_tick_dc_init, dc_set_vsync_hook, state_report_poll, dc_log, main_game_loop, dc_halt
+ | Dependencies: disc_fs_kos_init, dc_system_init, dc_system_video_hz, cd_stream_set_refresh, pvr_submit_init, dc_exception_install, vblank_dc_install, overlay_loader_init, card_store_kos_init, akao_tick_dc_init, dc_set_vsync_hook, dc_set_vsync_idle, dc_yield, movie_decode_kos_init, dc_set_async_poll, movie_audio_set_poll, cdrom_dc_set_poll, libpress_dc_poll, libpress_dc_poll_wait, state_report_poll, dc_log, main_game_loop, dc_halt
  | Globals: N/A
  | Params: N/A
  | Returns: never
  ----------------------*/
 int main(void)
 {
+    disc_fs_kos_init();
     dc_system_init();
     cd_stream_set_refresh(dc_system_video_hz());
     pvr_submit_init();
@@ -65,6 +71,11 @@ int main(void)
     card_store_kos_init();
     akao_tick_dc_init();
     dc_set_vsync_hook(state_report_poll);
+    dc_set_vsync_idle(dc_yield);
+    movie_decode_kos_init();
+    dc_set_async_poll(libpress_dc_poll);
+    movie_audio_set_poll(libpress_dc_poll_wait);
+    cdrom_dc_set_poll(libpress_dc_poll);
     dc_log("boot");
     main_game_loop();
     dc_halt("main_game_loop returned");

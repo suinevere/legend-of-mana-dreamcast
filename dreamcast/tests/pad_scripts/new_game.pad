@@ -51,9 +51,9 @@ capture wmap-place-mailbox-prompt
 press CROSS 6
 wait 30
 press CROSS 6
-wait 300
+wait 220
 capture wmap-land-flash
-wait 150
+wait 230
 capture wmap-home-rising
 wait 120
 capture wmap-home-dark
