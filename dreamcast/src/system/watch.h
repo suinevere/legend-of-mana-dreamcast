@@ -119,6 +119,17 @@ extern void (*g_dc_field_battle)(void);
 extern void (*g_dc_field_open)(int target);
 
 /*----------------------
+ | g_dc_wmap_landfx
+ | Description: Main's pad-script hook that plays one land placement effect on the world map, set by wmap_watch_entry in the test image; NULL until installed.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_dc_wmap_landfx
+ | Params: land -- land effect selection, as func_800591A8 takes it
+ | Returns: N/A
+ ----------------------*/
+extern void (*g_dc_wmap_landfx)(int land);
+
+/*----------------------
  | g_dc_field_gameover
  | Description: Main's pad-script hook that starts the game-over transition a party wipe's script would, set by field_watch_install; NULL until installed.
  | Author: suinevere

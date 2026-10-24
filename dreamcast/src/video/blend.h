@@ -57,6 +57,17 @@ typedef struct { uint8_t src, dst, alpha, variant, cover; } BlendPass;
 unsigned blend_plan(int textured, int semi, int abr, int clut_stp, int can_cover, BlendPass out[BLEND_MAX_PASSES]);
 
 /*----------------------
+ | blend_shadow_plan
+ | Description: The single pass that draws an untextured subtractive polygon as a multiply, dst * (1 - colour), instead of blend_plan's invert, add and invert; close to the PS1's subtraction for gray shadows at a third of the fill.
+ | Author: suinevere
+ | Dependencies: BlendPass, PAL_OPAQUE
+ | Globals: N/A
+ | Params: out -- receives one pass
+ | Returns: 1
+ ----------------------*/
+unsigned blend_shadow_plan(BlendPass out[BLEND_MAX_PASSES]);
+
+/*----------------------
  | blend_vertex_colour
  | Description: Scales one vertex colour channel for a textured primitive, doubling it unless the texture is raw (no tinting); inline because every strip vertex calls it per channel.
  | Author: suinevere

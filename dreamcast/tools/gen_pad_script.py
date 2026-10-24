@@ -314,6 +314,21 @@ OPEN_TARGETS = ["shop", "golem", "zukan", "gosub", "carda", "niki", "addhero", "
 
 
 #----------------------
+# | parse_landfx
+# | Description: Parses "landfx <n>" into a test-only step that plays land placement effect n on the world map.
+# | Author: suinevere
+# | Dependencies: ScriptError
+# | Globals: N/A
+# | Params: tokens -- tokens after "landfx", lineno -- 1-based source line, for error messages
+# | Returns: step dict with op "PAD_OP_LANDFX" and arg the effect number
+#----------------------
+def parse_landfx(tokens, lineno):
+    if len(tokens) != 1 or not tokens[0].isdigit() or int(tokens[0]) > 33:
+        raise ScriptError("line %d: landfx needs a land effect number 0-33" % lineno)
+    return {"op": "PAD_OP_LANDFX", "arg": int(tokens[0]), "buttons_macros": [], "name": "", "stop_state": 0}
+
+
+#----------------------
 # | parse_open
 # | Description: Parses "open <name>" into a test-only step that opens a secondary overlay through FIELD's own opener.
 # | Author: suinevere
@@ -432,6 +447,8 @@ def parse_script(text):
             steps.append(parse_battle(rest, lineno))
         elif verb == "open":
             steps.append(parse_open(rest, lineno))
+        elif verb == "landfx":
+            steps.append(parse_landfx(rest, lineno))
         elif verb == "gameover":
             steps.append(parse_gameover(rest, lineno))
         elif verb == "tone":

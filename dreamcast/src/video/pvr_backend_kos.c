@@ -51,14 +51,14 @@
 
 /*----------------------
  | PVR_FLIP_WAIT_VBLANKS
- | Description: Longest wait for the previous scene to reach the screen before a new scene starts anyway.
+ | Description: Longest wait for the previous scene to reach the screen before writing anyway; a hang guard only, since a 34 ms world-map render can take over 4 vblanks to show and early writes recolour it.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define PVR_FLIP_WAIT_VBLANKS 4u
+#define PVR_FLIP_WAIT_VBLANKS 30u
 
 /*----------------------
  | s_flip_base
@@ -94,6 +94,25 @@ static unsigned s_settle_closed;
 static int s_settled = 1;
 
 static void settle_previous_scene(void);
+
+/*----------------------
+ | s_flip_expired
+ | Description: Settles whose flip wait expired since the last pvr_backend_take_flip_expired.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static unsigned s_flip_expired;
+
+unsigned pvr_backend_take_flip_expired(void)
+{
+    unsigned count = s_flip_expired;
+
+    s_flip_expired = 0;
+    return count;
+}
 
 /*----------------------
  | s_dr
@@ -196,16 +215,34 @@ static DcSurfaceTexture s_screen_surfaces[2];
 
 /*----------------------
  | texture_alloc
- | Description: TextureOps.alloc backed by the PowerVR texture allocator.
+ | Description: TextureOps.alloc backed by the PowerVR texture allocator; returns null without asking when less is free, since a failed pvr_mem_malloc prints an error over the serial port.
  | Author: suinevere
- | Dependencies: pvr_mem_malloc
+ | Dependencies: pvr_mem_available, pvr_mem_malloc
  | Globals: N/A
  | Params: bytes -- size
  | Returns: texture memory, or null when full
  ----------------------*/
 static void *texture_alloc(unsigned bytes)
 {
+    if (pvr_mem_available() < bytes)
+    {
+        return 0;
+    }
     return pvr_mem_malloc(bytes);
+}
+
+/*----------------------
+ | texture_free
+ | Description: TextureOps.free: returns one allocation the texture cache retired once no scene reads it.
+ | Author: suinevere
+ | Dependencies: pvr_mem_free
+ | Globals: N/A
+ | Params: ptr -- texture memory
+ | Returns: N/A
+ ----------------------*/
+static void texture_free(void *ptr)
+{
+    pvr_mem_free((pvr_ptr_t)ptr);
 }
 
 /*----------------------
@@ -400,12 +437,12 @@ static void palette_set_entry(unsigned index, uint32_t argb8888)
  | s_texture_ops
  | Description: Texture memory backend handed to texture_cache_init.
  | Author: suinevere
- | Dependencies: texture_alloc, texture_free_all, texture_upload, texture_write
+ | Dependencies: texture_alloc, texture_free_all, texture_upload, texture_write, texture_free
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static const TextureOps s_texture_ops = { texture_alloc, texture_free_all, texture_upload, texture_write };
+static const TextureOps s_texture_ops = { texture_alloc, texture_free_all, texture_upload, texture_write, texture_free };
 
 /*----------------------
  | s_palette_ops
@@ -478,6 +515,7 @@ static void settle_previous_scene(void)
     s_settled = 1;
     if (!wait_previous_flip(s_settle_closed))
     {
+        s_flip_expired++;
         dc_log("PVR: flip wait expired");
     }
 }

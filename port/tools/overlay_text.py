@@ -103,18 +103,24 @@ def load_lines():
 
 #----------------------
 # | rebuild_table
-# | Description: A copy of the text table at start with each given line written into its entry; every other entry keeps its bytes.
+# | Description: A copy of the text table at start with each given line written into its empty entry and each replacement over the entry holding its expected bytes; every other entry keeps its bytes.
 # | Author: suinevere
 # | Dependencies: text_table.parse
 # | Globals: N/A
-# | Params: data -- bytes holding the table, start -- table offset, lines -- index to encoded bytes (terminator included), codes -- two-byte codes
-# | Returns: (new table bytes, size of the old table); raises ValueError if a line targets a non-empty entry
+# | Params: data -- bytes holding the table, start -- table offset, lines -- index to encoded bytes (terminator included), codes -- two-byte codes,
+# |         replacements -- index to (expected entry bytes, encoded bytes), or None
+# | Returns: (new table bytes, size of the old table); raises ValueError if a line targets a non-empty entry or a replacement's entry differs
 #----------------------
-def rebuild_table(data, start, lines, codes):
+def rebuild_table(data, start, lines, codes, replacements=None):
     old = text_table.parse(data, start, codes)
     strings = []
     for entry in old.entries:
-        if entry.index in lines:
+        if replacements and entry.index in replacements:
+            expected, new = replacements[entry.index]
+            if entry.data != expected:
+                raise ValueError("text entry %d is %r, not %r" % (entry.index, entry.data, expected))
+            strings.append(new)
+        elif entry.index in lines:
             if entry.data:
                 raise ValueError("text entry %d is not empty" % entry.index)
             strings.append(lines[entry.index])

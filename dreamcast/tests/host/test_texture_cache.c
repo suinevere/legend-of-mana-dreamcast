@@ -39,6 +39,8 @@ static unsigned s_settled_uploads;
 static uint32_t s_palette[1024];
 static unsigned s_palette_writes;
 static unsigned s_palette_max_index;
+static void *s_freed[8];
+static unsigned s_free_calls;
 
 static void *fake_alloc(unsigned bytes)
 {
@@ -58,6 +60,15 @@ static void fake_free_all(void)
 {
     s_arena_used = 0;
     s_free_all_calls++;
+}
+
+static void fake_free(void *ptr)
+{
+    if (s_free_calls < 8)
+    {
+        s_freed[s_free_calls] = ptr;
+    }
+    s_free_calls++;
 }
 
 static void fake_write(void *dst, const void *src, unsigned bytes)
@@ -88,13 +99,14 @@ static void fake_set_entry(unsigned index, uint32_t argb8888)
 }
 
 static const PaletteOps s_palette_ops = { fake_set_entry };
-static const TextureOps s_texture_ops = { fake_alloc, fake_free_all, fake_upload, fake_write };
+static const TextureOps s_texture_ops = { fake_alloc, fake_free_all, fake_upload, fake_write, fake_free };
 
 static void reset_all(void)
 {
     s_arena_used = 0;
     s_arena_limit = ARENA_BYTES;
     s_free_all_calls = 0;
+    s_free_calls = 0;
     s_uploads = 0;
     s_upload_bytes = 0;
     s_settled_uploads = 0;
@@ -393,6 +405,24 @@ static void test_page_changed_mid_frame_gets_new_memory(void)
     CHECK(memcmp(snapshot, out.texture, sizeof(snapshot)) == 0);
     CHECK((((const uint8_t *)again.texture)[0] & 0x0F) == 2);
     CHECK((((const uint8_t *)out.texture)[0] & 0x0F) == 1);
+}
+
+static void test_replaced_memory_is_freed_after_the_frame(void)
+{
+    DcSurfaceTexture out;
+    DcSurfaceTexture again;
+
+    reset_all();
+    load_word(192, 0, 0x1111);
+    CHECK(texture_cache_lookup(192, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 7, &out) == 0);
+    load_word(192, 0, 0x2222);
+    CHECK(texture_cache_lookup(192, 0, 0, 480, DC_DEPTH_4, PAL_OPAQUE, 7, &again) == 0);
+    CHECK(again.texture != out.texture);
+    CHECK(s_free_calls == 0);
+    texture_cache_begin_frame();
+    CHECK(s_free_calls == 1 && s_freed[0] == out.texture);
+    texture_cache_begin_frame();
+    CHECK(s_free_calls == 1);
 }
 
 static void test_clut_changed_mid_frame_gets_new_slot(void)
@@ -721,6 +751,7 @@ int main(void)
     test_flush_on_alloc_failure();
     test_mid_frame_flush_deferred();
     test_page_changed_mid_frame_gets_new_memory();
+    test_replaced_memory_is_freed_after_the_frame();
     test_clut_changed_mid_frame_gets_new_slot();
     test_clut_changed_mid_frame_with_no_slot_falls_back();
     test_clut_stp();

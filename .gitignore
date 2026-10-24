@@ -41,12 +41,14 @@ __pycache__/
 # Dreamcast build output
 dreamcast/build/
 dreamcast/build-test/
+dreamcast/build-debug/
 dreamcast/.verify/
 dreamcast/gen/
 dreamcast/cd/data/
 dreamcast/*.elf
 dreamcast/*.cdi
 dreamcast/gdi/
+dreamcast/gdi-debug/
 
 # Downloaded Flycast emulator used by the Dreamcast boot-check runner
 tools/flycast/

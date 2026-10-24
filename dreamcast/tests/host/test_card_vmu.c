@@ -278,7 +278,7 @@ int main(void)
 
     card_vmu_set_store(&s_fake);
     s_present[0] = 1;
-    s_free[0] = 200;
+    s_free[0] = 64;
 
     CHECK(_card_info(0x10) == 1);
     CHECK(TestEvent(sw_tmo) == 1 && TestEvent(hw_tmo) == 1 && TestEvent(sw_ioe) == 0);
@@ -342,7 +342,7 @@ int main(void)
 
     CHECK(_card_read(0, 0, frame) == 1 && frame[0] == 'M' && frame[1] == 'C');
 
-    s_free[0] = 20;
+    s_free[0] = 9;
     CHECK(_card_load(0) == 1);
     CHECK(firstfile("bu00:*", &entry) == &entry);
     {

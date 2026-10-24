@@ -1,6 +1,6 @@
 /*----------------------
  | test_vmu_format.c
- | Description: Host test for vmu_format.c: VMU names for PS1 files, PS1 names from package descriptions, icon conversion, block math, the virtual PS1 free-block count and the LCD wordmark.
+ | Description: Host test for vmu_format.c: VMU names for PS1 files, PS1 names from package descriptions, icon conversion, block math, the package CRC, the virtual PS1 free-block count and the LCD wordmark.
  | Author: suinevere
  | Dependencies: vmu_format.c
  ----------------------*/
@@ -55,10 +55,17 @@ int main(void)
 
     CHECK(vmu_blocks_for_file(0x4000, 1) == 34);
     CHECK(vmu_blocks_for_file(0x4000, 3) == 36);
-    CHECK(ps1_blocks_free(200, 0) == 12);
+    CHECK(vmu_pkg_crc((const unsigned char *)"123456789", 9) == 0x31C3);
+    CHECK(vmu_pkg_crc((const unsigned char *)"", 0) == 0);
+    CHECK(ps1_blocks_free(200, 0) == 15);
+    CHECK(ps1_blocks_free(64, 0) == 12);
     CHECK(ps1_blocks_free(200, 4) == 11);
     CHECK(ps1_blocks_free(3, 0) == 0);
     CHECK(ps1_blocks_free(255, 14) == 1);
+    CHECK(ps1_blocks_free(12, 0) == 2);
+    CHECK(ps1_blocks_free(11, 0) == 1);
+    CHECK(ps1_blocks_free(1, 0) == 0);
+    CHECK(ps1_blocks_free(60, 0) == 11);
 
     vmu_lcd_wordmark(lcd);
     for (y = 0; y < 32; y++)

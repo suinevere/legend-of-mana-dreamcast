@@ -11,7 +11,8 @@
 
 /*----------------------
  | VMU_HEADER_BYTES / VMU_ICON_BYTES / VMU_FILE_OVERHEAD_BLOCKS / VMU_BLOCKS_PER_PS1_BLOCK
- | Description: VMS header and palette size, one 32x32 4bpp icon frame, the most header and icon blocks a save adds, and VMU blocks per PS1 block.
+ | Description: VMS header and palette size, one 32x32 4bpp icon frame, and the VMU blocks budgeted per file and per compressed PS1 block, 12 for a two-block save;
+ |              the largest finished save takes 11, and an over-budget save fails its write rather than halting.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -20,8 +21,8 @@
  ----------------------*/
 #define VMU_HEADER_BYTES 128
 #define VMU_ICON_BYTES 512
-#define VMU_FILE_OVERHEAD_BLOCKS 4
-#define VMU_BLOCKS_PER_PS1_BLOCK (PS1_BLOCK_BYTES / VMU_BLOCK_BYTES)
+#define VMU_FILE_OVERHEAD_BLOCKS 2
+#define VMU_BLOCKS_PER_PS1_BLOCK 5
 
 /*----------------------
  | PS1_ICON_FLAG_OFFSET / PS1_CLUT_OFFSET / PS1_FRAME_OFFSET / PS1_FRAME_BYTES
@@ -206,8 +207,34 @@ unsigned int vmu_blocks_for_file(unsigned int data_bytes, int icon_frames)
 }
 
 /*----------------------
+ | vmu_pkg_crc
+ | Description: The CRC a VMS package header carries, CRC-16 with polynomial 0x1021 from zero, over the package with its CRC field zeroed; KallistiOS keeps its own copy private.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: buf -- package bytes, size -- byte count
+ | Returns: 16-bit CRC
+ ----------------------*/
+unsigned short vmu_pkg_crc(const unsigned char *buf, int size)
+{
+    unsigned int crc = 0;
+    int i;
+    int bit;
+
+    for (i = 0; i < size; i++)
+    {
+        crc ^= (unsigned int)buf[i] << 8;
+        for (bit = 0; bit < 8; bit++)
+        {
+            crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : crc << 1;
+        }
+    }
+    return (unsigned short)crc;
+}
+
+/*----------------------
  | ps1_blocks_free
- | Description: Free blocks the virtual 15-block PS1 card reports: what the VMU's free space can hold, never more than the PS1 card has left.
+ | Description: Free blocks the virtual 15-block PS1 card reports: what the VMU's free space can hold compressed, never more than the PS1 card has left.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

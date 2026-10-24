@@ -8,6 +8,7 @@
 # | Returns: N/A
 #----------------------
 import os
+import random
 import struct
 import sys
 
@@ -60,37 +61,56 @@ def test_a_file_bigger_than_the_free_space_is_refused():
 
 def test_ps1_file_finds_a_package_by_its_ps1_name_and_returns_the_payload():
     payload = bytes((i * 7) & 0xFF for i in range(0xC000))
-    header = bytearray(128)
-    header[16:16 + 12] = b"BASLUSP01013"
-    struct.pack_into("<HHHHI", header, 0x40, 2, 8, 0, 0, len(payload))
-    package = bytes(header) + b"\x01" * 1024 + payload
     name = vmu_image.vmu_name_for_ps1("BASLUSP01013")
     assert name.startswith("LOMX") and len(name) == 12
     assert vmu_image.vmu_name_for_ps1("BASLUS-01013LOM00") == "LOMLOM00"
-    img = vmu_image.add(vmu_image.blank(), name, package)
+    img = vmu_image.add(vmu_image.blank(), name, vmu_image.build_package("BASLUSP01013", payload, b"\x01" * 1024))
     assert vmu_image.ps1_file(img, "BASLUSP01013") == payload
     assert vmu_image.ps1_file(img, "BASLUS-01013LOM00") is None
+
+
+def test_build_package_compresses_and_keeps_incompressible_data_raw():
+    save = bytearray(0x4000)
+    save[:4] = b"SC\x11\x01"
+    save[0x600:0x700] = bytes(range(256))
+    package = vmu_image.build_package("BASLUS-01013LOM00", bytes(save))
+    data_len, raw_len = struct.unpack_from("<II", package, 0x48)
+    assert raw_len == 0x4000 and data_len < 0x400
+    assert vmu_image.package_payload(package) == bytes(save)
+    noise = random.Random(7).randbytes(0x2000)
+    package = vmu_image.build_package("BASLUS-01013LOM01", noise)
+    assert struct.unpack_from("<II", package, 0x48) == (0x2000, 0x2000)
+    assert vmu_image.package_payload(package) == noise
+
+
+def test_save_unpack_refuses_truncated_and_out_of_range_streams():
+    packed = vmu_image.save_pack(b"abcabcabcabc" * 50)
+    assert vmu_image.save_unpack(packed, 600) == b"abcabcabcabc" * 50
+    with pytest.raises(ValueError):
+        vmu_image.save_unpack(packed[:-1], 600)
+    with pytest.raises(ValueError):
+        vmu_image.save_unpack(b"\x00\x00\x00", 4)
 
 
 def test_vms_crc_is_crc16_xmodem():
     assert vmu_image.vms_crc(b"123456789") == 0x31C3
 
 
-def test_set_ps1_file_rewrites_the_payload_in_place_with_a_fresh_crc():
-    payload = bytes(range(256)) * 4
-    header = bytearray(128)
-    struct.pack_into("<HHHHI", header, 0x40, 1, 8, 0, 0, len(payload))
-    package = bytearray(header + b"\x02" * 512 + payload)
-    struct.pack_into("<H", package, 0x46, vmu_image.vms_crc(bytes(package)))
+def test_set_ps1_file_recompresses_into_a_resized_chain_with_a_fresh_crc():
+    payload = bytes(0x4000)
     name = vmu_image.vmu_name_for_ps1("BASLUSP01013")
-    img = vmu_image.add(vmu_image.blank(), name, bytes(package))
-    new = bytes(reversed(payload))
+    img = vmu_image.add(vmu_image.blank(), name, vmu_image.build_package("BASLUSP01013", payload))
+    new = random.Random(9).randbytes(0x4000)
     out = vmu_image.set_ps1_file(img, "BASLUSP01013", new)
     assert vmu_image.ps1_file(out, "BASLUSP01013") == new
-    data = dict(vmu_image.files(out))[name][:len(package)]
-    crc = struct.unpack_from("<H", data, 0x46)[0]
-    assert crc == vmu_image.vms_crc(data[:0x46] + b"\0\0" + data[0x48:])
-    assert vmu_image.free_blocks(out) == vmu_image.free_blocks(img)
+    data = dict(vmu_image.files(out))[name]
+    icons, _, _, crc, data_len = struct.unpack_from("<HHHHI", data, 0x40)
+    size = 128 + 512 * icons + data_len
+    assert crc == vmu_image.vms_crc(data[:0x46] + b"\0\0" + data[0x48:size])
+    assert vmu_image.free_blocks(out) == vmu_image.free_blocks(img) - (len(vmu_image.chain(out, name)) - len(vmu_image.chain(img, name)))
+    back = vmu_image.set_ps1_file(out, "BASLUSP01013", payload)
+    assert vmu_image.ps1_file(back, "BASLUSP01013") == payload
+    assert vmu_image.free_blocks(back) == vmu_image.free_blocks(img)
 
 
 def test_add_game_takes_blocks_from_zero_up_with_its_header_in_block_one():

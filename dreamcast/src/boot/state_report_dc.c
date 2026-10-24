@@ -18,6 +18,8 @@
 
 #ifdef LOM_PAD_SCRIPT
 #include "pad_script.h"
+#endif
+#if defined(LOM_PAD_SCRIPT) || defined(LOM_DEBUG_MENU)
 #include "watch.h"
 #endif
 
@@ -101,7 +103,7 @@ static void report_field_changes(void)
 
 /*----------------------
  | state_report_poll
- | Description: Logs "state <n>" on a g_game_state change and "frame <count> prims <n>" and "akao ticks <n>" each period, ticks the frame probe and, under LOM_PAD_SCRIPT, advances the pad script and the watcher hook.
+ | Description: Logs "state <n>" on a g_game_state change and "frame <count> prims <n>" and "akao ticks <n>" each period, ticks the frame probe and, under LOM_PAD_SCRIPT, advances the pad script and the watcher hook, which LOM_DEBUG_MENU also runs.
  | Author: suinevere
  | Dependencies: dc_log, vsync_count, dc_frame_primitives, akao_tick_dc_count, frame_probe_vblank, pad_script_poll (LOM_PAD_SCRIPT), g_dc_watch_poll (LOM_PAD_SCRIPT)
  | Globals: g_game_state, s_reported_state, s_next_report
@@ -127,6 +129,12 @@ void state_report_poll(void)
     frame_probe_vblank();
 #ifdef LOM_PAD_SCRIPT
     pad_script_poll(now, (int)g_game_state);
+    if (g_dc_watch_poll != NULL)
+    {
+        g_dc_watch_poll();
+    }
+#endif
+#ifdef LOM_DEBUG_MENU
     if (g_dc_watch_poll != NULL)
     {
         g_dc_watch_poll();

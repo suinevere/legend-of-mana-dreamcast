@@ -21,8 +21,8 @@
 TARGET ?= lom.elf
 
 #----------------------
-# | OBJDIR / CDI
-# | Description: Object-tree root and disc image name; test-image overrides both via a submake so the scripted build never shares objects or output with the shipping lom.cdi.
+# | OBJDIR / CDI / GDI_DIR
+# | Description: Object-tree root, disc image name and GD-ROM folder; test-image and debug-gdi override them via a submake so those builds never share objects or output with the shipping lom.cdi and gdi/.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -31,6 +31,7 @@ TARGET ?= lom.elf
 #----------------------
 OBJDIR ?= build
 CDI ?= lom.cdi
+GDI_DIR ?= gdi
 
 #----------------------
 # | EXTRA_CFLAGS
@@ -311,7 +312,7 @@ MAIN_OBJS = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst ../port/%.c,
 	$(OBJDIR)/gen/akao_data.o $(OBJDIR)/gen/main_data.o
 OBJS = $(MAIN_OBJS) $(OBJDIR)/gen/dc_pending.o
 CHECKPS_OBJS = build/ovl/checkps_vectors.o $(call DECOMP_OBJ,$(DECOMP_CHECKPS)) build/overlays/checkps_init_unit.o
-TITLE_OBJS = build/ovl/title_vectors.o $(call DECOMP_OBJ,$(DECOMP_TITLE))
+TITLE_OBJS = build/ovl/title_vectors.o $(call DECOMP_OBJ,$(DECOMP_TITLE)) $(OBJDIR)/overlays/title_debug_entry.o
 GNAME_OBJS = build/ovl/gname_vectors.o $(call DECOMP_OBJ,$(DECOMP_GNAME))
 MENU_OBJS = build/ovl/menu_vectors.o $(call DECOMP_OBJ,$(DECOMP_MENU))
 SHOP_OBJS = build/ovl/shop_vectors.o $(call DECOMP_OBJ,$(DECOMP_SHOP))
@@ -327,10 +328,10 @@ GOSUB_OBJS = build/ovl/gosub_vectors.o $(call DECOMP_OBJ,$(DECOMP_GOSUB))
 WSEL_OBJS = build/ovl/wsel_vectors.o build/overlays/wsel_unit.o
 
 #----------------------
-# | field_watch_entry.o OBJDIR scoping
-# | Description: Unlike FIELD's other extra objects, field_watch_entry.o's body depends on EXTRA_CFLAGS (LOM_PAD_SCRIPT), so it must not share the build/overlays/%.o path the shipping and test-image links would otherwise reuse stale across each other.
+# | field_watch_entry.o / wmap_watch_entry.o OBJDIR scoping
+# | Description: Unlike the overlays' other extra objects, the watch entries' bodies depend on EXTRA_CFLAGS (LOM_PAD_SCRIPT), so they must not share the build/overlays/%.o path the shipping and test-image links would otherwise reuse stale across each other.
 # | Author: suinevere
-# | Dependencies: src/overlays/field_watch_entry.c, EXTRA_CFLAGS
+# | Dependencies: src/overlays/field_watch_entry.c, src/overlays/wmap_watch_entry.c, EXTRA_CFLAGS
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -339,7 +340,7 @@ FIELD_OBJS = build/ovl/field_vectors.o $(call DECOMP_OBJ,$(DECOMP_FIELD)) build/
 ifneq (,$(findstring LOM_PAD_SCRIPT,$(EXTRA_CFLAGS)))
 FIELD_OBJS += $(FIELD_TEST_OBJS)
 endif
-WMAP_OBJS = build/ovl/wmap_vectors.o $(call DECOMP_OBJ,$(DECOMP_WMAP)) build/ovl/wmap_function_tables.o build/overlays/wmap_controller_ports.o
+WMAP_OBJS = build/ovl/wmap_vectors.o $(call DECOMP_OBJ,$(DECOMP_WMAP)) build/ovl/wmap_function_tables.o build/overlays/wmap_controller_ports.o $(OBJDIR)/overlays/wmap_watch_entry.o
 OVERLAY_OBJS = $(CHECKPS_OBJS) $(TITLE_OBJS) $(GNAME_OBJS) $(WSEL_OBJS) $(FIELD_OBJS) $(WMAP_OBJS) $(MENU_OBJS) $(SHOP_OBJS) $(GOLEM_OBJS) $(ZUKAN_OBJS) $(GOSUB_OBJS) $(CARDA_OBJS) $(CLOAD_OBJS) $(NIKI_OBJS) $(ADDHERO_OBJS) $(GOVER_OBJS) $(MOVIE_OBJS)
 
 #----------------------
@@ -944,9 +945,21 @@ $(CDI): $(TARGET) $(OBJDIR)/cd-data/.stamp
 # | Returns: N/A
 #----------------------
 gdi: $(TARGET) $(OBJDIR)/cd-data/.stamp
-	rm -rf gdi
-	mkdir -p gdi
-	mkdcdisc -e $(TARGET) -o gdi/disc.gdi -D $(OBJDIR)/cd-data -n "Legend of Mana" --allow-overwrite
+	rm -rf $(GDI_DIR)
+	mkdir -p $(GDI_DIR)
+	mkdcdisc -e $(TARGET) -o $(GDI_DIR)/disc.gdi -D $(OBJDIR)/cd-data -n "Legend of Mana" --allow-overwrite
+
+#----------------------
+# | debug-gdi
+# | Description: Builds gdi-debug/ from a separate build-debug/ object tree with -DLOM_DEBUG_MENU, whose title menu shows the hidden debug start, leaving the shipping gdi/ and its objects alone.
+# | Author: suinevere
+# | Dependencies: gdi, OBJDIR, TARGET, CDI, GDI_DIR, EXTRA_CFLAGS
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+debug-gdi:
+	$(MAKE) OBJDIR=build-debug TARGET=lom_debug.elf CDI=lom_debug.cdi GDI_DIR=gdi-debug EXTRA_CFLAGS=-DLOM_DEBUG_MENU all gdi
 
 #----------------------
 # | clean
@@ -977,14 +990,14 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 
 #----------------------
 # | PADSEL_IMAGES / lom_<script>_test.cdi
-# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the card save and load discs, the pet send, return and ranch discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc, the PAL 50 Hz boot disc and the FIELD scene sweep disc.
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the land effect ranking disc, the card save and load discs, the pet send, return and ranch discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc, the PAL 50 Hz boot disc and the FIELD scene sweep disc.
 # | Author: suinevere
 # | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = exit_map card_save card_load movie_skip pet_send pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
+PADSEL_SCRIPTS = landfx_rank exit_map card_save card_load movie_skip pet_send pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*

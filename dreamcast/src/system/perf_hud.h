@@ -17,9 +17,10 @@
  | Dependencies: libpress_dc_stats, cd_stream_stalls, hud_thread, thd_create_ex, sem_signal
  | Globals: N/A
  | Params: vbl_hundredths -- vblanks per drawn frame times 100, idle_ms -- time spent waiting for vblank, texture_ms -- texture build plus upload time,
- |         otag_ms -- time walking ordering tables and submitting primitives, pvr_ms -- time waiting for the PowerVR to finish a scene, render_ms -- longest PowerVR render
+ |         otag_ms -- time walking ordering tables and submitting primitives, pvr_ms -- time waiting for the PowerVR to finish a scene, render_ms -- longest PowerVR render,
+ |         flip_expired -- texture or palette writes that went ahead before the previous scene reached the screen
  | Returns: N/A
  ----------------------*/
-void perf_hud_report(unsigned vbl_hundredths, unsigned idle_ms, unsigned texture_ms, unsigned otag_ms, unsigned pvr_ms, unsigned render_ms);
+void perf_hud_report(unsigned vbl_hundredths, unsigned idle_ms, unsigned texture_ms, unsigned otag_ms, unsigned pvr_ms, unsigned render_ms, unsigned flip_expired);
 
 #endif

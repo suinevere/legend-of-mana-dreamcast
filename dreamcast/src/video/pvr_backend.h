@@ -82,6 +82,17 @@ unsigned long long pvr_backend_wait_us(void);
 unsigned pvr_backend_take_render_max_us(void);
 
 /*----------------------
+ | pvr_backend_take_flip_expired
+ | Description: How many texture or palette writes went ahead since the last call because the previous scene had not reached the screen in time, then starts a new period, for the speed readout.
+ | Author: suinevere
+ | Dependencies: pvr_backend_kos.c
+ | Globals: s_flip_expired
+ | Params: N/A
+ | Returns: count
+ ----------------------*/
+unsigned pvr_backend_take_flip_expired(void);
+
+/*----------------------
  | pvr_backend_frame_pixels
  | Description: Returns the displayed 640x480 RGB565 buffer and its pitch, for reading rendered PS1 pixels back into the VRAM mirror; a host test fakes it with a test buffer.
  | Author: suinevere

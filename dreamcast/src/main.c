@@ -26,7 +26,7 @@
 #include "hang_watch.h"
 #include "frame_probe.h"
 
-#ifdef LOM_PAD_SCRIPT
+#if defined(LOM_PAD_SCRIPT) || defined(LOM_DEBUG_MENU)
 #include "watch.h"
 #endif
 
@@ -34,10 +34,10 @@ KOS_INIT_FLAGS(INIT_DEFAULT);
 
 void main_game_loop(void);
 
-#ifdef LOM_PAD_SCRIPT
+#if defined(LOM_PAD_SCRIPT) || defined(LOM_DEBUG_MENU)
 /*----------------------
- | g_dc_watch_poll / g_dc_field_scene_jump / g_dc_field_battle / g_dc_field_open / g_dc_field_gameover / g_dc_field_movie
- | Description: Test-image-only pad-script hooks declared in watch.h; NULL until field_watch_install sets them.
+ | g_dc_watch_poll
+ | Description: Per-frame overlay hook declared in watch.h, set by a test unit or by title_debug_entry in the debug-menu build; NULL until set.
  | Author: suinevere
  | Dependencies: watch.h
  | Globals: N/A
@@ -45,11 +45,24 @@ void main_game_loop(void);
  | Returns: N/A
  ----------------------*/
 void (*g_dc_watch_poll)(void) = NULL;
+#endif
+
+#ifdef LOM_PAD_SCRIPT
+/*----------------------
+ | g_dc_field_scene_jump / g_dc_field_battle / g_dc_field_open / g_dc_field_gameover / g_dc_field_movie / g_dc_wmap_landfx
+ | Description: Test-image-only pad-script hooks declared in watch.h; NULL until field_watch_install or wmap_watch_entry sets them.
+ | Author: suinevere
+ | Dependencies: watch.h
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
 void (*g_dc_field_scene_jump)(int scene, int spawn) = NULL;
 void (*g_dc_field_battle)(void) = NULL;
 void (*g_dc_field_open)(int target) = NULL;
 void (*g_dc_field_gameover)(void) = NULL;
 void (*g_dc_field_movie)(void) = NULL;
+void (*g_dc_wmap_landfx)(int land) = NULL;
 #endif
 
 /*----------------------

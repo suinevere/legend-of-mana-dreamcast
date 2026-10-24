@@ -275,18 +275,158 @@ def vmu_name_for_ps1(ps1_name):
 
 
 #----------------------
-# | package_payload
-# | Description: The data a VMS package carries after its 128-byte header and icon frames.
+# | PACK_WINDOW / PACK_MIN_MATCH / PACK_MAX_MATCH / PACK_LEN_EXTEND / RAW_LEN_OFFSET
+# | Description: save_pack.c's LZSS limits and extension nibble, and the VMS header word card_store_kos.c keeps a PS1 file's uncompressed size in.
 # | Author: suinevere
-# | Dependencies: struct
+# | Dependencies: src/card/save_pack.c, src/card/card_store_kos.c
 # | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+PACK_WINDOW = 4096
+PACK_MIN_MATCH = 3
+PACK_MAX_MATCH = 4096
+PACK_LEN_EXTEND = 15
+RAW_LEN_OFFSET = 0x4C
+
+
+#----------------------
+# | save_pack
+# | Description: Compresses bytes into save_pack.c's LZSS format, greedily taking the longest match among the last 64 positions sharing a 3-byte prefix.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: PACK_WINDOW, PACK_MIN_MATCH, PACK_MAX_MATCH, PACK_LEN_EXTEND
+# | Params: data -- bytes
+# | Returns: compressed bytes
+#----------------------
+def save_pack(data):
+    out = bytearray()
+    seen = {}
+    pos = 0
+    flag_at = 0
+    bit = 8
+    while pos < len(data):
+        if bit == 8:
+            flag_at = len(out)
+            out.append(0)
+            bit = 0
+        best, dist = 0, 0
+        limit = min(len(data) - pos, PACK_MAX_MATCH)
+        if limit >= PACK_MIN_MATCH:
+            for cand in reversed(seen.get(data[pos:pos + 3], [])[-64:]):
+                if pos - cand > PACK_WINDOW:
+                    break
+                n = 0
+                while n < limit and data[cand + n] == data[pos + n]:
+                    n += 1
+                if n > best:
+                    best, dist = n, pos - cand
+                    if n == limit:
+                        break
+        step = best if best >= PACK_MIN_MATCH else 1
+        if step == 1:
+            out[flag_at] |= 1 << bit
+            out.append(data[pos])
+        else:
+            nib = min(best - PACK_MIN_MATCH, PACK_LEN_EXTEND)
+            out += bytes(((dist - 1) & 0xFF, (((dist - 1) >> 4) & 0xF0) | nib))
+            if nib == PACK_LEN_EXTEND:
+                rest = best - PACK_MIN_MATCH - nib
+                while True:
+                    out.append(min(rest, 255))
+                    if rest < 255:
+                        break
+                    rest -= 255
+        for i in range(pos, pos + step):
+            if i + 3 <= len(data):
+                seen.setdefault(data[i:i + 3], []).append(i)
+        pos += step
+        bit += 1
+    return bytes(out)
+
+
+#----------------------
+# | save_unpack
+# | Description: Decompresses save_pack.c's LZSS format into exactly size bytes.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: PACK_MIN_MATCH, PACK_LEN_EXTEND
+# | Params: data -- compressed bytes, size -- uncompressed size
+# | Returns: bytes; raises ValueError on a corrupt stream
+#----------------------
+def save_unpack(data, size):
+    out = bytearray()
+    i = 0
+    flags = 0
+    bit = 8
+    try:
+        while len(out) < size:
+            if bit == 8:
+                flags = data[i]
+                i += 1
+                bit = 0
+            if flags & (1 << bit):
+                out.append(data[i])
+                i += 1
+            else:
+                dist = (data[i] | ((data[i + 1] & 0xF0) << 4)) + 1
+                nib = data[i + 1] & 0x0F
+                length = nib + PACK_MIN_MATCH
+                i += 2
+                if nib == PACK_LEN_EXTEND:
+                    while True:
+                        step = data[i]
+                        i += 1
+                        length += step
+                        if step != 255:
+                            break
+                if dist > len(out) or len(out) + length > size:
+                    raise ValueError("corrupt LZSS stream")
+                for _ in range(length):
+                    out.append(out[-dist])
+            bit += 1
+    except IndexError:
+        raise ValueError("truncated LZSS stream")
+    return bytes(out)
+
+
+#----------------------
+# | package_payload
+# | Description: The PS1 file a VMS package carries after its 128-byte header and icon frames, decompressed unless its stored length equals the uncompressed size at RAW_LEN_OFFSET.
+# | Author: suinevere
+# | Dependencies: save_unpack, struct
+# | Globals: RAW_LEN_OFFSET
 # | Params: data -- package bytes
 # | Returns: payload bytes
 #----------------------
 def package_payload(data):
     icons, _, _, _, data_len = struct.unpack_from("<HHHHI", data, 0x40)
+    raw_len, = struct.unpack_from("<I", data, RAW_LEN_OFFSET)
     start = 128 + 512 * icons
-    return bytes(data[start:start + data_len])
+    stored = bytes(data[start:start + data_len])
+    return stored if data_len == raw_len else save_unpack(stored, raw_len)
+
+
+#----------------------
+# | build_package
+# | Description: A VMS package as card_store_kos.c builds one: the long description, icon frames, the payload compressed unless that saves nothing, its uncompressed size and the CRC.
+# | Author: suinevere
+# | Dependencies: save_pack, vms_crc, struct
+# | Globals: RAW_LEN_OFFSET
+# | Params: desc_long -- long description, payload -- PS1 file bytes, icons -- icon frame bytes, a multiple of 512
+# | Returns: package bytes
+#----------------------
+def build_package(desc_long, payload, icons=b"\0" * 512):
+    packed = save_pack(payload)
+    stored = packed if len(packed) < len(payload) else bytes(payload)
+    header = bytearray(128)
+    header[0:16] = b"LEGEND OF MANA".ljust(16)
+    header[16:48] = desc_long.encode("ascii")[:32].ljust(32)
+    struct.pack_into("<HHHHI", header, 0x40, len(icons) // 512, 8, 0, 0, len(stored))
+    struct.pack_into("<I", header, RAW_LEN_OFFSET, len(payload))
+    package = bytearray(bytes(header) + icons + stored)
+    struct.pack_into("<H", package, 0x46, vms_crc(bytes(package)))
+    return bytes(package)
 
 
 #----------------------
@@ -327,12 +467,12 @@ def vms_crc(data):
 
 #----------------------
 # | set_ps1_file
-# | Description: Replaces the payload of the package stored under a PS1 name with bytes of the same length, refreshing its CRC, in the blocks it already holds.
+# | Description: Replaces the PS1 file stored under a PS1 name with new bytes, keeping its header and icons, recompressing it and growing or shrinking its block chain to fit.
 # | Author: suinevere
-# | Dependencies: _fat, _entries, vmu_name_for_ps1, vms_crc, struct
-# | Globals: BLOCK, DATA_TYPE, END
+# | Dependencies: _fat, _put_fat, _entries, _chain, vmu_name_for_ps1, save_pack, vms_crc, struct
+# | Globals: BLOCK, DATA_TYPE, END, FREE, USER_BLOCKS, RAW_LEN_OFFSET
 # | Params: img -- image bytes, ps1_name -- PS1 file name, payload -- new file bytes
-# | Returns: new image bytes; raises ValueError when the file is missing or the size differs
+# | Returns: new image bytes; raises ValueError when the file is missing or the card has no room
 #----------------------
 def set_ps1_file(img, ps1_name, payload):
     img = bytearray(img)
@@ -341,20 +481,30 @@ def set_ps1_file(img, ps1_name, payload):
     for off in _entries():
         if img[off] != DATA_TYPE or img[off + 4:off + 16].rstrip(b"\0 ") != want:
             continue
-        first, = struct.unpack_from("<H", img, off + 2)
-        size, = struct.unpack_from("<H", img, off + 0x18)
-        chain = [first]
-        while len(chain) < size and table[chain[-1]] != END:
-            chain.append(table[chain[-1]])
-        data = bytearray(b"".join(img[b * BLOCK:(b + 1) * BLOCK] for b in chain))
-        icons, _, _, _, data_len = struct.unpack_from("<HHHHI", data, 0x40)
-        if data_len != len(payload):
-            raise ValueError("%s holds %d bytes, not %d" % (ps1_name, data_len, len(payload)))
+        blocks = _chain(img, table, off)
+        old = b"".join(bytes(img[b * BLOCK:(b + 1) * BLOCK]) for b in blocks)
+        icons, = struct.unpack_from("<H", old, 0x40)
         start = 128 + 512 * icons
-        data[start:start + data_len] = payload
+        packed = save_pack(payload)
+        stored = packed if len(packed) < len(payload) else bytes(payload)
+        data = bytearray(old[:start] + stored)
+        struct.pack_into("<I", data, 0x48, len(stored))
+        struct.pack_into("<I", data, RAW_LEN_OFFSET, len(payload))
         struct.pack_into("<H", data, 0x46, 0)
-        struct.pack_into("<H", data, 0x46, vms_crc(bytes(data[:start + data_len])))
-        for i, block in enumerate(chain):
+        struct.pack_into("<H", data, 0x46, vms_crc(bytes(data)))
+        count = (len(data) + BLOCK - 1) // BLOCK
+        for block in blocks[count:]:
+            table[block] = FREE
+        blocks = blocks[:count]
+        free = [b for b in range(USER_BLOCKS - 1, -1, -1) if table[b] == FREE and b not in blocks]
+        if count > len(blocks) + len(free):
+            raise ValueError("no room for %s" % ps1_name)
+        blocks += free[:count - len(blocks)]
+        data += b"\0" * (count * BLOCK - len(data))
+        for i, block in enumerate(blocks):
             img[block * BLOCK:(block + 1) * BLOCK] = data[i * BLOCK:(i + 1) * BLOCK]
+            table[block] = blocks[i + 1] if i + 1 < count else END
+        _put_fat(img, table)
+        struct.pack_into("<H", img, off + 0x18, count)
         return bytes(img)
     raise ValueError("no %s on the VMU" % ps1_name)

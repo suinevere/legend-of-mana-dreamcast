@@ -73,6 +73,15 @@ static void test_untextured_semi(void)
     check_pass(&out[0], BL_SRCALPHA, BL_ONE, 64, PAL_OPAQUE);
 }
 
+static void test_shadow_multiply(void)
+{
+    BlendPass out[BLEND_MAX_PASSES];
+
+    CHECK(blend_shadow_plan(out) == 1);
+    check_pass(&out[0], BL_ZERO, BL_INVSRCCOLOR, 255, PAL_OPAQUE);
+    CHECK(out[0].cover == 0);
+}
+
 static void test_textured_semi_stp_none(void)
 {
     BlendPass out[BLEND_MAX_PASSES];
@@ -194,6 +203,7 @@ int main(void)
 {
     test_not_semi();
     test_untextured_semi();
+    test_shadow_multiply();
     test_textured_semi_stp_none();
     test_textured_semi_abr0();
     test_textured_semi_stp_all();

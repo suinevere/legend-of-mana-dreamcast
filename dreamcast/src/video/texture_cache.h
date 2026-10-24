@@ -14,7 +14,7 @@
 
 /*----------------------
  | TextureOps
- | Description: Backend for texture memory: allocate, free everything at once, copy a built texture in once no submitted scene can read the old bytes, and write without that wait into memory no submitted scene reads (NULL falls back to upload); host tests fake it.
+ | Description: Backend for texture memory: allocate, free everything at once, copy a built texture in once no submitted scene can read the old bytes, write without that wait into memory no submitted scene reads (NULL falls back to upload), and free one allocation (NULL keeps it until the next flush); host tests fake it.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -26,6 +26,7 @@ typedef struct {
     void (*free_all)(void);
     void (*upload)(void *dst, const void *src, unsigned bytes);
     void (*write)(void *dst, const void *src, unsigned bytes);
+    void (*free)(void *ptr);
 } TextureOps;
 
 /*----------------------

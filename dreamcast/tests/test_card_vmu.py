@@ -1,6 +1,6 @@
 #----------------------
 # | test_card_vmu.py
-# | Description: Flycast checks of D5's VMU saves: CARDA writes a save as a VMS package, CLOAD loads it back into Home, a nearly full VMU takes the card-full path and a corrupt save is refused, never halting.
+# | Description: Flycast checks of D5's VMU saves: CARDA writes a save as one compressed VMS package, CLOAD loads it back into Home, a nearly full VMU takes the card-full path and a corrupt save is refused, never halting.
 # | Author: suinevere
 # | Dependencies: tools/flycast_run.py, tools/vmu_image.py, stale_image.py, lom_card_save_test.cdi, lom_card_load_test.cdi, tests/pad_scripts/card_save.pad, card_load.pad
 # | Globals: N/A
@@ -24,9 +24,8 @@ import vmu_image
 
 def package(data):
     icons, _, _, _, data_len = struct.unpack_from("<HHHHI", data, 0x40)
-    start = 128 + 512 * icons
     return {"desc_long": data[16:48].rstrip(b" \0").decode("ascii", "replace"), "icons": icons,
-            "data": data[start:start + data_len]}
+            "stored": data_len, "data": vmu_image.package_payload(data)}
 
 
 def package_crc_ok(data):
@@ -88,11 +87,15 @@ def full_run(save_run, tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def broken_run(tmp_path_factory):
-    img = vmu_image.add(vmu_image.blank(), "LOM0-1", b"LEGEND OF MANA  " + b"\xA5" * (35 * 512 - 16))
+    save = bytearray(0x4000)
+    save[:2] = b"SC"
+    package = bytearray(vmu_image.build_package("BASLUS-010130-1", bytes(save)))
+    package[-1] ^= 0xFF
+    img = vmu_image.add(vmu_image.blank(), "LOM0-1", bytes(package))
     return img, run("lom_card_load_test.cdi", img, "LOM: capture cload-after", 300, tmp_path_factory, "broken")
 
 
-def test_carda_saves_a_ps1_save_as_one_vms_package(save_run):
+def test_carda_saves_a_ps1_save_as_one_compressed_vms_package(save_run):
     code, lines, img, _ = save_run
     assert code == 0, lines[-20:]
     saves = lom_files(img)
@@ -100,6 +103,7 @@ def test_carda_saves_a_ps1_save_as_one_vms_package(save_run):
     pkg = package(saves[0][1])
     assert pkg["desc_long"].startswith("BASLUS-01013")
     assert len(pkg["data"]) == 0x4000 and pkg["data"][:2] == b"SC"
+    assert pkg["stored"] < 0x4000 and len(saves[0][1]) <= 12 * 512
     assert pkg["icons"] >= 1
     assert package_crc_ok(saves[0][1])
 

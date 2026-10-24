@@ -133,6 +133,12 @@ void frame_probe_prim(void)
 {
 }
 
+void frame_probe_area(int kind, float pixels)
+{
+    (void)kind;
+    (void)pixels;
+}
+
 static uint16_t s_frame_pixels[640 * 480];
 
 const uint16_t *pvr_backend_frame_pixels(unsigned *pitch_px)

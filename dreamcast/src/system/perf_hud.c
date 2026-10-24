@@ -1,6 +1,6 @@
 /*----------------------
  | perf_hud.c
- | Description: Once-a-second speed readout on the first VMU's screen in a 4x6 font, four lines: V vblanks per frame and I idle ms; O ordering-table submit ms and P PowerVR wait ms; T texture ms, C CD stalls and R longest PowerVR render ms; M movie decode average and worst ms.
+ | Description: Once-a-second speed readout on the first VMU's screen in a 4x6 font, four lines: V vblanks per frame and I idle ms; O ordering-table submit ms, P PowerVR wait ms and E expired flip waits; T texture ms, C CD stalls and R longest PowerVR render ms; M movie decode average and worst ms.
  |              A thread of its own draws it, since vmu_draw_lcd blocks until the next vblank's maple cycle and cost the game a frame each second.
  | Author: suinevere
  | Dependencies: perf_hud.h, libpress_dc.h, cd_stream.h, dc/vmu_fb.h, dc/maple.h, kos/sem.h, kos/thread.h, stdio.h, string.h
@@ -145,7 +145,7 @@ static void *hud_thread(void *arg)
     return NULL;
 }
 
-void perf_hud_report(unsigned vbl_hundredths, unsigned idle_ms, unsigned texture_ms, unsigned otag_ms, unsigned pvr_ms, unsigned render_ms)
+void perf_hud_report(unsigned vbl_hundredths, unsigned idle_ms, unsigned texture_ms, unsigned otag_ms, unsigned pvr_ms, unsigned render_ms, unsigned flip_expired)
 {
     unsigned frames = 0;
     unsigned us_avg = 0;
@@ -169,7 +169,7 @@ void perf_hud_report(unsigned vbl_hundredths, unsigned idle_ms, unsigned texture
     }
     if (s_pending)
         return;
-    snprintf(s_text, sizeof(s_text), "V%u.%02u I%u\nO%u P%u\nT%u C%u R%u\n", vbl_hundredths / 100u, vbl_hundredths % 100u, idle_ms, otag_ms, pvr_ms,
+    snprintf(s_text, sizeof(s_text), "V%u.%02u I%u\nO%u P%u E%u\nT%u C%u R%u\n", vbl_hundredths / 100u, vbl_hundredths % 100u, idle_ms, otag_ms, pvr_ms, flip_expired,
              texture_ms, cd_stream_stalls(), render_ms);
     if (frames != 0)
         snprintf(s_text + strlen(s_text), sizeof(s_text) - strlen(s_text), "M%u %u", us_avg / 1000u, us_max / 1000u);

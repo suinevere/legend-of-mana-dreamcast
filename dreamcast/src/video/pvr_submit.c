@@ -27,6 +27,17 @@
 #define PVR_SCALE 2.0f
 
 /*----------------------
+ | SUBTRACT_ABR
+ | Description: The PS1 semi-transparency code for subtraction, back minus front.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SUBTRACT_ABR 2
+
+/*----------------------
  | PVR_PAGE_TEXELS
  | Description: Width and height of every cached texture, one PS1 texture page.
  | Author: suinevere
@@ -363,7 +374,7 @@ static void send_header(const DcSurfaceTexture *tex, const BlendPass *pass)
  | Description: Sends a clipped polygon as one triangle strip at 2x from the draw area's origin, with texel coordinates normalised to the page and a fixed alpha.
  | Vertices are white for a coverage pass, or the tint above 1.0 for an excess pass.
  | Author: suinevere
- | Dependencies: clip_strip_order, blend_vertex_colour, blend_excess_colour, PvrBackend.strip
+ | Dependencies: clip_strip_order, blend_vertex_colour, blend_excess_colour, PvrBackend.strip, frame_probe_area
  | Globals: s_backend, s_origin_x, s_origin_y, s_scene_has_prims
  | Params: poly -- clipped polygon, alpha -- vertex alpha 0-255, textured -- primitive samples a texture, raw -- texture is untinted, cover -- draw white coverage instead of the vertex colour, excess -- draw the tint blend_vertex_colour clamps away
  | Returns: N/A
@@ -374,8 +385,18 @@ static void send_strip(const DcPoly *poly, uint8_t alpha, int textured, int raw,
     PvrVertex verts[8];
     unsigned n = clip_strip_order(poly->count, order);
     unsigned i;
+    float area = 0.0f;
 
     s_scene_has_prims = 1;
+    for (i = 0; i < poly->count; i++)
+    {
+        const DcClipVertex *a = &poly->v[i];
+        const DcClipVertex *b = &poly->v[(i + 1u) % poly->count];
+
+        area += a->x * b->y - b->x * a->y;
+    }
+    area = (area < 0.0f ? -area : area) * 0.5f * PVR_SCALE * PVR_SCALE;
+    frame_probe_area(excess ? PROBE_AREA_EXCESS : (cover ? PROBE_AREA_INVERT : PROBE_AREA_DRAW), area);
     for (i = 0; i < n; i++)
     {
         const DcClipVertex *cv = &poly->v[order[i]];
@@ -459,7 +480,7 @@ static void box_strip(const float *box, PvrVertex *verts)
  | invert_close
  | Description: Ends an open subtractive run by inverting its box back.
  | Author: suinevere
- | Dependencies: send_header, box_strip, PvrBackend.strip
+ | Dependencies: send_header, box_strip, PvrBackend.strip, frame_probe_area
  | Globals: s_inv_open, s_inv_box, s_backend, s_scene_has_prims
  | Params: N/A
  | Returns: N/A
@@ -473,6 +494,7 @@ static void invert_close(void)
         return;
     }
     s_inv_open = 0;
+    frame_probe_area(PROBE_AREA_INVERT, 2.0f * (s_inv_box[2] - s_inv_box[0]) * (s_inv_box[3] - s_inv_box[1]));
     send_header(0, &INVERT_PASS);
     box_strip(s_inv_box, verts);
     s_scene_has_prims = 1;
@@ -701,10 +723,10 @@ void pvr_submit_set_backend(const PvrBackend *backend)
 
 /*----------------------
  | pvr_submit_prim
- | Description: Clips one primitive to the draw area and writes it as up to four blended triangle strips, opening the scene first if none is open.
+ | Description: Clips one primitive to the draw area and writes it as up to four blended triangle strips, opening the scene first if none is open; an untextured subtractive polygon (a shadow) draws as one multiply pass, while rectangles such as fades keep exact subtraction.
  | Each colour pass is followed by an excess pass when the texture tint exceeds 1.0; a pure subtraction only adds inside the open run's inversion, any other primitive closes the run first.
  | Author: suinevere
- | Dependencies: clip_prim, palette_clut_stp, open_scene, blend_plan, texture_cache_lookup, send_header, send_strip, has_excess, blend_excess_pass, poly_box, invert_cover, invert_close, frame_probe_prim
+ | Dependencies: clip_prim, palette_clut_stp, open_scene, blend_plan, blend_shadow_plan, texture_cache_lookup, send_header, send_strip, has_excess, blend_excess_pass, poly_box, invert_cover, invert_close, frame_probe_prim
  | Globals: s_frame, s_origin_x, s_origin_y, s_scene_area, s_scene_area_valid
  | Params: prim -- decoded primitive, state -- GPU state carrying the draw area
  | Returns: N/A
@@ -742,7 +764,14 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
         stp = palette_clut_stp(prim->clut_x, prim->clut_y, prim->depth);
     }
     open_scene();
-    count = blend_plan(prim->textured, prim->semi, prim->abr, stp, prim->depth != DC_DEPTH_15, passes);
+    if (!prim->textured && prim->semi && prim->abr == SUBTRACT_ABR && prim->shape != DC_SHAPE_RECT)
+    {
+        count = blend_shadow_plan(passes);
+    }
+    else
+    {
+        count = blend_plan(prim->textured, prim->semi, prim->abr, stp, prim->depth != DC_DEPTH_15, passes);
+    }
     run = count == 3 && passes[0].cover && passes[2].cover;
     if (prim->textured)
     {

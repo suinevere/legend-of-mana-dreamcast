@@ -3,7 +3,7 @@
  | Description: Builds twiddled PowerVR textures from PS1 pages in the VRAM mirror and reuses them until the page's VRAM generation moves; never frees or overwrites memory the current frame used.
  | Author: suinevere
  | Dependencies: texture_cache.h, palette_bank.h, vram_mirror.h, gpu_decode.h
- | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_scratch, s_lookup_memo, s_memo_epoch
+ | Globals: s_texture_ops, s_entries, s_flushes, s_expansions, s_skips, s_flush_pending, s_retired, s_retired_count, s_scratch, s_lookup_memo, s_memo_epoch
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -164,6 +164,36 @@ static unsigned long long s_upload_us;
  | Returns: N/A
  ----------------------*/
 static int s_flush_pending;
+
+/*----------------------
+ | RETIRED_SLOTS / s_retired / s_retired_count
+ | Description: Texture memory an entry replaced while the current frame still read it, freed by texture_cache_begin_frame once that frame is on screen.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define RETIRED_SLOTS 64
+static void *s_retired[RETIRED_SLOTS];
+static int s_retired_count;
+
+/*----------------------
+ | retire_texture
+ | Description: Queues replaced texture memory for texture_cache_begin_frame to free; with no free hook or a full queue it stays allocated until the next flush.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_texture_ops, s_retired, s_retired_count
+ | Params: texture -- memory the current frame may still read
+ | Returns: N/A
+ ----------------------*/
+static void retire_texture(void *texture)
+{
+    if (texture != 0 && s_texture_ops->free != 0 && s_retired_count < RETIRED_SLOTS)
+    {
+        s_retired[s_retired_count++] = texture;
+    }
+}
 
 /*----------------------
  | LOOKUP_MEMO_ENTRIES
@@ -760,6 +790,7 @@ static void flush_all(void)
     {
         s_entries[i].kind = ENTRY_FREE;
     }
+    s_retired_count = 0;
     s_memo_epoch++;
 }
 
@@ -960,6 +991,7 @@ static int ensure_built(TextureEntry *e, uint32_t page_gen, uint32_t clut_gen, u
             make_room(frame);
             return -1;
         }
+        retire_texture(e->texture);
         e->texture = texture;
         in_place = 0;
     }
@@ -999,15 +1031,16 @@ void texture_cache_init(const TextureOps *ops)
     s_expansions = 0;
     s_skips = 0;
     s_flush_pending = 0;
+    s_retired_count = 0;
     s_memo_epoch++;
 }
 
 /*----------------------
  | texture_cache_begin_frame
- | Description: Performs a flush the previous frame deferred; call after the PowerVR finished that frame and before the new frame's first lookup.
+ | Description: Performs a flush the previous frame deferred and frees the memory earlier frames retired; call after the PowerVR finished that frame and before the new frame's first lookup.
  | Author: suinevere
- | Dependencies: flush_all
- | Globals: s_texture_ops, s_entries, s_flush_pending
+ | Dependencies: flush_all, TextureOps.free
+ | Globals: s_texture_ops, s_entries, s_flush_pending, s_retired, s_retired_count
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -1016,6 +1049,10 @@ void texture_cache_begin_frame(void)
     if (s_flush_pending && s_texture_ops != 0)
     {
         flush_all();
+    }
+    while (s_retired_count > 0)
+    {
+        s_texture_ops->free(s_retired[--s_retired_count]);
     }
     s_flush_pending = 0;
 }

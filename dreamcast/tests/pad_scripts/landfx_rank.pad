@@ -1,0 +1,307 @@
+# Plays every land placement effect on the world map in turn after the exit-to-map route, for the probe's fill figures; about 14 minutes.
+wait state 2
+wait 600
+capture title
+press DOWN 6
+wait 30
+press CROSS 6
+wait state 7
+wait 240
+capture overlay-cload
+mash CIRCLE 30 state 2
+wait 600
+press UP 6
+wait 30
+press CROSS 6
+wait 240
+capture gname-select-character
+press CROSS 6
+wait 180
+capture gname-select-weapon
+press CROSS 6
+wait state 3
+wait 300
+capture gname-name-entry
+press CROSS 6
+wait state 5
+wait 180
+capture wsel-room
+press CROSS 6
+wait 120
+capture wsel-prompt
+press CROSS 6
+wait 120
+capture wsel-cursor
+press CROSS 6
+wait 120
+capture wsel-cursor-confirmed
+mash CROSS 40 state 1
+wait 10
+capture wmap-loading
+wait 395
+capture wmap-mailbox
+wait 45
+capture wmap-mailbox-carried
+wait 180
+capture wmap-place-mailbox-prompt
+press CROSS 6
+wait 30
+press CROSS 6
+wait 300
+capture wmap-land-flash
+wait 150
+capture wmap-home-rising
+wait 120
+capture wmap-home-dark
+wait 140
+capture wmap-board-home
+mash CROSS 40 marker field scene 857
+mash CROSS 40 marker field map 18
+wait 240
+press DOWN 120
+press LEFT 120
+capture field-home
+scene 16 0
+mash CROSS 40 marker field scene 16
+wait 300
+capture field-home-outside
+press LEFT 20
+press CROSS 6
+wait 40
+press UP 20
+press CROSS 6
+wait 40
+press RIGHT 20
+press CROSS 6
+wait 40
+press DOWN 20
+press CROSS 6
+wait 40
+press LEFT 20
+press CROSS 6
+wait 40
+press UP 20
+press CROSS 6
+wait 40
+press RIGHT 20
+press CROSS 6
+wait 40
+press DOWN 20
+press CROSS 6
+wait 40
+press LEFT 20
+press CROSS 6
+wait 40
+press UP 20
+press CROSS 6
+wait 40
+press RIGHT 20
+press CROSS 6
+wait 40
+press DOWN 20
+press CROSS 6
+wait 40
+press LEFT 20
+press CROSS 6
+wait 40
+press UP 20
+press CROSS 6
+wait 40
+press RIGHT 20
+press CROSS 6
+wait 40
+press DOWN 20
+press CROSS 6
+wait 40
+press LEFT 20
+press CROSS 6
+wait 40
+press UP 20
+press CROSS 6
+wait 40
+press RIGHT 20
+press CROSS 6
+wait 40
+press DOWN 20
+press CROSS 6
+wait 40
+press LEFT 20
+press CROSS 6
+wait 40
+press UP 20
+press CROSS 6
+wait 40
+press RIGHT 20
+press CROSS 6
+wait 40
+press DOWN 20
+press CROSS 6
+wait 40
+press LEFT 20
+press CROSS 6
+wait 40
+press UP 20
+press CROSS 6
+wait 40
+press RIGHT 20
+press CROSS 6
+wait 40
+press DOWN 20
+press CROSS 6
+wait 40
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+press CROSS 6
+wait 60
+capture before-exit
+press DOWN 30
+wait 20
+press RIGHT 90
+wait 60
+capture exit-prompt
+press CROSS 6
+wait state 1
+wait 240
+capture wmap-from-field
+wait 600
+capture landfx-baseline
+landfx 0
+wait 420
+capture landfx-0
+wait 780
+landfx 1
+wait 420
+capture landfx-1
+wait 780
+landfx 2
+wait 420
+capture landfx-2
+wait 780
+landfx 3
+wait 420
+capture landfx-3
+wait 780
+landfx 4
+wait 420
+capture landfx-4
+wait 780
+landfx 5
+wait 420
+capture landfx-5
+wait 780
+landfx 7
+wait 420
+capture landfx-7
+wait 780
+landfx 8
+wait 420
+capture landfx-8
+wait 780
+landfx 9
+wait 420
+capture landfx-9
+wait 780
+landfx 10
+wait 420
+capture landfx-10
+wait 780
+landfx 11
+wait 420
+capture landfx-11
+wait 780
+landfx 12
+wait 420
+capture landfx-12
+wait 780
+landfx 13
+wait 420
+capture landfx-13
+wait 780
+landfx 15
+wait 420
+capture landfx-15
+wait 780
+landfx 16
+wait 420
+capture landfx-16
+wait 780
+landfx 17
+wait 420
+capture landfx-17
+wait 780
+landfx 18
+wait 420
+capture landfx-18
+wait 780
+landfx 19
+wait 420
+capture landfx-19
+wait 780
+landfx 21
+wait 420
+capture landfx-21
+wait 780
+landfx 22
+wait 420
+capture landfx-22
+wait 780
+landfx 23
+wait 420
+capture landfx-23
+wait 780
+landfx 24
+wait 420
+capture landfx-24
+wait 780
+landfx 25
+wait 420
+capture landfx-25
+wait 780
+landfx 26
+wait 420
+capture landfx-26
+wait 780
+landfx 27
+wait 420
+capture landfx-27
+wait 780
+landfx 30
+wait 420
+capture landfx-30
+wait 780
+landfx 31
+wait 420
+capture landfx-31
+wait 780
+landfx 32
+wait 420
+capture landfx-32
+wait 780
+landfx 33
+wait 420
+capture landfx-33
+wait 780

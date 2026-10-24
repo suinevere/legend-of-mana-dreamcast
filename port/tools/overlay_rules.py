@@ -1077,20 +1077,33 @@ def function_table_source(spec, overlay, symbols):
 #----------------------
 TEXT_TABLES = {"carda": 0x8014B038, "cload": 0x80145E9C, "niki": 0x801470F8, "addhero": 0x80146FA4}
 
+#----------------------
+# | TEXT_REPLACEMENTS
+# | Description: Message lines the Dreamcast build rewords in every card overlay's table, by index, with the US bytes they replace: a save's VMU budget is 12 blocks, not the PS1 card's 2.
+# | Author: suinevere
+# | Dependencies: src/card/vmu_format.c (VMU_FILE_OVERHEAD_BLOCKS, VMU_BLOCKS_PER_PS1_BLOCK)
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+TEXT_REPLACEMENTS = {21: (b"Uses 2 Blocks.", "Uses 12 Blocks."),
+                     45: (b"Requir\x1f\x022 Blocks\x17save.", "Required 12 Blocks to save.")}
+
 
 #----------------------
 # | append_text_table
 # | Description: Appends a rebuilt copy of an overlay's message table holding the English lines, and moves every symbol inside the old table to the copy.
 # | Author: suinevere
 # | Dependencies: overlay_text.load_lines, overlay_text.encode_overlay, overlay_text.rebuild_table, packed_offset
-# | Globals: TEXT_TABLES
+# | Globals: TEXT_TABLES, TEXT_REPLACEMENTS
 # | Params: buf -- packed bytearray, extended in place; spec -- OverlaySpec; symbols -- name to PS1 address
 # | Returns: dict of moved symbol name to packed offset
 #----------------------
 def append_text_table(buf, spec, symbols):
     table = TEXT_TABLES[spec.name]
     lines = {i: overlay_text.encode_overlay(text) for i, text in overlay_text.load_lines().get(spec.name, {}).items()}
-    new, old_size = overlay_text.rebuild_table(bytes(buf), packed_offset(table, spec), lines, overlay_text.text_table.TWO_BYTE_CODES["us"])
+    replacements = {i: (old, overlay_text.encode_overlay(text)) for i, (old, text) in TEXT_REPLACEMENTS.items()}
+    new, old_size = overlay_text.rebuild_table(bytes(buf), packed_offset(table, spec), lines, overlay_text.text_table.TWO_BYTE_CODES["us"], replacements)
     buf += bytes(-len(buf) % 4)
     start = len(buf)
     buf += new

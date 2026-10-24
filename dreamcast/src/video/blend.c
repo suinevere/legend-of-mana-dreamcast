@@ -97,6 +97,12 @@ static unsigned subtract_passes(BlendPass *out, int cover_variant, BlendPass add
  | Params: textured -- primitive samples a texture, semi -- semi-transparency flag, abr -- PS1 ABR code 0-3, clut_stp -- STP_NONE/STP_ALL/STP_MIXED of the CLUT (ignored if untextured), can_cover -- the texture honours PAL_COVER (false for 15bpp), out -- receives up to BLEND_MAX_PASSES passes
  | Returns: number of passes written to out, 1 to BLEND_MAX_PASSES
  ----------------------*/
+unsigned blend_shadow_plan(BlendPass out[BLEND_MAX_PASSES])
+{
+    out[0] = make_pass(BL_ZERO, BL_INVSRCCOLOR, 255, PAL_OPAQUE);
+    return 1;
+}
+
 unsigned blend_plan(int textured, int semi, int abr, int clut_stp, int can_cover, BlendPass out[BLEND_MAX_PASSES])
 {
     if (!semi)

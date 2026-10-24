@@ -250,6 +250,17 @@ void sound_test_poll(void);
 #define PAD_OP_SWEEP 19
 
 /*----------------------
+ | PAD_OP_LANDFX
+ | Description: Test-only step op: asks WMAP's test unit to play land placement effect arg at the focused cell, then advances at once.
+ | Author: suinevere
+ | Dependencies: g_dc_wmap_landfx
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_OP_LANDFX 20
+
+/*----------------------
  | scene_sweep_begin
  | Description: Test-image-only: reads the sweep range from the VMU and starts the FIELD scene sweep (scene_sweep_kos.c).
  | Author: suinevere

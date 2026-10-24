@@ -606,14 +606,14 @@ def dc_strip_names(nm):
 #----------------------
 # | DC_EXTRA_ENTRIES
 # | Description: Extra Dreamcast-only vector slots appended after an overlay's real entries, never shared with Saturn's vectors_asm/entries_ld.
-# |              FIELD's field_watch_entry is always compiled (dreamcast/src/overlays/field_watch_entry.c) so this slot resolves in every build; it is a no-op unless LOM_PAD_SCRIPT installs the real watcher.
+# |              FIELD's field_watch_entry, WMAP's wmap_watch_entry and TITLE's title_debug_entry are always compiled (dreamcast/src/overlays/) so these slots resolve in every build; each is a no-op unless LOM_PAD_SCRIPT or LOM_DEBUG_MENU installs its hooks.
 # | Author: suinevere
-# | Dependencies: dreamcast/src/overlays/field_watch_entry.c
+# | Dependencies: dreamcast/src/overlays/field_watch_entry.c, dreamcast/src/overlays/wmap_watch_entry.c, dreamcast/src/overlays/title_debug_entry.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-DC_EXTRA_ENTRIES = {"field": ["field_watch_entry"]}
+DC_EXTRA_ENTRIES = {"field": ["field_watch_entry"], "wmap": ["wmap_watch_entry"], "title": ["title_debug_entry"]}
 
 
 #----------------------

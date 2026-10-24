@@ -45,6 +45,30 @@ unsigned frame_probe_drawn_total(void);
 void frame_probe_prim(void);
 
 /*----------------------
+ | PROBE_AREA_DRAW / PROBE_AREA_EXCESS / PROBE_AREA_INVERT
+ | Description: What a strip's area is spent on: a primitive's own colour pass, the second pass that adds a tint above 1.0, or the inversions that emulate subtraction.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PROBE_AREA_DRAW 0
+#define PROBE_AREA_EXCESS 1
+#define PROBE_AREA_INVERT 2
+
+/*----------------------
+ | frame_probe_area
+ | Description: Adds a strip's screen area in PowerVR pixels to the open scene's total for its kind, for the probe's per-frame fill figures.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: kind -- PROBE_AREA_*, pixels -- area
+ | Returns: N/A
+ ----------------------*/
+void frame_probe_area(int kind, float pixels);
+
+/*----------------------
  | frame_probe_vblank
  | Description: Called from the VSync hook; every 60 vblanks logs the probe line, and every 600 the GPU census.
  | Author: suinevere

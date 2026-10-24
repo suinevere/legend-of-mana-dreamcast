@@ -418,6 +418,14 @@ void pad_script_poll(unsigned vblank, int game_state)
             g_dc_field_open((int)step->arg);
         }
         break;
+    case PAD_OP_LANDFX:
+        s_buttons = 0;
+        advance();
+        if (g_dc_wmap_landfx != 0)
+        {
+            g_dc_wmap_landfx((int)step->arg);
+        }
+        break;
     case PAD_OP_CAPTURE:
     default:
         s_buttons = 0;

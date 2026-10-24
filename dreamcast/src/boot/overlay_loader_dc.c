@@ -3,7 +3,7 @@
  | Description: Dreamcast overlay loading: reads OVLnnC.BIN and OVLnn.BIN from /cd/OVL into the overlay's fixed arena regions, zeroes its .bss and flushes the caches over its code.
  |              FIELD's field_watch_entry (its Dreamcast-only extra vector slot) runs right after FIELD finishes loading.
  | Author: suinevere
- | Dependencies: overlay_loader_dc.h, overlay_region.h, overlay_header.h, gen/overlay_regions.h, dc_system.h, arch/cache.h, texture_cache.h, src/overlays/field_watch_entry.c
+ | Dependencies: overlay_loader_dc.h, overlay_region.h, overlay_header.h, gen/overlay_regions.h, dc_system.h, arch/cache.h, texture_cache.h, watch.h, src/overlays/field_watch_entry.c, src/overlays/wmap_watch_entry.c, src/overlays/title_debug_entry.c
  | Globals: s_regions
  | Params: N/A
  | Returns: N/A
@@ -20,6 +20,7 @@
 #include "overlay_regions.h"
 #include "dc_system.h"
 #include "texture_cache.h"
+#include "watch.h"
 
 /*----------------------
  | OVERLAY_DIR
@@ -42,6 +43,50 @@
  | Returns: N/A
  ----------------------*/
 #define FIELD_RESOURCE 2
+
+/*----------------------
+ | WMAP_RESOURCE
+ | Description: WMAP's PS1 CD resource index, matching overlay_rules.OVERLAYS[3].
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define WMAP_RESOURCE 3
+
+/*----------------------
+ | TITLE_RESOURCE
+ | Description: TITLE's PS1 CD resource index, matching overlay_rules.OVERLAYS[4].
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define TITLE_RESOURCE 4
+
+/*----------------------
+ | title_debug_entry
+ | Description: TITLE's Dreamcast-only extra vector slot (src/overlays/title_debug_entry.c), called once TITLE has finished loading.
+ | Author: suinevere
+ | Dependencies: src/overlays/title_debug_entry.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void title_debug_entry(void);
+
+/*----------------------
+ | wmap_watch_entry
+ | Description: WMAP's Dreamcast-only extra vector slot (src/overlays/wmap_watch_entry.c), called once WMAP has finished loading.
+ | Author: suinevere
+ | Dependencies: src/overlays/wmap_watch_entry.c
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+void wmap_watch_entry(void);
 
 #ifdef LOM_PAD_SCRIPT
 /*----------------------
@@ -140,6 +185,9 @@ void load_overlay(int resource_index)
     FILE *data;
     long data_size;
 
+#ifdef LOM_DEBUG_MENU
+    g_dc_watch_poll = NULL;
+#endif
     if (region == 0)
     {
         dc_halt("overlay not linked for the Dreamcast");
@@ -172,5 +220,13 @@ void load_overlay(int resource_index)
     if (resource_index == FIELD_RESOURCE)
     {
         field_watch_entry();
+    }
+    if (resource_index == WMAP_RESOURCE)
+    {
+        wmap_watch_entry();
+    }
+    if (resource_index == TITLE_RESOURCE)
+    {
+        title_debug_entry();
     }
 }

@@ -116,7 +116,10 @@ def test_dreamcast_overlay_message_tables_hold_the_english_lines(name, index):
     lines = overlay_text.load_lines()[name]
     assert len(new.entries) == len(old.entries)
     for before, after in zip(old.entries, new.entries):
-        if before.index in lines:
+        if before.index in overlay_rules.TEXT_REPLACEMENTS:
+            expected, text = overlay_rules.TEXT_REPLACEMENTS[before.index]
+            assert before.data == expected and after.text == text
+        elif before.index in lines:
             assert before.data == b"" and after.text == lines[before.index]
         else:
             assert after.data == before.data
