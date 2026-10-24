@@ -1,6 +1,6 @@
 /*----------------------
  | system.c
- | Description: Ring Ring Land's hardware helpers: the LCD mode, the kernel's interrupt callbacks with their dispatch through the handler slots, and the halfword table at 0x02008094, the dock check at start-up and quitting to the kernel from the dialog or the dock.
+ | Description: Ring Ring Land's hardware helpers: the LCD switch, the interrupt callback with its dispatch through the handler slots, the halfword table at 0x02008094, the dock check at start-up and quitting from the dialog or the dock.
  | Author: suinevere
  | Dependencies: game.h, rrl_rom.h
  | Globals: irq_handler, fiq_driver, docked
@@ -12,18 +12,15 @@
 
 /*----------------------
  | game_lcd_mode
- | Description: Sets the LCD mode's low seven bits to 0x48 | low | high << 4 and clears LCD register 0x20.
+ | Description: Switches the LCD on, where the original set its mode's low seven bits to 0x68 and cleared LCD register 0x20.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: vmu_hw.h
  | Globals: N/A
- | Params: low -- bits 0-3; high -- bits 4-6
+ | Params: N/A
  | Returns: N/A
  ----------------------*/
-void game_lcd_mode(uint8_t low, uint8_t high) {
-    uint16_t v = vmu_io_read(VMU_IO_LCD_MODE);
-    v = (uint16_t)((v & ~0x7Fu) | 0x48u | low | ((uint16_t)high << 4));
-    vmu_io_write(VMU_IO_LCD_MODE, v);
-    vmu_io_write(VMU_IO_LCD_REG20, 0);
+void game_lcd_mode(void) {
+    vmu_lcd(1u);
 }
 
 /*----------------------
@@ -78,20 +75,33 @@ uint16_t game_rom_word_8094(uint8_t index) {
 }
 
 /*----------------------
+ | slot_handler
+ | Description: The handler id in a line's slot: irq_handler for lines 0-12, fiq_driver for the sound end's line 13.
+ | Author: suinevere
+ | Dependencies: rrl_ram.h
+ | Globals: irq_handler, fiq_driver
+ | Params: line -- interrupt line 0-13
+ | Returns: HANDLER_*
+ ----------------------*/
+static uint8_t slot_handler(uint8_t line) {
+    return line == 13u ? ram_fiq_driver() : ram_irq_handler(line);
+}
+
+/*----------------------
  | game_irq_dispatch
- | Description: Calls each pending line's slot handler from line 12 down with its line bit; pending stays local since the handlers clear at most their own line; slots hold handler ids where the original held addresses. Skipping an empty slot is converted from the listing and unverified.
+ | Description: Calls each pending line's slot handler from line 13 down with its line bit, so a sound end goes before a tick as the original's FIQ did. Slots hold handler ids; skipping an empty slot is converted from the listing and unverified.
  | Author: suinevere
  | Dependencies: rrl_ram.h, vmu_hw.h
- | Globals: irq_handler
+ | Globals: irq_handler, fiq_driver
  | Params: pending -- pending interrupt lines
  | Returns: N/A
  ----------------------*/
 void game_irq_dispatch(uint16_t pending) {
-    uint16_t bit = 0x1000u;
-    uint8_t line = 12u;
+    uint16_t bit = 0x2000u;
+    uint8_t line = 13u;
     while (bit != 0u) {
         if (pending & bit) {
-            uint8_t handler = ram_irq_handler(line);
+            uint8_t handler = slot_handler(line);
             if (handler != HANDLER_NONE) {
                 game_call_handler(handler, bit);
             }
@@ -107,38 +117,17 @@ void game_irq_dispatch(uint16_t pending) {
 
 /*----------------------
  | game_irq_callback
- | Description: IRQ callback: dispatches the latched, enabled lines other than 6 and 13, then acknowledges them except lines 9 and 11.
+ | Description: The one interrupt callback, the original's IRQ and FIQ callbacks folded: dispatches the latched, enabled lines, the sound end through slot 13 first, then acknowledges them except the RTC.
  | Author: suinevere
  | Dependencies: vmu_hw.h
- | Globals: irq_handler
+ | Globals: irq_handler, fiq_driver
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void game_irq_callback(void) {
-    uint16_t pending = (uint16_t)(vmu_irq_pending() & vmu_irq_mask() & ~(VMU_LINE_COM | VMU_LINE_TIMER2));
+    uint16_t pending = (uint16_t)(vmu_irq_pending() & vmu_irq_mask());
     game_irq_dispatch(pending);
-    vmu_irq_ack((uint16_t)(pending & ~(VMU_LINE_RTC | VMU_LINE_LINK)));
-}
-
-/*----------------------
- | game_fiq_callback
- | Description: FIQ callback: with Timer 2 pending it acknowledges it and runs fiq_driver's handler, or the IRQ callback when no driver is set. The no-Timer-2 return and the IRQ fall-through are converted from the listing and unverified.
- | Author: suinevere
- | Dependencies: rrl_ram.h, vmu_hw.h
- | Globals: fiq_driver, irq_handler
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-void game_fiq_callback(void) {
-    if ((vmu_irq_pending() & vmu_irq_mask() & VMU_LINE_TIMER2) == 0u) {
-        return;
-    }
-    vmu_irq_ack(VMU_LINE_TIMER2);
-    if (ram_fiq_driver() != HANDLER_NONE) {
-        game_call_handler(ram_fiq_driver(), VMU_LINE_TIMER2);
-        return;
-    }
-    game_irq_callback();
+    vmu_irq_ack((uint16_t)(pending & ~VMU_LINE_RTC));
 }
 
 /*----------------------

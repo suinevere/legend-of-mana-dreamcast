@@ -1,0 +1,12 @@
+# frame_loop.scn: a game's frame loop for the harness's real-schedule budget report, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Frame mode with only the tick line enabled; each of 300 frames idles once, reads the buttons 20 times and presents.
+enable 0x0100
+tick 1
+repeat 300
+idle 1
+repeat 20
+log_buttons
+end_repeat
+present
+end_repeat

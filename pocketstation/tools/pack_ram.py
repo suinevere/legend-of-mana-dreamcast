@@ -1,6 +1,6 @@
 """----------------------
  | pack_ram.py
- | Description: Assigns the VMU offsets in Ring Ring Land's RAM map: each run of a field and the '+' fields glued after it is placed whole; runs of scalars come first, hottest first by accesses per byte, since only they gain from bank 0 direct addresses, then runs holding arrays, then the stack reserve.
+ | Description: Assigns the VMU offsets in Ring Ring Land's RAM map, each run of a field and its '+' fields placed whole and none crossing into WRAM. The runtime's block stays at 0 and its input block at 0x0F9, then scalar runs hottest first by accesses per byte, then runs holding arrays, then the stack reserve.
  | Author: suinevere
  | Dependencies: gen_ram.py
  | Globals: N/A
@@ -26,6 +26,18 @@ import gen_ram  # noqa: E402
  | Returns: N/A
  ----------------------"""
 HEAD_RE = re.compile(r"^0x[0-9A-Fa-f]+((?::\w+)*)$")
+
+
+"""----------------------
+ | PINNED
+ | Description: Runtime blocks with a fixed offset: rt_input fills bank 1's last seven bytes, after every bank 1 game field, and rt_save, the pet save's block list, WRAM's last 24 bytes.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------"""
+PINNED = {"rt_input": 0x0F9, "rt_save": 0x2E8}
 
 
 """----------------------
@@ -67,7 +79,7 @@ def heat(fields: list, run: list, counts) -> float:
 
 """----------------------
  | pack
- | Description: Rewrites the map text with new offsets for every run's head: scalar runs, then runs holding arrays, each by falling heat and then file order, with stack last.
+ | Description: Rewrites the map text with new offsets for every run's head: rt_reserved at 0, scalar runs, then runs holding arrays, each by falling heat and then file order, with stack last. rt_input and rt_save stay at their pinned offsets; a run reaching rt_input or WRAM starts at WRAM, and one reaching rt_save starts after it.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -84,18 +96,31 @@ def pack(text: str, counts) -> str:
             where.append(n)
             tokens.append(parts[3])
     runs = groups(fields, tokens)
-    order = sorted(range(len(runs)), key=lambda k: (fields[runs[k][0]].name == "stack", any(fields[i].count > 1 for i in runs[k]),
+    order = sorted(range(len(runs)), key=lambda k: (fields[runs[k][0]].name != "rt_reserved", fields[runs[k][0]].name == "stack", any(fields[i].count > 1 for i in runs[k]),
                                                     -heat(fields, runs[k], counts), k))
+    limit = PINNED["rt_input"] if any(f.name == "rt_input" for f in fields) else gen_ram.BANK1
+    pins = sorted((PINNED[f.name], PINNED[f.name] + f.vmu_size) for f in fields if f.name in PINNED and PINNED[f.name] >= gen_ram.BANK1)
     at = 0
     for k in order:
         head = runs[k][0]
         m = HEAD_RE.match(tokens[head])
         if not m:
             raise ValueError("%s: a run head needs an offset, not %s" % (fields[head].name, tokens[head]))
+        if fields[head].name in PINNED:
+            parts = lines[where[head]].split(None, 4)
+            parts[3] = "0x%03X%s" % (PINNED[fields[head].name], m.group(1))
+            lines[where[head]] = " ".join(parts)
+            continue
+        size = sum(fields[i].vmu_size for i in runs[k])
+        if at < gen_ram.BANK1 and at + size > limit and fields[head].name != "stack":
+            at = gen_ram.BANK1
+        for lo, hi in pins:
+            if at < hi and at + size > lo:
+                at = hi
         parts = lines[where[head]].split(None, 4)
         parts[3] = "0x%03X%s" % (at, m.group(1))
         lines[where[head]] = " ".join(parts)
-        at += sum(fields[i].vmu_size for i in runs[k])
+        at += size
     out = "\n".join(lines) + "\n"
     gen_ram.parse(out)
     return out

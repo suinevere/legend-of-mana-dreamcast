@@ -1,6 +1,6 @@
 /*----------------------
  | timing.c
- | Description: Ring Ring Land's tick counters: three (count, seen) byte pairs at 0x5D4 that a started timer's callback advances and the frame wait consumes.
+ | Description: Ring Ring Land's tick counters: three (count, seen) byte pairs at 0x5D4 that the tick's callback advances and the frame wait consumes.
  | Author: suinevere
  | Dependencies: game.h
  | Globals: ticks, irq_handler
@@ -60,18 +60,19 @@ void game_timer_tick(uint32_t line) {
 
 /*----------------------
  | game_ticks_start
- | Description: Resets timer n with reload and divider, zeroes its tick counter pair and starts it with game_timer_tick on its interrupt line (7, 8 or 13). Reload and divider are narrowed as in game_timer_reset.
+ | Description: Stops the tick and its interrupt, zeroes Timer 1's tick counter pair and restarts the tick in mode with game_timer_tick on line 8, where the original reset and started Timer 1 with a reload.
  | Author: suinevere
- | Dependencies: rrl_ram.h
+ | Dependencies: rrl_ram.h, vmu_hw.h, game_timer_irq, game_set_irq_handler
  | Globals: ticks, irq_handler
- | Params: n -- timer 0-2; reload -- reload value; divider -- low mode bits
- | Returns: the timer mode written to start it
+ | Params: mode -- VMU_TICK_* running mode
+ | Returns: N/A
  ----------------------*/
-void game_ticks_start(uint8_t n, uint16_t reload, uint8_t divider) {
-    game_timer_reset(n, reload, divider);
-    set_ticks((uint8_t)(n * 2u), 0);
-    set_ticks((uint8_t)(n * 2u + 1u), 0);
-    game_set_irq_handler(n == 1u ? 8u : n == 2u ? 13u : 7u, TIMER_TICK);
-    game_timer_irq(n, 1);
-    game_timer_run(n, 1);
+void game_ticks_start(uint8_t mode) {
+    vmu_tick_mode(VMU_TICK_OFF);
+    game_timer_irq(1u, 0);
+    set_ticks(2u, 0);
+    set_ticks(3u, 0);
+    game_set_irq_handler(8u, TIMER_TICK);
+    game_timer_irq(1u, 1);
+    vmu_tick_mode(mode);
 }

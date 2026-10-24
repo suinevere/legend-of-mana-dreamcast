@@ -1,0 +1,25 @@
+# modes.scn: tick mode changes, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Frame to fast and back in the middle of a period (after a sound end), standby carrying the period over and
+# shortening the RTC half-period, off going from RTC edge to RTC edge, and on from off loading a full period.
+enable 0x2100
+tick 1
+idle 2
+sound 10 0
+idle 1
+tick 2
+idle 3
+sound 2 1
+idle 1
+tick 1
+idle 3
+tick 3
+idle 5
+tick 0
+idle 4
+tick 3
+idle 40
+tick 0
+idle 1
+tick 1
+idle 3

@@ -1,0 +1,26 @@
+# ticks.scn: the tick schedule's shared scenario for scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# It opens with RAM writes through rt_w8 read back through rt_r8: bank 1 from 0x020 (0x000-0x01F is the runtime's block)
+# to 0x0FF, WRAM from 0x100 on both sides of VRMAD2, and 0x050/0x150, which share their low byte.
+# It then runs frame ticks for 40 idles with only the tick and RTC lines enabled; no RTC edge falls in them.
+ram_write 0x020 0x5A
+ram_write 0x050 0x11
+ram_write 0x150 0xA5
+ram_write 0x0FF 0x96
+ram_write 0x100 0x69
+ram_write 0x1FF 0x3C
+ram_write 0x200 0xC3
+ram_write 0x2FF 0xFF
+log_ram 0x020
+log_ram 0x150
+log_ram 0x050
+log_ram 0x0FF
+log_ram 0x100
+log_ram 0x1FF
+log_ram 0x200
+log_ram 0x2FF
+log_ram 0x021
+log_ram 0x2FE
+enable 0x0100
+tick 1
+idle 40

@@ -66,7 +66,7 @@ typedef struct {
 
 /*----------------------
  | g_*
- | Description: The inputs, the next step, the game's file across reboots and the escape back to main.
+ | Description: The inputs, the next step, the pet save across reboots and the escape back to main.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -75,7 +75,7 @@ typedef struct {
  ----------------------*/
 static const BudgetIn *const g_in = (const BudgetIn *)BUDGET_IN;
 static uint32_t g_next;
-static uint8_t g_file[0x10000];
+static uint8_t g_save[0x10000];
 static jmp_buf g_top;
 
 /*----------------------
@@ -141,16 +141,16 @@ static void frame(void) {
 
 /*----------------------
  | boot
- | Description: Starts boot k from its entry state, keeping the game's file, and runs the game until a step leaves.
+ | Description: Starts boot k from its entry state with the input file as the tables and the save carried from the last boot, and runs the game until a step leaves.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: g_in, g_file
+ | Globals: g_in, g_save
  | Params: k -- boot index
  | Returns: does not return
  ----------------------*/
 static void boot(uint32_t k) {
     const BudgetBoot *b = (const BudgetBoot *)(BUDGET_IN + g_in->boots_off) + (k < g_in->boots ? k : g_in->boots - 1u);
-    vmu_host_init(g_file, g_in->file_len);
+    vmu_host_init((const uint8_t *)BUDGET_IN + g_in->file_off, g_in->file_len, g_save, g_in->file_len);
     vmu_host_set_entry(b->words, b->n);
     vmu_host_set_sys((uint8_t)b->sys);
     vmu_host_set_frame(frame);
@@ -161,20 +161,20 @@ static void boot(uint32_t k) {
 
 /*----------------------
  | main
- | Description: Copies the file in and runs every boot of the script, then stops at budget_done.
+ | Description: Copies the file in as the pet save and runs every boot of the script, then stops at budget_done.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: g_in, g_file, g_top
+ | Globals: g_in, g_save, g_top
  | Params: N/A
  | Returns: does not return
  ----------------------*/
 int main(void) {
     volatile uint32_t k = 0;
-    memcpy(g_file, (const uint8_t *)BUDGET_IN + g_in->file_off, g_in->file_len);
+    memcpy(g_save, (const uint8_t *)BUDGET_IN + g_in->file_off, g_in->file_len);
     int how = setjmp(g_top);
     if (how == 2) {
         k++;
-        memcpy(g_file, vmu_host_file(), g_in->file_len);
+        memcpy(g_save, vmu_host_save(), g_in->file_len);
     }
     if (how != 1) boot(k);
     budget_done();

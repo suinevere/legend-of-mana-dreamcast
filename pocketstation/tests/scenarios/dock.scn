@@ -1,0 +1,26 @@
+# dock.scn: the dock line following port 7, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Docked from the start, the level is up before the line is enabled and nothing latches. Each rising edge latches the
+# enabled line and the handler's ack leaves the level; undocking drops it. A rising edge while the line is masked
+# raises only the level.
+dock 1 0
+log_levels
+enable 0x0500
+tick 1
+idle 1
+dock 0 2
+idle 1
+log_levels
+dock 1 3
+idle 1
+log_levels
+idle 1
+log_levels
+disable 0x0400
+dock 0 5
+idle 1
+dock 1 6
+idle 1
+log_levels
+enable 0x0400
+idle 1

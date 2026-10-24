@@ -1,0 +1,16 @@
+# masked.scn: a masked line, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Ticks latch their line while it is disabled and no handler runs; the stale tick is delivered at the next RTC
+# edge once enabled. A tick acknowledged while disabled is gone when the line is enabled again.
+tick 1
+idle 2
+tick 0
+enable 0x0100
+idle 1
+disable 0x0100
+tick 1
+idle 1
+ack 0x0100
+tick 0
+enable 0x0100
+idle 2

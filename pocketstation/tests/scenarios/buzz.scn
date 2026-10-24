@@ -1,0 +1,20 @@
+# buzz.scn: the buzzer and the LCD switch, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Tones and LCD switches between frame ticks, with repeats and the lowest and highest tones; both sides log each call
+# with the idles begun before it. No Sleep, whose blanking the harness would also log as an LCD switch.
+enable 0x0100
+tick 1
+buzz 96
+idle 2
+buzz 192
+lcd 0
+idle 1
+buzz 0
+lcd 1
+buzz 1
+buzz 255
+buzz 255
+idle 1
+buzz 0
+buzz 0
+lcd 0

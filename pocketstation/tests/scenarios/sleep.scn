@@ -1,0 +1,26 @@
+# sleep.scn: Sleep between two ticks, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Up is held from idle 3 across the sleep. During idle 4 Sleep is pressed and released, Down is pressed and
+# released while asleep, and Sleep is pressed again to wake. No handler runs while asleep, each idle still takes
+# one tick, Down is never seen, and Up reads as released until it is released and pressed again at idle 7.
+enable 0x011F
+tick 1
+idle 2
+press 0x10 3
+idle 1
+press 0x40 4
+release 0x40 4
+press 0x08 4
+release 0x08 4
+press 0x40 4
+idle 1
+release 0x40 5
+idle 1
+log_buttons
+log_levels
+release 0x10 6
+idle 1
+press 0x10 7
+idle 1
+log_buttons
+idle 2

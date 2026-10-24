@@ -1,7 +1,7 @@
 #----------------------
 # | vmu_image.py
 # | Description: Builds, reads and extends Flycast's 128 KB VMU images (vmu_save_A1.bin) so Dreamcast tests can seed a card and check what the game wrote.
-# |              Layout: 200 user blocks, directory blocks 253..241, FAT at 254, root at 255; data files take blocks from 199 downward.
+# |              Layout: 200 user blocks, directory blocks 253..241, FAT at 254, root at 255; data files take blocks from 199 downward, a GAME blocks from 0 upward.
 # | Author: suinevere
 # | Dependencies: struct
 # | Globals: N/A
@@ -11,8 +11,8 @@
 import struct
 
 #----------------------
-# | BLOCK / BLOCKS / USER_BLOCKS / ROOT / FAT / DIR_TOP / DIR_BLOCKS / FREE / END / DATA_TYPE / ENTRY
-# | Description: VMU block size and count, user blocks, the system block numbers, FAT free and chain-end markers, the data file type and the directory entry size.
+# | BLOCK / BLOCKS / USER_BLOCKS / ROOT / FAT / DIR_TOP / DIR_BLOCKS / FREE / END / DATA_TYPE / GAME_TYPE / ENTRY
+# | Description: VMU block size and count, user blocks, the system block numbers, FAT free and chain-end markers, the data and GAME file types and the directory entry size.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -29,6 +29,7 @@ DIR_BLOCKS = 13
 FREE = 0xFFFC
 END = 0xFFFA
 DATA_TYPE = 0x33
+GAME_TYPE = 0xCC
 ENTRY = 32
 
 #----------------------
@@ -112,11 +113,32 @@ def free_blocks(img):
 
 
 #----------------------
-# | files
-# | Description: Every data file in an image, in directory order, with its whole blocks of data.
+# | _chain
+# | Description: The blocks of the file whose directory entry is at an offset, in FAT order.
 # | Author: suinevere
-# | Dependencies: _fat, _entries, struct
-# | Globals: BLOCK, DATA_TYPE, END
+# | Dependencies: struct
+# | Globals: END
+# | Params: img -- image bytes, table -- FAT entries, off -- directory entry offset
+# | Returns: list of block numbers
+#----------------------
+def _chain(img, table, off):
+    block, = struct.unpack_from("<H", img, off + 2)
+    size, = struct.unpack_from("<H", img, off + 0x18)
+    out = []
+    for _ in range(size):
+        out.append(block)
+        block = table[block]
+        if block == END:
+            break
+    return out
+
+
+#----------------------
+# | files
+# | Description: Every data and GAME file in an image, in directory order, with its whole blocks of data.
+# | Author: suinevere
+# | Dependencies: _fat, _entries, _chain
+# | Globals: BLOCK, DATA_TYPE, GAME_TYPE
 # | Params: img -- image bytes
 # | Returns: list of (name, bytes)
 #----------------------
@@ -124,54 +146,101 @@ def files(img):
     table = _fat(img)
     out = []
     for off in _entries():
-        if img[off] != DATA_TYPE:
+        if img[off] not in (DATA_TYPE, GAME_TYPE):
             continue
-        first, = struct.unpack_from("<H", img, off + 2)
         name = img[off + 4:off + 16].rstrip(b"\0 ").decode("ascii")
-        size, = struct.unpack_from("<H", img, off + 0x18)
-        data = bytearray()
-        block = first
-        for _ in range(size):
-            data += img[block * BLOCK:(block + 1) * BLOCK]
-            block = table[block]
-            if block == END:
-                break
-        out.append((name, bytes(data)))
+        out.append((name, b"".join(bytes(img[b * BLOCK:(b + 1) * BLOCK]) for b in _chain(img, table, off))))
     return out
 
 
 #----------------------
-# | add
-# | Description: Adds a data file, taking free user blocks from the top down and chaining them in the FAT.
+# | chain
+# | Description: The blocks a named data or GAME file holds, in FAT order.
+# | Author: suinevere
+# | Dependencies: _fat, _entries, _chain
+# | Globals: DATA_TYPE, GAME_TYPE
+# | Params: img -- image bytes, name -- VMU file name
+# | Returns: list of block numbers; raises ValueError when there is no such file
+#----------------------
+def chain(img, name):
+    table = _fat(img)
+    for off in _entries():
+        if img[off] in (DATA_TYPE, GAME_TYPE) and img[off + 4:off + 16].rstrip(b"\0 ").decode("ascii") == name:
+            return _chain(img, table, off)
+    raise ValueError("no %s on the VMU" % name)
+
+
+#----------------------
+# | _place
+# | Description: Writes a file into the given blocks, chains them in the FAT and fills the first free directory slot.
 # | Author: suinevere
 # | Dependencies: _fat, _put_fat, _entries, struct
-# | Globals: BLOCK, USER_BLOCKS, FREE, END, DATA_TYPE
-# | Params: img -- image bytes, name -- VMU file name (up to 12 ASCII characters), data -- file bytes
-# | Returns: new image bytes; raises ValueError when the card or directory is full
+# | Globals: BLOCK, END
+# | Params: img -- image bytearray, name -- VMU file name, data -- file bytes, blocks -- blocks in chain order, kind -- file type byte, header -- header block offset
+# | Returns: N/A; raises ValueError when the directory is full
 #----------------------
-def add(img, name, data):
+def _place(img, name, data, blocks, kind, header):
+    table = _fat(img)
+    slot = next((off for off in _entries() if img[off] == 0), None)
+    if slot is None:
+        raise ValueError("VMU directory is full")
+    count = len(blocks)
+    padded = bytes(data) + b"\0" * (count * BLOCK - len(data))
+    for i, block in enumerate(blocks):
+        img[block * BLOCK:(block + 1) * BLOCK] = padded[i * BLOCK:(i + 1) * BLOCK]
+        table[block] = blocks[i + 1] if i + 1 < count else END
+    _put_fat(img, table)
+    entry = bytearray(32)
+    entry[0] = kind
+    struct.pack_into("<H", entry, 2, blocks[0])
+    entry[4:16] = name.encode("ascii")[:12].ljust(12, b"\0")
+    entry[0x10:0x18] = bytes.fromhex("2026101712000005")
+    struct.pack_into("<HH", entry, 0x18, count, header)
+    img[slot:slot + 32] = entry
+
+
+#----------------------
+# | add
+# | Description: Adds a data file, taking free user blocks from the top down, or the given blocks, and chaining them in the FAT.
+# | Author: suinevere
+# | Dependencies: _fat, _place
+# | Globals: BLOCK, USER_BLOCKS, FREE, DATA_TYPE
+# | Params: img -- image bytes, name -- VMU file name (up to 12 ASCII characters), data -- file bytes, blocks -- optional free blocks in chain order
+# | Returns: new image bytes; raises ValueError when the card or directory is full or a given block is taken
+#----------------------
+def add(img, name, data, blocks=None):
     img = bytearray(img)
     table = _fat(img)
     count = max(1, (len(data) + BLOCK - 1) // BLOCK)
     free = [b for b in range(USER_BLOCKS - 1, -1, -1) if table[b] == FREE]
+    if blocks is not None:
+        if len(blocks) != count or any(b not in free for b in blocks):
+            raise ValueError("%s needs %d free blocks, not %s" % (name, count, list(blocks)))
+        free = list(blocks)
     if count > len(free):
         raise ValueError("VMU image has %d free blocks, %s needs %d" % (len(free), name, count))
-    slot = next((off for off in _entries() if img[off] == 0), None)
-    if slot is None:
-        raise ValueError("VMU directory is full")
-    chain = free[:count]
-    padded = bytes(data) + b"\0" * (count * BLOCK - len(data))
-    for i, block in enumerate(chain):
-        img[block * BLOCK:(block + 1) * BLOCK] = padded[i * BLOCK:(i + 1) * BLOCK]
-        table[block] = chain[i + 1] if i + 1 < count else END
-    _put_fat(img, table)
-    entry = bytearray(32)
-    entry[0] = DATA_TYPE
-    struct.pack_into("<H", entry, 2, chain[0])
-    entry[4:16] = name.encode("ascii")[:12].ljust(12, b"\0")
-    entry[0x10:0x18] = bytes.fromhex("2026101712000005")
-    struct.pack_into("<HH", entry, 0x18, count, 0)
-    img[slot:slot + 32] = entry
+    _place(img, name, data, free[:count], DATA_TYPE, 0)
+    return bytes(img)
+
+
+#----------------------
+# | add_game
+# | Description: Adds a GAME in contiguous blocks from block 0 up, its header in block 1, the way the BIOS runs a GAME from flash address 0.
+# | Author: suinevere
+# | Dependencies: _fat, _entries, _place
+# | Globals: BLOCK, USER_BLOCKS, FREE, GAME_TYPE
+# | Params: img -- image bytes, name -- VMU file name (up to 12 ASCII characters), data -- the GAME image
+# | Returns: new image bytes; raises ValueError when a GAME is already there or its blocks are taken
+#----------------------
+def add_game(img, name, data):
+    img = bytearray(img)
+    if any(img[off] == GAME_TYPE for off in _entries()):
+        raise ValueError("VMU image already holds a GAME")
+    table = _fat(img)
+    count = max(1, (len(data) + BLOCK - 1) // BLOCK)
+    if count > USER_BLOCKS or any(table[b] != FREE for b in range(count)):
+        raise ValueError("blocks 0..%d are not free for %s" % (count - 1, name))
+    _place(img, name, data, list(range(count)), GAME_TYPE, 1)
     return bytes(img)
 
 

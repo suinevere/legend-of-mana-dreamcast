@@ -535,10 +535,10 @@ uint32_t game_reel_draw(int16_t y, uint16_t pos, uint8_t len, uint16_t strip) {
 
 /*----------------------
  | game_reel_window_draw
- | Description: Clears a band of rows edged by a solid row, draws a reel's 10x9 symbols in it and inverts its bits 11-20; rows past 31 run on into blit_a and blit_b as in the original. Rows past 255, and a zero len at position 0, narrow to bytes where the ARM stays 32-bit; unverified.
+ | Description: Clears a band edged by a solid row, draws a reel's 10x9 symbols and inverts bits 11-20, alike in either bit order; rows past 31 run into blit_a and blit_b. Rows past 255, and a zero len at position 0, narrow to bytes where the ARM stays 32-bit; unverified.
  | Author: suinevere
- | Dependencies: rrl_ram.h, rrl_rom.h
- | Globals: fb
+ | Dependencies: rrl_ram.h, rrl_rom.h, fb_run, set_fb_run, set_fb_row
+ | Globals: the VMU frame buffer, blit_a, blit_b
  | Params: y -- band position (16 and up: solid row on top); pos -- reel position; len -- strip length; strip -- symbol bytes
  | Returns: the last symbol's bitmap address, or 0 when the band is off screen
  ----------------------*/
@@ -555,7 +555,7 @@ uint32_t game_reel_window_draw(int16_t y, uint16_t pos, uint8_t len, uint16_t st
         if (y + 9 < 0) {
             return 0;
         }
-        set_fb((uint8_t)(y + 9), 0xFFFFFFFFu);
+        set_fb_row((uint8_t)(y + 9), 0xFFFFFFFFu);
         if (y + 9 == 0) {
             return 0;
         }

@@ -1,6 +1,6 @@
 """----------------------
  | state_compare.py
- | Description: Compares a Phase 1 state dump (game_host --state) with a VMU one (vmu_runner --state) frame by frame, field by field through the RAM map's field list, and the VMU screen's middle 32 columns with the PocketStation LCD.
+ | Description: Compares a Phase 1 state dump (game_host --state) with a VMU one (vmu_runner --state) frame by frame, field by field through the RAM map's field list, and the VMU screen's middle 32 columns with the original's frame buffer fb at the same frame point.
  | Author: suinevere
  | Dependencies: gen_ram.py (fields JSON)
  | Globals: N/A
@@ -22,6 +22,17 @@ import sys
  ----------------------"""
 PS_FRAME = 0x600 + 128
 VMU_FRAME = 0x400 + 192
+
+"""----------------------
+ | PS_FB
+ | Description: Where the original's frame buffer fb (RAM 0x240-0x2BF, one little-endian word per row, pixel x in bit x) sits in a PocketStation frame.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------"""
+PS_FB = 0x240 - 0x200
 
 """----------------------
  | SIZES
@@ -103,15 +114,15 @@ def reverse8(b: int) -> int:
 
 """----------------------
  | lcd_bytes
- | Description: The VMU frame buffer a PocketStation LCD should give: each row a blank byte, the four LCD bytes with their bits reversed, a blank byte.
+ | Description: The VMU frame buffer the original's 32 row words should give: each row a blank byte, the word's four bytes with their bits reversed, a blank byte.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: vram -- 128 LCD bytes
+ | Params: rows -- 128 bytes of row words
  | Returns: 192 bytes
  ----------------------"""
-def lcd_bytes(vram: bytes) -> bytes:
-    return b"".join(b"\0" + bytes(REVERSED[b] for b in vram[y * 4:y * 4 + 4]) + b"\0" for y in range(32))
+def lcd_bytes(rows: bytes) -> bytes:
+    return b"".join(b"\0" + bytes(REVERSED[b] for b in rows[y * 4:y * 4 + 4]) + b"\0" for y in range(32))
 
 
 """----------------------
@@ -128,7 +139,7 @@ REVERSED = [reverse8(b) for b in range(256)]
 
 """----------------------
  | compare_frame
- | Description: The first difference in one frame: a field element, or an LCD pixel in VMU coordinates (x 8-39 against the PocketStation LCD, the other columns against blank).
+ | Description: The first difference in one frame: a field element (fields without both addresses or marked nocmp are skipped), or a pixel in VMU coordinates (x 8-39 against the original's fb, the other columns against blank). The VMU draws straight into its frame buffer, so its counterpart is fb, not the LCD a frame behind it.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -137,7 +148,7 @@ REVERSED = [reverse8(b) for b in range(256)]
  ----------------------"""
 def compare_frame(fields: list, ps: bytes, vmu: bytes):
     for f in fields:
-        if f["vmu"] is None or f["ps"] is None:
+        if f["vmu"] is None or f["ps"] is None or f.get("nocmp"):
             continue
         psz, vsz = SIZES[f["type"]][0], SIZES[f["vmu_type"]][0]
         for i in range(f["count"]):
@@ -146,15 +157,15 @@ def compare_frame(fields: list, ps: bytes, vmu: bytes):
             if expected(p, f["conv"]) != v:
                 name = f["name"] if f["count"] == 1 else "%s[%d]" % (f["name"], i)
                 return "field %s ps %d vmu %d" % (name, p, v)
-    vram, fb = ps[0x600:], vmu[0x400:]
-    if fb == lcd_bytes(vram):
+    rows, fb = ps[PS_FB:PS_FB + 128], vmu[0x400:]
+    if fb == lcd_bytes(rows):
         return None
     for y in range(32):
         for x in range(48):
             on = fb[y * 6 + (x >> 3)] >> (7 - (x & 7)) & 1
-            want = vram[y * 4 + ((x - 8) >> 3)] >> ((x - 8) & 7) & 1 if 8 <= x < 40 else 0
+            want = rows[y * 4 + ((x - 8) >> 3)] >> ((x - 8) & 7) & 1 if 8 <= x < 40 else 0
             if on != want:
-                return "lcd x %d y %d" % (x, y)
+                return "fb x %d y %d" % (x, y)
     return None
 
 

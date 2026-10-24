@@ -1,55 +1,51 @@
 /*----------------------
  | fb.c
- | Description: Ring Ring Land's 32x32 frame buffer (one word per row) and the 128-byte state block copied in from the app at start.
+ | Description: Ring Ring Land's 32x32 area of the VMU frame buffer, the bit reversal table for the original's rows, and the 128-byte state block read from the pet save at start.
  | Author: suinevere
  | Dependencies: game.h
- | Globals: fb
+ | Globals: the VMU frame buffer
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 #include "game.h"
 
 /*----------------------
- | reverse8
- | Description: Reverses a byte's bits: the PocketStation LCD's leftmost pixel is bit 0, the VMU's bit 7.
+ | REV2 / REV4 / REV6
+ | Description: Build game_bit_rev four entries, sixteen and sixty-four at a time from the bit pairs already placed.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: b -- byte
- | Returns: the reversed byte
+ | Params: n -- the entries' reversed low bits
+ | Returns: N/A
  ----------------------*/
-static uint8_t reverse8(uint8_t b) {
-    uint8_t out = 0;
-    for (uint8_t k = 0; k < 8u; k++) {
-        out = (uint8_t)((out << 1) | ((b >> k) & 1u));
-    }
-    return out;
-}
+#define REV2(n) (n), (n) + 2 * 64, (n) + 1 * 64, (n) + 3 * 64
+#define REV4(n) REV2(n), REV2((n) + 2 * 16), REV2((n) + 1 * 16), REV2((n) + 3 * 16)
+#define REV6(n) REV4(n), REV4((n) + 2 * 4), REV4((n) + 1 * 4), REV4((n) + 3 * 4)
 
 /*----------------------
- | ROM_STATE_INIT
- | Description: The app's initial copy of the 128-byte state block at 0x4C4.
+ | game_bit_rev
+ | Description: Every byte with its bits end for end: the original's rows keep the leftmost pixel in bit 0, the VMU's in bit 7.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define ROM_STATE_INIT 0x02000300u
+const uint8_t game_bit_rev[256] = {REV6(0), REV6(2), REV6(1), REV6(3)};
 
 /*----------------------
  | game_fb_put_rows
  | Description: Copies count row words from src into the frame buffer from row on, inverted when asked.
  | Author: suinevere
- | Dependencies: rrl_ram.h
- | Globals: fb
+ | Dependencies: set_fb_row, rev32
+ | Globals: the VMU frame buffer
  | Params: row -- first row; count -- rows; src -- source address; invert -- nonzero to invert
  | Returns: N/A
  ----------------------*/
 void game_fb_put_rows(uint8_t row, uint8_t count, uint32_t src, uint8_t invert) {
     do {
-        uint32_t w = rom32(src);
-        set_fb(row, invert ? ~w : w);
+        uint32_t w = rev32(rom32(src));
+        set_fb_row(row, invert ? ~w : w);
         src += 4u;
         row++;
     } while (--count);
@@ -57,52 +53,41 @@ void game_fb_put_rows(uint8_t row, uint8_t count, uint32_t src, uint8_t invert) 
 
 /*----------------------
  | game_fb_present
- | Description: Copies the frame buffer to the LCD.
+ | Description: Where the original copied its frame buffer to the LCD; the game draws straight into the VMU frame buffer and game_wait_ticks marks the frame, so nothing is left to do.
  | Author: suinevere
- | Dependencies: rrl_ram.h
- | Globals: fb
+ | Dependencies: N/A
+ | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void game_fb_present(void) {
-    uint8_t *lcd = vmu_fb();
-    for (uint8_t row = 0; row < 32u; row++) {
-        uint32_t w = ram_fb(row);
-        uint8_t *p = lcd + row * 6u;
-        p[0] = 0;
-        for (uint8_t k = 0; k < 4u; k++) {
-            p[1u + k] = reverse8((uint8_t)(w >> (8u * k)));
-        }
-        p[5] = 0;
-    }
 }
 
 /*----------------------
  | game_fb_clear
- | Description: Clears the frame buffer.
+ | Description: Clears the game's 32x32 area of the frame buffer.
  | Author: suinevere
- | Dependencies: rrl_ram.h
- | Globals: fb
+ | Dependencies: set_fb_row
+ | Globals: the VMU frame buffer
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void game_fb_clear(void) {
-    for (uint8_t row = 0; row < 32u; row++) {
-        set_fb(row, 0);
+    for (uint8_t row = 0; row < FB_ROWS; row++) {
+        set_fb_row(row, 0);
     }
 }
 
 /*----------------------
  | game_state_reset
- | Description: Copies the app's initial 128-byte state block into RAM at 0x4C4.
+ | Description: Reads the 128-byte state block at 0x4C4 from the pet save's SAVE_SECTOR, where the original copied its flash at 0x02000300, retrying until it succeeds.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: vmu_hw.h
  | Globals: the block 0x4C4-0x543
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void game_state_reset(void) {
-    for (uint8_t i = 0; i < 0x80u; i += 4u) {
-        vmu_w32((uint16_t)(STATE_BLOCK + i), rom32(ROM_STATE_INIT + i));
+    while (vmu_save_read(SAVE_SECTOR, STATE_BLOCK) != 0) {
     }
 }

@@ -1,9 +1,9 @@
 /*----------------------
  | sprite.c
- | Description: Ring Ring Land's sprite tables (descriptors at 0x0200A03C, frame sets at 0x0200A384) and the sprite blitter that draws into the frame buffer.
+ | Description: Ring Ring Land's sprite tables (descriptors at 0x0200A03C, frame sets at 0x0200A384) and the sprite blitter that draws into the VMU frame buffer.
  | Author: suinevere
  | Dependencies: game.h
- | Globals: fb, blit_a, blit_b
+ | Globals: the VMU frame buffer, blit_a, blit_b
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -165,10 +165,10 @@ static uint32_t unpack_rows(uint32_t src, uint8_t width, uint8_t height, uint8_t
 
 /*----------------------
  | plot_rows
- | Description: Clips to rows 0-31, shifts rows by x (left when x >= 0) and merges them into fb by OR, mask-clear then OR, or box-clear then OR. Capping at 32 rows from above, box-clear with x < 0 and height 0 (256 rows here, endless on the ARM) are converted from the listing and unverified.
+ | Description: Clips to rows 0-31, turns rows into the VMU's bit order, shifts them right by x and merges them by OR, mask-clear then OR, or box-clear then OR. Capping at 32 rows from above, box-clear with x < 0 and height 0 (256 rows here, endless on the ARM) are converted from the listing and unverified.
  | Author: suinevere
- | Dependencies: rrl_ram.h
- | Globals: fb, blit_a, blit_b
+ | Dependencies: rrl_ram.h, rev32, fb_row, set_fb_row
+ | Globals: the VMU frame buffer, blit_a, blit_b
  | Params: x, y -- position; width, height -- size; bitmap -- packed rows (mask after them) when not unpacked; flags -- SPRITE_*; unpacked -- rows are in blit_a/blit_b
  | Returns: N/A
  ----------------------*/
@@ -183,22 +183,22 @@ static void plot_rows(int16_t x, int16_t y, uint8_t width, uint8_t height, uint3
         skip = (uint8_t)-y;
         count = height + y < 32 ? (uint8_t)(height + y) : 32u;
     }
-    uint32_t box = ~shift_left(0xFFFFFFFFu, width);
-    uint32_t clear = ~(x >= 0 ? shift_left(box, n) : shift_right(box, n));
+    uint32_t box = ~shift_right(0xFFFFFFFFu, width);
+    uint32_t clear = ~(x >= 0 ? shift_right(box, n) : shift_left(box, n));
     do {
-        uint32_t img = unpacked ? ram_blit_a(skip) : rom32(bitmap + (uint32_t)skip * 4u);
-        uint32_t out = ram_fb(row);
-        img = x >= 0 ? shift_left(img, n) : shift_right(img, n);
+        uint32_t img = rev32(unpacked ? ram_blit_a(skip) : rom32(bitmap + (uint32_t)skip * 4u));
+        uint32_t out = fb_row(row);
+        img = x >= 0 ? shift_right(img, n) : shift_left(img, n);
         if (flags & SPRITE_MASKED) {
-            uint32_t m = unpacked ? ram_blit_b(skip) : rom32(bitmap + ((uint32_t)height + skip) * 4u);
-            m = x >= 0 ? shift_left(m, n) : shift_right(m, n);
+            uint32_t m = rev32(unpacked ? ram_blit_b(skip) : rom32(bitmap + ((uint32_t)height + skip) * 4u));
+            m = x >= 0 ? shift_right(m, n) : shift_left(m, n);
             out = (out & ~m) | img;
         } else if (unpacked && (flags & SPRITE_CLEAR)) {
             out = (out & clear) | img;
         } else {
             out |= img;
         }
-        set_fb(row, out);
+        set_fb_row(row, out);
         row++;
         skip++;
     } while (--count);
@@ -206,10 +206,10 @@ static void plot_rows(int16_t x, int16_t y, uint8_t width, uint8_t height, uint3
 
 /*----------------------
  | game_sprite_draw
- | Description: Draws a sprite into fb, rows being 32-bit words as in the original; sprites not 32 wide or mirrored are unpacked into blit_a (mask blit_b) first. Mirroring a 32-wide sprite and SPRITE_CLEAR on packed sprites (ignored) are converted from the listing and unverified.
+ | Description: Draws a sprite into the VMU frame buffer from the original's 32-bit rows; sprites not 32 wide or mirrored are unpacked into blit_a (mask blit_b) first. Mirroring a 32-wide sprite and SPRITE_CLEAR on packed sprites (ignored) are converted from the listing and unverified.
  | Author: suinevere
  | Dependencies: rrl_ram.h
- | Globals: fb, blit_a, blit_b
+ | Globals: the VMU frame buffer, blit_a, blit_b
  | Params: x, y -- position; width -- 1..32 bits per row; height -- rows (nonzero); bitmap -- image rows, then mask rows when masked; flags -- SPRITE_MASKED, SPRITE_CLEAR, SPRITE_MIRROR
  | Returns: N/A
  ----------------------*/

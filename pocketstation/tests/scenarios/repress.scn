@@ -1,0 +1,12 @@
+# repress.scn: a release and re-press within one idle, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# With no tick, each idle runs from RTC edge to RTC edge at the launcher's clock, half a second, so Timer 0 wakes rt_idle
+# once at its capped segment before the edge. Up is released at idle 2's start and pressed again after that wake: the
+# poll at the wake sees the release and re-arms Up, so the new press latches the line again.
+enable 0x001F
+press 0x10 1
+idle 1
+release 0x10 2
+press 0x10 2
+idle 2
+log_buttons

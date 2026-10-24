@@ -1,6 +1,6 @@
 /*----------------------
  | game.h
- | Description: Declarations for the VMU-shaped Ring Ring Land: its handler ids, its reads of the game's file by card address, and its functions.
+ | Description: Declarations for the VMU-shaped Ring Ring Land: its handler ids, its reads of the game's tables by card address, its pet save sector, and its functions.
  | Author: suinevere
  | Dependencies: vmu_hw.h, rrl_ram.h
  | Globals: N/A
@@ -17,7 +17,7 @@
 
 /*----------------------
  | ROM_BASE
- | Description: Card address of the game file's first byte; a card address minus it is the file offset vmu_file8 reads.
+ | Description: Card address of the game file's first byte; a card address minus it is the table offset vmu_rom8 reads.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -28,20 +28,20 @@
 
 /*----------------------
  | rom8 / rom16 / rom32
- | Description: Read a little-endian byte, halfword or word of the game's file at a card address.
+ | Description: Read a little-endian byte, halfword or word of the game's tables at a card address.
  | Author: suinevere
  | Dependencies: vmu_hw.h
  | Globals: N/A
  | Params: a -- card address
  | Returns: the value
  ----------------------*/
-static inline uint8_t rom8(uint32_t a) { return vmu_file8((uint16_t)(a - ROM_BASE)); }
+static inline uint8_t rom8(uint32_t a) { return vmu_rom8((uint16_t)(a - ROM_BASE)); }
 static inline uint16_t rom16(uint32_t a) { return (uint16_t)(rom8(a) | (rom8(a + 1u) << 8)); }
 static inline uint32_t rom32(uint32_t a) { return rom16(a) | ((uint32_t)rom16(a + 2u) << 16); }
 
 /*----------------------
  | ref8
- | Description: Reads a byte from the game's file when given a card address, or from vmu_ram when given a RAM offset, as the original's one load reached both.
+ | Description: Reads a byte from the game's tables when given a card address, or from vmu_ram when given a RAM offset, as the original's one load reached both.
  | Author: suinevere
  | Dependencies: vmu_hw.h
  | Globals: vmu_ram
@@ -51,38 +51,79 @@ static inline uint32_t rom32(uint32_t a) { return rom16(a) | ((uint32_t)rom16(a 
 static inline uint8_t ref8(uint32_t a) { return a >= ROM_BASE ? rom8(a) : vmu_r8((uint16_t)a); }
 
 /*----------------------
- | game_asr
- | Description: Arithmetic right shift with the ARM rule for amounts of 32 and more.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: v -- value; n -- amount
- | Returns: shifted value
- ----------------------*/
-static inline uint32_t game_asr(uint32_t v, uint32_t n) { return (uint32_t)(n < 32u ? ((int32_t)v >> n) : ((int32_t)v >> 31)); }
-
-/*----------------------
- | FB_RUN_ROWS
- | Description: Rows of fb, blit_a and blit_b together, which the RAM map keeps in a row so a frame buffer row past 31 lands in the blit buffers as in the original.
+ | game_bit_rev
+ | Description: Every byte with its bits end for end, defined in fb.c.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define FB_RUN_ROWS 96u
+extern const uint8_t game_bit_rev[256];
+
+/*----------------------
+ | rev32
+ | Description: Turns an original row word (pixel x in bit x) into the VMU's order (pixel x in bit 31 - x), or back.
+ | Author: suinevere
+ | Dependencies: game_bit_rev
+ | Globals: N/A
+ | Params: w -- row word
+ | Returns: the word with its bits end for end
+ ----------------------*/
+static inline uint32_t rev32(uint32_t w) {
+    return (uint32_t)game_bit_rev[w & 0xFFu] << 24 | (uint32_t)game_bit_rev[(w >> 8) & 0xFFu] << 16 |
+           (uint32_t)game_bit_rev[(w >> 16) & 0xFFu] << 8 | game_bit_rev[w >> 24];
+}
+
+/*----------------------
+ | FB_ROWS
+ | Description: Rows of the game's 32x32 area.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define FB_ROWS 32u
+
+/*----------------------
+ | fb_row / set_fb_row
+ | Description: Read or write a row of the game's area, bytes 1-4 of the VMU frame buffer row, as one word with the leftmost pixel in bit 31.
+ | Author: suinevere
+ | Dependencies: vmu_hw.h
+ | Globals: the VMU frame buffer
+ | Params: row -- row 0-31; v -- value
+ | Returns: the row (fb_row)
+ ----------------------*/
+static inline uint32_t fb_row(uint8_t row) {
+    const uint8_t *p = vmu_fb() + VMU_IX("fb", row, FB_ROWS) * 6u + 1u;
+    return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+}
+static inline void set_fb_row(uint8_t row, uint32_t v) {
+    uint8_t *p = vmu_fb() + VMU_IX("fb", row, FB_ROWS) * 6u + 1u;
+    p[0] = (uint8_t)(v >> 24);
+    p[1] = (uint8_t)(v >> 16);
+    p[2] = (uint8_t)(v >> 8);
+    p[3] = (uint8_t)v;
+}
 
 /*----------------------
  | fb_run / set_fb_run
- | Description: Read or write row of the frame buffer where the original's row can run past 31 into blit_a and blit_b.
+ | Description: Read or write a row where the original's row can run past 31: rows 32-63 are blit_a, 64-95 blit_b. Values must read the same in either bit order (0, all ones, bits 11-20).
  | Author: suinevere
- | Dependencies: rrl_ram.h
- | Globals: fb, blit_a, blit_b
+ | Dependencies: rrl_ram.h, fb_row, set_fb_row
+ | Globals: the VMU frame buffer, blit_a, blit_b
  | Params: row -- row 0-95; v -- value
  | Returns: the row (fb_run)
  ----------------------*/
-static inline uint32_t fb_run(uint8_t row) { return vmu_r32((uint16_t)(RAM_FB + VMU_IX("fb", row, FB_RUN_ROWS) * 4u)); }
-static inline void set_fb_run(uint8_t row, uint32_t v) { vmu_w32((uint16_t)(RAM_FB + VMU_IX("fb", row, FB_RUN_ROWS) * 4u), v); }
+static inline uint32_t fb_run(uint8_t row) {
+    return row < FB_ROWS ? fb_row(row) : row < 64u ? ram_blit_a((uint8_t)(row - 32u)) : ram_blit_b((uint8_t)(row - 64u));
+}
+static inline void set_fb_run(uint8_t row, uint32_t v) {
+    if (row < FB_ROWS) set_fb_row(row, v);
+    else if (row < 64u) set_blit_a((uint8_t)(row - 32u), v);
+    else set_blit_b((uint8_t)(row - 64u), v);
+}
 
 /*----------------------
  | HANDLER_NONE / HANDLER_BUTTONS / HANDLER_TIMER_TICK / HANDLER_SOUND / HANDLER_DOCK
@@ -126,8 +167,19 @@ static inline void set_fb_run(uint8_t row, uint32_t v) { vmu_w32((uint16_t)(RAM_
 #define BAG_SIZE 0x33u
 
 /*----------------------
+ | SAVE_SECTOR
+ | Description: The pet save sector holding the state block, the original's flash copy at 0x02000300.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SAVE_SECTOR 6u
+
+/*----------------------
  | STATE_BLOCK
- | Description: The 128-byte state block (0x4C4 in the original), from points to save_tail, that the app's copy at 0x02000300 initialises.
+ | Description: The 128-byte state block (0x4C4 in the original), from points to save_tail, that the pet save's SAVE_SECTOR initialises.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -247,8 +299,6 @@ uint8_t game_nibble(uint8_t index);
 uint32_t game_digits_x(uint32_t x, uint32_t n);
 uint32_t game_mirror_direction(uint32_t bits);
 void game_sound_fiq(void);
-void game_timer_setup(uint32_t n, uint32_t reload, uint32_t divider, uint32_t flags);
-void game_timer_run(uint32_t n, uint8_t on);
 void game_timer_irq(uint32_t n, uint8_t on);
 uint32_t game_divide(uint32_t n, uint32_t d, uint32_t *rem);
 uint32_t game_add_capped(uint32_t count, uint16_t dst, uint32_t add, uint32_t src);
@@ -256,7 +306,7 @@ uint8_t game_read_buttons(uint8_t check_hold);
 void game_buttons_irq(uint32_t lines);
 void game_set_irq_handler(uint8_t line, uint8_t handler);
 void game_call_handler(uint8_t id, uint16_t line);
-void game_lcd_mode(uint8_t low, uint8_t high);
+void game_lcd_mode(void);
 void game_bag_add(uint8_t item);
 void game_bag_remove(uint8_t index, uint8_t move_cursor);
 uint16_t game_rom_word_8094(uint8_t index);
@@ -272,7 +322,6 @@ void game_reels_turn(void);
 void game_reels_step(void);
 void game_irq_dispatch(uint16_t pending);
 void game_irq_callback(void);
-void game_fiq_callback(void);
 void game_menu_pick_a(void);
 uint8_t game_menu_pick_b(void);
 void game_menu_pick_row(void);
@@ -291,7 +340,7 @@ void game_anim_start(uint8_t slot, uint8_t id, uint8_t arg);
 void game_marker_start(uint8_t slot, uint8_t type, uint8_t dx);
 SpriteInfo game_marker_frame(uint8_t slot);
 void game_quit_sound(void);
-void game_sound_start(uint8_t id);
+void game_sound_start(uint8_t id, uint16_t counts);
 void game_sound_stop(void);
 uint8_t game_cell_event(void);
 uint8_t game_pick_bag_nth(void);
@@ -324,8 +373,7 @@ void game_mode10_leave(void);
 void game_mode14_leave(void);
 uint16_t game_pick_item(uint8_t how);
 void game_power_down(void);
-void game_timer_reset(uint8_t n, uint16_t reload, uint8_t divider);
-void game_ticks_start(uint8_t n, uint16_t reload, uint8_t divider);
+void game_ticks_start(uint8_t mode);
 uint8_t game_board_fill(void);
 void game_reels_load_single(void);
 uint8_t game_reels_load_pick(uint8_t drawn[3]);

@@ -1,6 +1,6 @@
 /*----------------------
  | vmu_runner.c
- | Description: Runs the VMU-shaped Ring Ring Land on vmu_host.c under the same scripts and entry states as game_host, writing per-frame state dumps, the game's file at the end and, in counting builds, RAM access counts.
+ | Description: Runs the VMU-shaped Ring Ring Land on vmu_host.c under the same scripts and entry states as game_host, writing per-frame state dumps, the pet save at the end and, in counting builds, RAM access counts.
  | Author: suinevere
  | Dependencies: vmu_host.h, vmu_hw.h, game.h
  | Globals: N/A
@@ -59,7 +59,7 @@ typedef struct {
 
 /*----------------------
  | g_*
- | Description: The run: script steps, position, samples, entry states, the game's file, the state dump and the escape back to main.
+ | Description: The run: script steps, position, samples, entry states, the game's file as tables and as the pet save carried across reboots, the state dump and the escape back to main.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -72,6 +72,7 @@ static uint32_t g_samples;
 static Entry g_entries[MAX_BOOTS];
 static int g_boots;
 static uint8_t g_file[FILE_MAX];
+static uint8_t g_save[FILE_MAX];
 static uint32_t g_file_len;
 static FILE *g_state;
 static jmp_buf g_top;
@@ -267,16 +268,16 @@ static void frame(void) {
 
 /*----------------------
  | boot
- | Description: Starts boot k from its entry state, keeping the game's file, and runs the game's entry until a step leaves.
+ | Description: Starts boot k from its entry state with the file as the tables and the save carried from the last boot, and runs the game's entry until a step leaves.
  | Author: suinevere
  | Dependencies: N/A
- | Globals: g_entries, g_file
+ | Globals: g_entries, g_file, g_save
  | Params: k -- boot index
  | Returns: does not return
  ----------------------*/
 static void boot(int k) {
     if (k >= g_boots) fail("no entry state for a reboot", "");
-    vmu_host_init(g_file, g_file_len);
+    vmu_host_init(g_file, g_file_len, g_save, g_file_len);
     vmu_host_set_entry(g_entries[k].words, g_entries[k].n);
     vmu_host_set_sys(sys_flags(g_entries[k].wram));
     vmu_host_set_frame(frame);
@@ -305,7 +306,7 @@ static void save(const char *path, const void *p, size_t n) {
  | Description: vmu_runner --card C --script S --entry E [--state OUT.state] [--file-out F] [--counts F].
  | Author: suinevere
  | Dependencies: N/A
- | Globals: g_top, g_file
+ | Globals: g_top, g_file, g_save
  | Params: argc, argv -- command line
  | Returns: 0, or 2 on a usage or input error
  ----------------------*/
@@ -323,18 +324,19 @@ int main(int argc, char **argv) {
     }
     if (!card || !script || !entry) fail("usage:", "vmu_runner --card C --script S --entry E [--state F] [--file-out F] [--counts F]");
     load_file(card);
+    memcpy(g_save, g_file, g_file_len);
     if (state && !(g_state = fopen(state, "wb"))) fail("cannot write", state);
     load_script(script);
     load_entries(entry);
     int how = setjmp(g_top);
     if (how == 2) {
         k++;
-        memcpy(g_file, vmu_host_file(), g_file_len);
+        memcpy(g_save, vmu_host_save(), g_file_len);
     }
     if (how != 1) boot(k);
-    memcpy(g_file, vmu_host_file(), g_file_len);
+    memcpy(g_save, vmu_host_save(), g_file_len);
     if (g_state) fclose(g_state);
-    if (file_out) save(file_out, g_file, g_file_len);
+    if (file_out) save(file_out, g_save, g_file_len);
 #ifdef VMU_COUNT_ACCESS
     if (counts) save(counts, vmu_host_counts(), 0x400u * sizeof(uint32_t));
 #else

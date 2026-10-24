@@ -1,0 +1,20 @@
+# sounds.scn: sound ends on the tick schedule, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Slow and fast sounds end (samples + 1) * (rate + 1) counts after the event the previous idle returned on; a sound
+# started after a sound end chains from it, a stopped sound never ends, and a new sound replaces one under way.
+enable 0x2100
+tick 1
+sound 30 0
+idle 2
+sound 5 1
+idle 1
+sound 3 0
+idle 2
+sound 7812 1
+idle 36
+sound 100 0
+sound_stop
+idle 2
+sound 1000 0
+sound 2 1
+idle 2

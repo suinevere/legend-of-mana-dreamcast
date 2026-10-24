@@ -1,0 +1,91 @@
+# files.scn: the tables and the pet save's sectors, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Both sides hold scenario.py's 512-byte test table and its pet payload, whose two icon frames put sector 0 at the
+# package's tenth page. Sectors 6 and 7 are written from WRAM through the BIOS page write, landing on the second
+# half of one block and the first half of the next, each write refreshing the package CRC, then read back; sector 64
+# is past the pet and 0x100 past any, and RAM at 0x269, which would reach rt_save, or 0x0F0 in bank 1 is refused.
+# Game fields at bank 1 0x7C, 0x80, 0xC6 and 0xF8 and the held Up and unread Mode in rt_input, all in the page
+# buffer the saves borrow, are logged after every save op to show each one leaves them as they were.
+enable 0x001F
+press 0x30 1
+idle 1
+ram_write 0x07C 0x5C
+ram_write 0x080 0x81
+ram_write 0x0C6 0xC7
+ram_write 0x0F8 0x9F
+rom 0x000
+rom 0x001
+rom 0x0FF
+rom 0x100
+rom 0x1FF
+save_read 0 0x100
+log_run 0x100 4
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+log_buttons
+fill 0x180 128 0x40
+save_write 6 0x180
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+log_buttons
+log_sys
+fill 0x180 128 0xC0
+save_write 7 0x180
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+fill 0x180 128 0x00
+save_read 6 0x200
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+log_run 0x200 128
+save_read 7 0x180
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+log_run 0x180 128
+save_write 64 0x180
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+save_read 64 0x180
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+save_write 0x100 0x180
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+save_write 6 0x269
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+save_read 6 0x269
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+save_read 6 0x0F0
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+save_read 6 0x268
+log_ram 0x07C
+log_ram 0x080
+log_ram 0x0C6
+log_ram 0x0F8
+log_buttons
+log_levels

@@ -1,0 +1,20 @@
+# power.scn: standby and the plain exit, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# The first standby runs in standby ticks with the tick line enabled: ticks latch but do not wake it, and the RTC's
+# first rising edge does, its level showing it; the next idle delivers the tick, the RTC acknowledged first as every
+# delivery does. The second, with only Up enabled, is woken by Up pressed as it begins. Each standby counts as an
+# idle index for the inputs. The run ends leaving for the BIOS with mode 2.
+enable 0x0100
+tick 3
+power 1
+log_levels
+idle 1
+disable 0x0300
+enable 0x0010
+press 0x10 3
+power 1
+log_buttons
+idle 1
+release 0x10 5
+idle 1
+power 2

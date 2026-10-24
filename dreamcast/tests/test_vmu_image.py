@@ -91,3 +91,25 @@ def test_set_ps1_file_rewrites_the_payload_in_place_with_a_fresh_crc():
     crc = struct.unpack_from("<H", data, 0x46)[0]
     assert crc == vmu_image.vms_crc(data[:0x46] + b"\0\0" + data[0x48:])
     assert vmu_image.free_blocks(out) == vmu_image.free_blocks(img)
+
+
+def test_add_game_takes_blocks_from_zero_up_with_its_header_in_block_one():
+    game = bytes(range(256)) * 6
+    img = vmu_image.add(vmu_image.blank(), "SAVE", b"s" * 512)
+    img = vmu_image.add_game(img, "RRLAND", game)
+    assert vmu_image.files(img) == [("SAVE", b"s" * 512), ("RRLAND", game)]
+    assert vmu_image.chain(img, "RRLAND") == [0, 1, 2]
+    assert img[:len(game)] == game
+    entry = img[253 * 512 + 32:253 * 512 + 64]
+    assert entry[0] == 0xCC and struct.unpack_from("<HHH", entry, 0x18)[:2] == (3, 1)
+    assert vmu_image.free_blocks(img) == 196
+    with pytest.raises(ValueError):
+        vmu_image.add_game(img, "SECOND", b"g")
+
+
+def test_add_into_given_blocks_chains_them_in_that_order():
+    img = vmu_image.add(vmu_image.blank(), "GAPS", b"g" * 1024, blocks=[199, 197])
+    assert vmu_image.chain(img, "GAPS") == [199, 197]
+    assert fat(img)[198] == 0xFFFC
+    with pytest.raises(ValueError):
+        vmu_image.add(img, "TAKEN", b"t", blocks=[199])

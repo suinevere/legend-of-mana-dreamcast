@@ -92,9 +92,9 @@ void game_quit_dialog(void) {
 
 /*----------------------
  | game_main_loop
- | Description: Sets up the frame buffer, Timer 1's ticks, the sound and the state block, then runs a frame per tick: the current mode's handler, a seed stir, the present and the buttons, with a long fire hold opening the quit dialog, 0xF00 idle frames sending the app to standby and mode 0xFF restarting the game through the dialog. It ends only when the kernel asks for a quit. Never returns in the original, so only the drive and host runs check it.
+ | Description: Sets up the frame buffer, the frame ticks, the sound and the state block, then runs a frame per tick: the current mode's handler, a seed stir, the present and the buttons, with a long fire hold opening the quit dialog, 0xF00 idle frames sending the app to standby and mode 0xFF restarting the game through the dialog. It ends only when the kernel asks for a quit. Never returns in the original, so only the drive and host runs check it.
  | Author: suinevere
- | Dependencies: game_dock_check, game_fb_clear, game_fb_present, game_ticks_start, game_timer_run, game_sound_init, game_state_reset, game_mode0_leave, game_buttons_init, game_lcd_mode, game_wait_ticks, game_read_buttons, quit_requested, game_quit, game_dock_screen, game_sound_play_waiting, game_mode_frame, game_random, game_quit_dialog, game_standby, set_idle
+ | Dependencies: game_dock_check, game_fb_clear, game_fb_present, game_ticks_start, game_sound_init, game_state_reset, game_mode0_leave, game_buttons_init, game_lcd_mode, game_wait_ticks, game_read_buttons, quit_requested, game_quit, game_dock_screen, game_sound_play_waiting, game_mode_frame, game_random, game_quit_dialog, game_standby, set_idle
  | Globals: seed, cycle16, mode, btn_prev, idle_lo, repeat_up
  | Params: N/A
  | Returns: N/A
@@ -105,8 +105,7 @@ void game_main_loop(void) {
     game_dock_check();
     game_fb_clear();
     game_fb_present();
-    game_ticks_start(1u, 0x3D09u, 0);
-    game_timer_run(0, 0);
+    game_ticks_start(VMU_TICK_FRAME);
     game_sound_init();
     game_state_reset();
     set_seed(0);
@@ -115,7 +114,7 @@ void game_main_loop(void) {
     for (;;) {
         set_idle(IDLE_FRAMES);
         game_buttons_init(0x60u);
-        game_lcd_mode(0, 2);
+        game_lcd_mode();
         game_wait_ticks(1u, 0);
         game_read_buttons(0);
         game_wait_ticks(1u, 1u);
@@ -160,7 +159,7 @@ void game_main_loop(void) {
 
 /*----------------------
  | game_entry
- | Description: The app's entry: sets clock speed 5, clears vmu_ram (work RAM 0x200-0x7FF in the original), masks every interrupt, installs the IRQ and FIQ callbacks, unmasks lines 9-11 and runs the main loop.
+ | Description: The app's entry: clears vmu_ram (work RAM 0x200-0x7FF in the original), masks every interrupt, installs the interrupt callback, unmasks the RTC and dock lines and runs the main loop; clock speed 5 comes with the frame tick mode.
  | Author: suinevere
  | Dependencies: game_main_loop
  | Globals: N/A
@@ -168,12 +167,11 @@ void game_main_loop(void) {
  | Returns: N/A
  ----------------------*/
 void game_entry(void) {
-    vmu_set_clock(5u);
     for (uint16_t at = 0; at < sizeof vmu_ram; at++) {
         vmu_w8(at, 0);
     }
     vmu_irq_disable(0x3FFFu);
-    vmu_set_handlers(game_irq_callback, game_fiq_callback);
-    vmu_irq_enable(0xE00u);
+    vmu_set_handler(game_irq_callback);
+    vmu_irq_enable(VMU_LINE_RTC | VMU_LINE_DOCK);
     game_main_loop();
 }

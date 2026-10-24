@@ -1,0 +1,12 @@
+# frame_overrun.scn: a frame loop whose frames outlast the tick, for the harness's missed-tick report, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# Frame mode with only the tick line enabled; each of 8 frames idles once, reads the buttons 500 times, more work than one tick period, and presents.
+enable 0x0100
+tick 1
+repeat 8
+idle 1
+repeat 500
+log_buttons
+end_repeat
+present
+end_repeat

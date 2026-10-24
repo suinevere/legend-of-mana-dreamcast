@@ -136,6 +136,49 @@ def test_pack_keeps_glued_runs_whole_and_puts_the_hottest_scalars_first():
     assert fields["gone"].vmu is None
 
 
+def test_pack_keeps_the_runtime_block_first_and_gives_it_no_accessors(tmp_path):
+    text = PACK_MAP + "- u8[32] rt_reserved 0x000 r\n"
+    counts = [1000] * 0x400
+    fields = {f.name: f for f in gen_ram.parse(pack_ram.pack(text, counts))}
+    assert fields["rt_reserved"].vmu == 0
+    assert min(f.vmu for n, f in fields.items() if n != "rt_reserved" and f.vmu is not None) == 32
+    assert "rt_reserved" not in gen(tmp_path, "vmu", pack_ram.pack(text, None))
+
+
+def test_pack_pins_the_runtime_input_block_at_0f9(tmp_path):
+    text = ("0x200 u8[200] big 0x000 b\n0x2C8 u8[20] tail 0x0C8 t\n0x2DC u8 last 0x0DC l\n"
+            "- u8[32] rt_reserved 0x000 r\n- u8[7] rt_input 0x000 i\n- u8[4] stack 0x200 s\n")
+    fields = {f.name: f for f in gen_ram.parse(pack_ram.pack(text, [1000] * 0x400))}
+    assert fields["rt_input"].vmu == 0x0F9
+    assert [fields[n].vmu for n in ("last", "big", "tail")] == [0x020, 0x021, 0x100]
+    assert all(f.vmu + f.vmu_size <= 0x0F9 or f.vmu >= 0x100 for n, f in fields.items() if n != "rt_input")
+    assert "rt_input" not in gen(tmp_path, "vmu", pack_ram.pack(text, None))
+
+
+def test_pack_pins_the_save_block_list_at_the_end_of_wram(tmp_path):
+    text = ("0x200 u8[200] big 0x000 b\n0x2C8 u8[464] wide 0x100 w\n0x498 u8[32] last 0x2D0 l\n"
+            "- u8[32] rt_reserved 0x000 r\n- u8[24] rt_save 0x000 s\n- u8[32] stack 0x300 k\n")
+    fields = {f.name: f for f in gen_ram.parse(pack_ram.pack(text, None))}
+    assert (fields["rt_save"].vmu, fields["rt_save"].vmu_size) == (0x2E8, 24)
+    assert fields["last"].vmu >= 0x300 and fields["stack"].vmu >= 0x300
+    assert all(f.vmu + f.vmu_size <= 0x2E8 or f.vmu >= 0x300 for n, f in fields.items() if n != "rt_save")
+    assert "rt_save" not in gen(tmp_path, "vmu", pack_ram.pack(text, None))
+
+
+def test_the_repository_map_reserves_the_runtime_block():
+    with open(os.path.join(REPO, "pocketstation", "src", "game", "ram_map.txt")) as f:
+        fields = gen_ram.parse(f.read())
+    rt = next(f for f in fields if f.name == "rt_reserved")
+    assert (rt.ps, rt.vmu, rt.vmu_size) == (None, 0, 32)
+    assert all(f.vmu >= 32 for f in fields if f.vmu is not None and f is not rt)
+    inp = next(f for f in fields if f.name == "rt_input")
+    assert (inp.ps, inp.vmu, inp.vmu_size) == (None, 0x0F9, 7)
+    assert all(f.vmu + f.vmu_size <= 0x0F9 or f.vmu >= 0x100 for f in fields if f.vmu is not None and f is not inp)
+    save = next(f for f in fields if f.name == "rt_save")
+    assert (save.ps, save.vmu, save.vmu_size) == (None, 0x2E8, 24)
+    assert all(f.vmu + f.vmu_size <= 0x2E8 or f.vmu >= 0x300 for f in fields if f.vmu is not None and f is not save)
+
+
 def test_the_repository_map_generates():
     assert gen_ram.main(["ps", os.path.join(REPO, "pocketstation", "src", "game", "ram_map.txt"), os.devnull]) == 0
 
@@ -147,7 +190,49 @@ def test_vmu_ram_fits():
         fields = gen_ram.parse(f.read())
     placed = [f for f in fields if f.vmu is not None]
     assert max(f.vmu + f.vmu_size for f in placed) <= 0x400
-    assert all(f.vmu is not None for f in fields if f.name not in ("free", "kernel_calls", "com_flags"))
+    assert all(f.vmu is not None for f in fields if f.name not in ("free", "kernel_calls", "com_flags", "fb"))
+
+
+def test_vmu_ram_fits_hardware(tmp_path):
+    path = os.path.join(REPO, "pocketstation", "src", "game", "ram_map.txt")
+    with open(path) as f:
+        fields = gen_ram.parse(f.read())
+    placed = [f for f in fields if f.vmu is not None and f.name != "stack"]
+    assert max(f.vmu + f.vmu_size for f in placed) <= 0x300
+    inc, js = tmp_path / "hw.inc", tmp_path / "hw.json"
+    assert gen_ram.main(["hw", path, str(inc), str(js)]) == 0
+    hw = json.loads(js.read_text())
+    assert sorted(h["name"] for h in hw) == sorted(f.name for f in placed if f.name not in gen_ram.NO_ACCESS)
+    text = inc.read_text()
+    for h in hw:
+        f = next(f for f in placed if f.name == h["name"])
+        assert h["offset"] == f.vmu and h["size"] == f.vmu_size
+        if f.vmu < 0x100:
+            assert h["space"] == "bank1" and h["addr"] == f.vmu and f.vmu + f.vmu_size <= 0x100
+            assert text.count("HW_%s equ 0x%03X\n" % (f.name.upper(), f.vmu)) == 1
+        else:
+            assert h["space"] == "wram" and h["addr"] == f.vmu - 0x100
+            assert text.count("HWW_%s equ 0x%03X\n" % (f.name.upper(), f.vmu - 0x100)) == 1
+    assert "STACK" not in text
+
+
+def test_hw_rejects_a_field_across_the_bank_1_end(tmp_path):
+    src = tmp_path / "map.txt"
+    src.write_text("0x200 u16 a 0x0FF x\n")
+    assert gen_ram.main(["hw", str(src), str(tmp_path / "hw.inc"), str(tmp_path / "hw.json")]) == 1
+
+
+def test_pack_keeps_runs_out_of_the_bank_1_end():
+    text = "".join("0x%03X u8 s%d 0x%03X x\n" % (0x200 + i, i, i) for i in range(0xFF)) + "0x300 u16 w 0x0FF y\n0x302 u8[4] a 0x101 z\n"
+    fields = {f.name: f for f in gen_ram.parse(pack_ram.pack(text, None))}
+    assert fields["w"].vmu + 2 <= 0x100 or fields["w"].vmu >= 0x100
+    assert not (fields["a"].vmu < 0x100 < fields["a"].vmu + 4)
+
+
+def test_fb_is_not_in_vmu_ram(tmp_path):
+    out = gen(tmp_path, "vmu", open(os.path.join(REPO, "pocketstation", "src", "game", "ram_map.txt")).read())
+    assert "ram_fb(" not in out and "set_fb(" not in out and "RAM_FB " not in out
+    assert "ram_blit_a(" in out and "ram_blit_b(" in out
 
 
 @pytest.mark.skipif(not os.path.exists(callgraph.CARD), reason="no reference card")
@@ -169,4 +254,4 @@ def test_reference_docs_carry_the_generated_ram_table():
     assert doc_table_of("en") == table
     jp = doc_table_of("jp")
     assert len(jp) == len(table)
-    assert [r.split(" | ")[:3] for r in jp[2:]] == [r.split(" | ")[:3] for r in table[2:]]
+    assert [r.replace("バンク1", "bank 1").split(" | ")[:4] for r in jp[2:]] == [r.split(" | ")[:4] for r in table[2:]]

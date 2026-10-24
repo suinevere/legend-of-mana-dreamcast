@@ -1,6 +1,6 @@
 /*----------------------
  | vmu_host.c
- | Description: vmu_hw.h on the host: RAM, the frame buffer, the game's file, and interrupts, timers, the clock and the RTC edge scheduled exactly as psk_host.c schedules the PocketStation's.
+ | Description: vmu_hw.h on the host: RAM, the frame buffer, the game's tables and pet save, the buzzer log, and five lines, one handler, the tick, the sound end and the RTC edge counted in timer counts (two clock cycles each), matching psk_host.c's schedule of the original's timers.
  | Author: suinevere
  | Dependencies: vmu_host.h, vmu_hw.h
  | Globals: vmu_ram
@@ -14,41 +14,30 @@
 #include <string.h>
 
 /*----------------------
- | FIQ_LINES
- | Description: Lines delivered to the FIQ handler (COM and Timer 2); the others go to the IRQ handler.
+ | LINES
+ | Description: The five interrupt lines the host has; nothing else latches, enables or is delivered.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define FIQ_LINES (VMU_LINE_COM | VMU_LINE_TIMER2)
-
-/*----------------------
- | IRQ_LINES
- | Description: Lines the IRQ handler takes: buttons, timers 0 and 1, RTC, dock, link and line 12.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-#define IRQ_LINES 0x1F9Fu
+#define LINES (VMU_LINE_BUTTONS | VMU_LINE_TICK | VMU_LINE_RTC | VMU_LINE_DOCK | VMU_LINE_SOUND)
 
 /*----------------------
  | LEVEL_LINES
- | Description: Lines whose request level follows a signal, which an ack leaves alone: buttons, COM, RTC and link.
+ | Description: Lines whose request level follows a signal, which an ack leaves alone: buttons, RTC and dock.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define LEVEL_LINES (VMU_LINE_BUTTONS | VMU_LINE_COM | VMU_LINE_RTC | VMU_LINE_LINK)
+#define LEVEL_LINES (VMU_LINE_BUTTONS | VMU_LINE_RTC | VMU_LINE_DOCK)
 
 /*----------------------
  | LOG_CAP
- | Description: Entries the peripheral write log keeps.
+ | Description: Entries the buzzer log keeps.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -58,31 +47,26 @@
 #define LOG_CAP 65536u
 
 /*----------------------
- | IO_REGS
- | Description: Number of VMU_IO_* registers.
+ | TICK_RELOAD
+ | Description: Tick reload in timer counts by VMU_TICK_* mode; a period is one count more, as the original's timer counts through zero.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#define IO_REGS 9u
+static const uint32_t TICK_RELOAD[4] = {0, 15625, 15625, 1953};
 
 /*----------------------
- | VmuTimer
- | Description: One timer channel: control (bit 2 runs, bits 0-1 divider code), count, reload and prescaler.
+ | TICK_CLOCK
+ | Description: The original's clock speed by VMU_TICK_* mode, which sets the RTC's half-period in counts.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-typedef struct {
-    uint32_t mode;
-    uint32_t counter;
-    uint32_t reload;
-    uint32_t prescale;
-} VmuTimer;
+static const uint8_t TICK_CLOCK[4] = {0, 5, 6, 2};
 
 /*----------------------
  | Host
@@ -95,20 +79,21 @@ typedef struct {
  ----------------------*/
 typedef struct {
     uint8_t fb[VMU_FB_BYTES];
-    uint8_t file[0x10000];
-    uint32_t file_len;
+    uint8_t rom[0x10000];
+    uint32_t rom_len;
+    uint8_t save[0x10000];
+    uint32_t save_len;
     uint32_t irq_mask, irq_flags, irq_latch;
-    uint8_t buttons, sys;
-    uint32_t clk, rtc_mode, rtc_countdown;
-    VmuTimer timers[3];
-    uint16_t io[IO_REGS];
-    uint64_t events, cycles;
-    int ctx_irq, ctx_fiq, gate;
-    void (*irq)(void);
-    void (*fiq)(void);
+    uint8_t buttons, sys, held, ignore, asleep, quit;
+    uint8_t tick_mode;
+    uint32_t tick_left, sound_left, rtc_left, rtc_half;
+    uint64_t time;
+    uint32_t idles;
+    int in_handler;
+    void (*handler)(void);
     void (*frame)(void);
     uint32_t log_n;
-    VmuIoWrite log[LOG_CAP];
+    VmuBuzz log[LOG_CAP];
 } Host;
 
 static Host h;
@@ -130,33 +115,17 @@ static void die(const char *what, uint32_t v) {
 }
 
 /*----------------------
- | clock_hz
- | Description: CPU clock for a speed, as psk_host maps the PocketStation's.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: h
- | Params: N/A
- | Returns: Hz
- ----------------------*/
-static uint32_t clock_hz(void) {
-    static const uint32_t hz[9] = {32768, 63488, 126976, 253952, 507904, 1015808, 1998848, 3997696, 7995392};
-    return hz[h.clk > 8u ? 8u : h.clk];
-}
-
-/*----------------------
- | write_mode
- | Description: A timer control write: restarts the prescaler and loads the count when the timer starts.
+ | rtc_half
+ | Description: The RTC's half-period in timer counts at a clock speed: half a second of the original's clock cycles, two to a count.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: t -- timer; v -- control
- | Returns: N/A
+ | Params: level -- clock speed 0-8
+ | Returns: counts
  ----------------------*/
-static void write_mode(VmuTimer *t, uint32_t v) {
-    uint32_t was = t->mode & 4u;
-    t->mode = v;
-    t->prescale = 0;
-    if (!was && (v & 4u)) t->counter = t->reload;
+static uint32_t rtc_half(uint32_t level) {
+    static const uint32_t hz[9] = {32768, 63488, 126976, 253952, 507904, 1015808, 1998848, 3997696, 7995392};
+    return hz[level > 8u ? 8u : level] / 4u;
 }
 
 /*----------------------
@@ -176,75 +145,8 @@ static void request(uint32_t m) {
 }
 
 /*----------------------
- | TIMER_DIV
- | Description: Clock cycles per timer step for each divider code.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-static const uint32_t TIMER_DIV[4] = {2, 32, 512, 2};
-
-/*----------------------
- | timer_first
- | Description: Cycles until a running timer's next step: the prescaler counts one a cycle and steps the timer when it reaches the divider.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: t -- running timer
- | Returns: cycles, at least 1
- ----------------------*/
-static uint32_t timer_first(const VmuTimer *t) {
-    uint32_t div = TIMER_DIV[t->mode & 3u];
-    return t->prescale + 1u >= div ? 1u : div - t->prescale;
-}
-
-/*----------------------
- | timer_due
- | Description: Cycles until a timer expires: its next step, then one step per count left, expiring on the step that finds the count at zero.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: t -- timer
- | Returns: cycles, or 0 for a stopped timer, which never expires
- ----------------------*/
-static uint64_t timer_due(const VmuTimer *t) {
-    if (!(t->mode & 4u) || t->reload == 0) return 0;
-    return timer_first(t) + (uint64_t)t->counter * TIMER_DIV[t->mode & 3u];
-}
-
-/*----------------------
- | timer_skip
- | Description: Runs a timer for k cycles, k no more than its timer_due: prescaler and count follow, and an expiry on the last cycle reloads it.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: t -- timer; k -- cycles
- | Returns: 1 when it expired
- ----------------------*/
-static int timer_skip(VmuTimer *t, uint64_t k) {
-    uint32_t div, first, steps;
-    if (!(t->mode & 4u) || t->reload == 0) return 0;
-    div = TIMER_DIV[t->mode & 3u];
-    first = timer_first(t);
-    if (k < first) {
-        t->prescale += (uint32_t)k;
-        return 0;
-    }
-    steps = 1u + (uint32_t)((k - first) / div);
-    t->prescale = (uint32_t)((k - first) % div);
-    if (steps == t->counter + 1u) {
-        t->counter = t->reload;
-        return 1;
-    }
-    t->counter -= steps;
-    return 0;
-}
-
-/*----------------------
  | rtc_edge
- | Description: An RTC square-wave edge: the next edge's period is taken from the clock speed, each edge is an event, and a rising edge requests the RTC line.
+ | Description: An RTC square-wave edge: the next half-period is the one the tick mode last set, and a rising edge requests the RTC line.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
@@ -252,8 +154,7 @@ static int timer_skip(VmuTimer *t, uint64_t k) {
  | Returns: N/A
  ----------------------*/
 static void rtc_edge(void) {
-    h.rtc_countdown = clock_hz() / (2u * ((h.rtc_mode & 1u) ? 4096u : 1u));
-    h.events++;
+    h.rtc_left = h.rtc_half;
     if (h.irq_flags & VMU_LINE_RTC) {
         h.irq_flags &= ~VMU_LINE_RTC;
         return;
@@ -263,7 +164,7 @@ static void rtc_edge(void) {
 
 /*----------------------
  | advance_to_event
- | Description: Runs the devices straight to exactly the next timer expiry or RTC edge, as psk_host's cycle-by-cycle loop reaches it, latching each timer that expires then.
+ | Description: Runs time to the nearest of the tick, the sound end and the RTC edge, then fires every one due in that count: the tick latches its line and reloads, the sound end latches its line once.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
@@ -271,26 +172,28 @@ static void rtc_edge(void) {
  | Returns: N/A
  ----------------------*/
 static void advance_to_event(void) {
-    static const uint32_t line[3] = {VMU_LINE_TIMER0, VMU_LINE_TIMER1, VMU_LINE_TIMER2};
-    uint64_t k = h.rtc_countdown ? h.rtc_countdown : 0x100000000ull;
-    for (int i = 0; i < 3; i++) {
-        uint64_t due = timer_due(&h.timers[i]);
-        if (due && due < k) k = due;
-    }
-    h.rtc_countdown = (uint32_t)(h.rtc_countdown - k);
-    if (h.rtc_countdown == 0) rtc_edge();
-    for (int i = 0; i < 3; i++) {
-        if (timer_skip(&h.timers[i], k)) {
-            h.irq_latch |= line[i];
-            h.events++;
+    uint32_t k = h.rtc_left;
+    if (h.tick_mode && h.tick_left < k) k = h.tick_left;
+    if (h.sound_left && h.sound_left < k) k = h.sound_left;
+    h.rtc_left -= k;
+    if (h.rtc_left == 0) rtc_edge();
+    if (h.tick_mode) {
+        h.tick_left -= k;
+        if (h.tick_left == 0) {
+            h.tick_left = TICK_RELOAD[h.tick_mode] + 1u;
+            h.irq_latch |= VMU_LINE_TICK;
         }
     }
-    h.cycles += k;
+    if (h.sound_left) {
+        h.sound_left -= k;
+        if (h.sound_left == 0) h.irq_latch |= VMU_LINE_SOUND;
+    }
+    h.time += k;
 }
 
 /*----------------------
  | deliverable
- | Description: Latched, enabled lines the current context would take: FIQ lines outside the FIQ handler, IRQ lines outside both.
+ | Description: Latched, enabled lines, none while the handler runs.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
@@ -298,7 +201,7 @@ static void advance_to_event(void) {
  | Returns: line bits
  ----------------------*/
 static uint32_t deliverable(void) {
-    return h.irq_latch & h.irq_mask & ((h.ctx_fiq ? 0u : FIQ_LINES) | (h.ctx_irq ? 0u : IRQ_LINES));
+    return h.in_handler ? 0u : h.irq_latch & h.irq_mask & LINES;
 }
 
 /*----------------------
@@ -316,49 +219,41 @@ static void ack(uint32_t v) {
 }
 
 /*----------------------
- | take_one
- | Description: Takes the highest-priority deliverable line as the PocketStation launcher does: COM is dropped and Timer 2 goes to the FIQ handler, or with no FIQ handler is acknowledged; otherwise RTC and link are acknowledged and the IRQ handler runs.
+ | take
+ | Description: One delivery as the PocketStation launcher's: acknowledges the RTC, then runs the handler, or with none acknowledges every line.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static void take_one(void) {
-    uint32_t pending = h.irq_latch & h.irq_mask;
-    int irq = h.ctx_irq, fiq = h.ctx_fiq;
-    if (!fiq && (pending & FIQ_LINES)) {
-        uint32_t rest = pending & ~VMU_LINE_COM;
-        if (pending & VMU_LINE_COM) h.irq_latch &= ~VMU_LINE_COM;
-        h.ctx_irq = h.ctx_fiq = 1;
-        if (rest) {
-            if (h.fiq) {
-                h.fiq();
-            } else {
-                ack(rest);
-            }
-        }
-    } else if (!irq && (pending & IRQ_LINES)) {
-        h.ctx_irq = 1;
-        ack(VMU_LINE_RTC | VMU_LINE_LINK);
-        if (h.irq) h.irq();
+static void take(void) {
+    h.in_handler = 1;
+    ack(VMU_LINE_RTC);
+    if (h.handler) {
+        h.handler();
+    } else {
+        ack(LINES);
     }
-    h.ctx_irq = irq;
-    h.ctx_fiq = fiq;
+    h.in_handler = 0;
 }
 
 /*----------------------
- | timer_at
- | Description: A timer by number.
+ | log_call
+ | Description: Logs a vmu_buzz or vmu_lcd call with the idles begun before it.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
- | Params: which -- 0-2
- | Returns: the timer
+ | Params: lcd -- 1 for vmu_lcd; value -- tone, or 0/1
+ | Returns: N/A
  ----------------------*/
-static VmuTimer *timer_at(uint8_t which) {
-    if (which > 2u) die("no timer", which);
-    return &h.timers[which];
+static void log_call(uint8_t lcd, uint8_t value) {
+    if (h.log_n < LOG_CAP) {
+        VmuBuzz *e = &h.log[h.log_n++];
+        e->idle = h.idles;
+        e->lcd = lcd;
+        e->value = value;
+    }
 }
 
 #ifdef VMU_COUNT_ACCESS
@@ -420,7 +315,7 @@ void vmu_present(void) {
 
 /*----------------------
  | vmu_idle
- | Description: The idle-time schedule: advances the devices to their next event, then takes lines until the context it idled from has none deliverable or a nested idle closed the gate.
+ | Description: Advances to the next count with an event, then calls the handler until no enabled line is latched; everything due in one count goes in one call, the RTC acknowledged first. An idle inside the handler only advances time.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
@@ -429,28 +324,23 @@ void vmu_present(void) {
  ----------------------*/
 void vmu_idle(void) {
     advance_to_event();
-    if (!deliverable()) return;
-    h.gate = 1;
-    for (int guard = 0; h.gate; guard++) {
-        if (!deliverable()) {
-            h.gate = 0;
-            break;
-        }
+    h.idles++;
+    for (int guard = 0; deliverable(); guard++) {
         if (guard == 64) die("interrupt storm, latch", h.irq_latch);
-        take_one();
+        take();
     }
 }
 
 /*----------------------
  | vmu_irq_enable / vmu_irq_disable / vmu_irq_ack / vmu_irq_pending / vmu_irq_levels / vmu_irq_mask
- | Description: The interrupt controller: mask set and clear, acknowledge, and the latched, level and enabled lines.
+ | Description: The interrupt controller over the five lines: mask set and clear, acknowledge, and the latched, level and enabled lines.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
  | Params: lines -- VMU_LINE_* bits
  | Returns: line bits (the reads)
  ----------------------*/
-void vmu_irq_enable(uint16_t lines) { h.irq_mask |= lines; }
+void vmu_irq_enable(uint16_t lines) { h.irq_mask |= lines & LINES; }
 
 void vmu_irq_disable(uint16_t lines) { h.irq_mask &= ~(uint32_t)lines; }
 
@@ -463,143 +353,158 @@ uint16_t vmu_irq_levels(void) { return (uint16_t)h.irq_flags; }
 uint16_t vmu_irq_mask(void) { return (uint16_t)h.irq_mask; }
 
 /*----------------------
- | vmu_set_handlers
- | Description: Installs the IRQ and FIQ handlers take_one calls.
+ | vmu_set_handler
+ | Description: Installs the handler take calls.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
- | Params: irq -- IRQ handler; fiq -- FIQ handler
+ | Params: irq -- handler, or null
  | Returns: N/A
  ----------------------*/
-void vmu_set_handlers(void (*irq)(void), void (*fiq)(void)) {
-    h.irq = irq;
-    h.fiq = fiq;
+void vmu_set_handler(void (*irq)(void)) { h.handler = irq; }
+
+/*----------------------
+ | vmu_tick_mode
+ | Description: Sets the tick mode: a running mode from OFF loads a full period, one from another running mode keeps the period's remaining counts; a running mode also sets the RTC's next half-period.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: h
+ | Params: mode -- VMU_TICK_*
+ | Returns: N/A
+ ----------------------*/
+void vmu_tick_mode(uint8_t mode) {
+    if (mode > VMU_TICK_STANDBY) die("no tick mode", mode);
+    if (mode != VMU_TICK_OFF) {
+        if (h.tick_mode == VMU_TICK_OFF) h.tick_left = TICK_RELOAD[mode] + 1u;
+        h.rtc_half = rtc_half(TICK_CLOCK[mode]);
+    }
+    h.tick_mode = mode;
 }
 
 /*----------------------
- | vmu_set_timer / vmu_timer_run
- | Description: Sets a timer's reload, divider code and run bit, or only its run bit, through a control write.
+ | vmu_sound_play / vmu_sound_stop
+ | Description: Times the sound end (samples + 1) * (counts_per_sample + 1) counts from now, or cancels it and acknowledges its line.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
- | Params: which -- timer 0-2; reload -- count; prescale -- divider code; run -- nonzero to run
+ | Params: samples -- samples to play; counts_per_sample -- sample reload
  | Returns: N/A
  ----------------------*/
-void vmu_set_timer(uint8_t which, uint16_t reload, uint8_t prescale, uint8_t run) {
-    VmuTimer *t = timer_at(which);
-    t->reload = reload;
-    write_mode(t, (run ? 4u : 0u) | (prescale & 3u));
+void vmu_sound_play(uint32_t samples, uint16_t counts_per_sample) {
+    h.sound_left = (samples + 1u) * (counts_per_sample + 1u);
 }
 
-void vmu_timer_run(uint8_t which, uint8_t run) {
-    VmuTimer *t = timer_at(which);
-    write_mode(t, run ? t->mode | 4u : t->mode & ~4u);
+void vmu_sound_stop(void) {
+    h.sound_left = 0;
+    ack(VMU_LINE_SOUND);
 }
 
 /*----------------------
- | vmu_set_clock / vmu_clock
- | Description: Sets or reads the clock speed; the RTC's next edge period is taken from the speed when an edge falls.
+ | vmu_buzz / vmu_lcd
+ | Description: Log the buzzer tone or the LCD switch, the LCD's as 0 or 1.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
- | Params: level -- speed 0-8
- | Returns: the previous or current speed
+ | Params: tone -- 0 off, 1-255 a pitch step; on -- nonzero for on
+ | Returns: N/A
  ----------------------*/
-uint8_t vmu_set_clock(uint8_t level) {
-    uint8_t prev = (uint8_t)h.clk;
-    h.clk = level & 0xFu;
-    return prev;
-}
+void vmu_buzz(uint8_t tone) { log_call(0, tone); }
 
-uint8_t vmu_clock(void) { return (uint8_t)h.clk; }
+void vmu_lcd(uint8_t on) { log_call(1, on != 0); }
 
 /*----------------------
  | vmu_sys_flags / vmu_power
- | Description: The flags vmu_host_set_sys holds, and power requests, which stop the host: exit 5 for the exits, exit 7 for standby.
+ | Description: The flags vmu_host_set_sys holds, with VMU_SYS_QUIT while a Mode press is unread, and power requests: standby takes events as vmu_idle does, with no handler and no idle counted, until an enabled button or RTC line is latched, stopping (exit 7) if none comes in 2^20 events; the exits stop the host with exit 5.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
  | Params: mode -- VMU_POWER_*
  | Returns: flags (vmu_sys_flags)
  ----------------------*/
-uint8_t vmu_sys_flags(void) { return h.sys; }
+uint8_t vmu_sys_flags(void) {
+    uint8_t f = (uint8_t)(h.sys | (h.quit ? VMU_SYS_QUIT : 0u));
+    h.quit = 0;
+    return f;
+}
 
 void vmu_power(uint8_t mode) {
-    if (mode == VMU_POWER_STANDBY) die("standby is not modelled", mode);
+    if (mode == VMU_POWER_STANDBY) {
+        for (uint32_t n = 0; n < (1u << 20); n++) {
+            advance_to_event();
+            if (h.irq_latch & h.irq_mask & (VMU_LINE_BUTTONS | VMU_LINE_RTC)) return;
+        }
+        die("standby never woke, mask", h.irq_mask);
+    }
     fprintf(stderr, "vmu_host: power %u\n", mode);
     exit(5);
 }
 
 /*----------------------
- | vmu_file8 / vmu_file_write
- | Description: Reads a byte of the game's file, stopping past its end, or writes 128 bytes of RAM to one of its sectors.
+ | SAVE_RAM_LO / SAVE_RAM_HI
+ | Description: The RAM offsets a save sector may use: 128 bytes of work RAM ending before the VMU runtime's rt_save at 0x2E8, the range its page buffer trade works on.
+ | Author: suinevere
+ | Dependencies: pocketstation/src/game/ram_map.txt, pocketstation/src/vmu_rt/rt_file.s
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SAVE_RAM_LO 0x100u
+#define SAVE_RAM_HI 0x268u
+
+/*----------------------
+ | vmu_rom8 / vmu_save_read / vmu_save_write
+ | Description: Reads a byte of the tables, stopping past their end, or copies 128 bytes between RAM and one sector of the save.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h, vmu_ram
- | Params: off -- file offset; sector -- sector number; src -- RAM offset
- | Returns: the byte; 0 on success, 1 when the sector or source lies outside
+ | Params: off -- table offset; sector -- sector number; dst, src -- RAM offset
+ | Returns: the byte; 0 on success, 1 when the sector lies outside the save or the RAM range outside work RAM before rt_save (0x100-0x2E7), the runtime's contract
  ----------------------*/
-uint8_t vmu_file8(uint16_t off) {
-    if (off >= h.file_len) die("file read past the end", off);
-    return h.file[off];
+uint8_t vmu_rom8(uint16_t off) {
+    if (off >= h.rom_len) die("table read past the end", off);
+    return h.rom[off];
 }
 
-uint8_t vmu_file_write(uint16_t sector, uint16_t src) {
-    uint32_t dst = (uint32_t)sector * 0x80u;
-    if (dst + 0x80u > h.file_len || (uint32_t)src + 0x80u > sizeof vmu_ram) return 1;
-    memcpy(&h.file[dst], &vmu_ram[src], 0x80u);
+uint8_t vmu_save_read(uint16_t sector, uint16_t dst) {
+    uint32_t at = (uint32_t)sector * 0x80u;
+    if (at + 0x80u > h.save_len || dst < SAVE_RAM_LO || dst > SAVE_RAM_HI) return 1;
+    memcpy(&vmu_ram[dst], &h.save[at], 0x80u);
+    return 0;
+}
+
+uint8_t vmu_save_write(uint16_t sector, uint16_t src) {
+    uint32_t at = (uint32_t)sector * 0x80u;
+    if (at + 0x80u > h.save_len || src < SAVE_RAM_LO || src > SAVE_RAM_HI) return 1;
+    memcpy(&h.save[at], &vmu_ram[src], 0x80u);
     return 0;
 }
 
 /*----------------------
- | vmu_io_write / vmu_io_read
- | Description: Writes a peripheral register, logging the write with its cycle, or reads one back.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: h
- | Params: reg -- VMU_IO_*; value -- value
- | Returns: the value (vmu_io_read)
- ----------------------*/
-void vmu_io_write(uint8_t reg, uint16_t value) {
-    if (reg >= IO_REGS) die("no peripheral register", reg);
-    h.io[reg] = value;
-    if (h.log_n < LOG_CAP) {
-        VmuIoWrite *e = &h.log[h.log_n++];
-        e->cycle = h.cycles;
-        e->reg = reg;
-        e->value = value;
-    }
-}
-
-uint16_t vmu_io_read(uint8_t reg) {
-    if (reg >= IO_REGS) die("no peripheral register", reg);
-    return h.io[reg];
-}
-
-/*----------------------
  | vmu_host_init
- | Description: Copies the file, clears RAM and the device, and sets the launcher's clock speed 7, lines RTC and link enabled, LCD mode 0x58 and the first RTC edge.
+ | Description: Copies the tables and the save, clears RAM and the device, and sets the tick off, only the RTC line enabled and the first RTC edge a half-period of the launcher's clock speed 7 away.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h, vmu_ram
- | Params: file -- the game's file; len -- its length
+ | Params: rom -- the tables; rom_len -- their length; save -- the pet save; save_len -- its length
  | Returns: N/A
  ----------------------*/
-void vmu_host_init(const uint8_t *file, uint32_t len) {
-    if (len > sizeof h.file) die("file too long", len);
+void vmu_host_init(const uint8_t *rom, uint32_t rom_len, const uint8_t *save, uint32_t save_len) {
+    if (rom_len > sizeof h.rom) die("tables too long", rom_len);
+    if (save_len > sizeof h.save) die("save too long", save_len);
     memset(&h, 0, sizeof h);
     memset(vmu_ram, 0, sizeof vmu_ram);
-    memcpy(h.file, file, len);
-    h.file_len = len;
-    h.clk = 7;
-    h.irq_mask = VMU_LINE_RTC | VMU_LINE_LINK;
-    h.io[VMU_IO_LCD_MODE] = 0x58;
-    h.rtc_countdown = clock_hz() / 2u;
+    memcpy(h.rom, rom, rom_len);
+    h.rom_len = rom_len;
+    memcpy(h.save, save, save_len);
+    h.save_len = save_len;
+    h.irq_mask = VMU_LINE_RTC;
+    h.rtc_half = rtc_half(7u);
+    h.rtc_left = h.rtc_half;
 }
 
 /*----------------------
  | vmu_host_set_entry
- | Description: Loads the device words psk_host_load_entry takes, but RAM, the RTC calendar and the clock-read counter.
+ | Description: Loads psk_host_load_entry's interrupt words for the five lines and the RTC's next edge, rounded up to a count, stopping on the /4096 RTC mode. The rounding can merge an edge psk_host takes a cycle before a tick into that tick's handler call.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
@@ -608,65 +513,97 @@ void vmu_host_init(const uint8_t *file, uint32_t len) {
  ----------------------*/
 void vmu_host_set_entry(const uint32_t *w, uint32_t n) {
     if (n < 28u) die("short device state", n);
-    h.irq_mask = w[0];
-    h.irq_flags = w[1];
-    h.irq_latch = w[2];
-    for (int i = 0; i < 3; i++) {
-        h.timers[i].mode = w[3 + 4 * i];
-        h.timers[i].counter = w[4 + 4 * i];
-        h.timers[i].reload = w[5 + 4 * i];
-        h.timers[i].prescale = w[6 + 4 * i];
-    }
-    h.clk = w[15] & 0xFu;
-    h.rtc_mode = w[17];
-    h.rtc_countdown = w[18];
-    h.io[VMU_IO_PORT] = (uint16_t)w[22];
-    h.io[VMU_IO_DAC_CTRL] = (uint16_t)w[23];
-    h.io[VMU_IO_LCD_MODE] = (uint16_t)w[24];
-    h.io[VMU_IO_LCD_REG20] = (uint16_t)w[26];
+    if (w[17] & 1u) die("RTC /4096 mode is not modelled", w[17]);
+    h.irq_mask = w[0] & LINES;
+    h.irq_flags = w[1] & LINES;
+    h.irq_latch = w[2] & LINES;
+    h.rtc_half = rtc_half(w[15] & 0xFu);
+    h.rtc_left = (w[18] + 1u) / 2u;
+    if (h.rtc_left == 0) die("no RTC edge", w[18]);
 }
 
 /*----------------------
- | vmu_host_set_sys / vmu_host_set_buttons / vmu_host_set_frame
- | Description: Holds the system flags, the buttons (a press requests its line, a release drops its level) and the frame callback.
+ | vmu_host_set_sys / vmu_host_set_frame
+ | Description: Holds the system flags and the frame callback.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
- | Params: flags -- VMU_SYS_*; mask -- VMU_BTN_*; frame -- callback
+ | Params: flags -- VMU_SYS_*; frame -- callback
  | Returns: N/A
  ----------------------*/
 void vmu_host_set_sys(uint8_t flags) { h.sys = flags; }
 
+/*----------------------
+ | vmu_host_set_buttons
+ | Description: Holds the buttons as the runtime reads port 3: Mode's press raises the quit request, Sleep's toggles an unseen sleep that ignores other buttons, and buttons held at the wake read as released until let go.
+ | Author: suinevere
+ | Dependencies: request
+ | Globals: h
+ | Params: mask -- VMU_BTN_* bits with VMU_HOST_MODE and VMU_HOST_SLEEP
+ | Returns: N/A
+ ----------------------*/
 void vmu_host_set_buttons(uint8_t mask) {
-    uint32_t changed = (uint32_t)(mask ^ h.buttons) & VMU_LINE_BUTTONS;
+    uint8_t held = (uint8_t)(mask & (VMU_LINE_BUTTONS | VMU_HOST_MODE | VMU_HOST_SLEEP));
+    uint8_t press = (uint8_t)(held & ~h.held), sleep = 0;
+    h.held = held;
+    h.ignore &= held;
+    if (h.asleep) {
+        if (!(press & VMU_HOST_SLEEP)) return;
+        h.asleep = 0;
+        h.ignore = held;
+    } else {
+        press &= (uint8_t)~h.ignore;
+        if (press & VMU_HOST_MODE) h.quit = 1;
+        sleep = press & VMU_HOST_SLEEP;
+    }
+    uint8_t eff = (uint8_t)(held & ~h.ignore & VMU_LINE_BUTTONS);
+    uint8_t changed = (uint8_t)(eff ^ h.buttons);
     for (int k = 0; k < 5; k++) {
         uint32_t bit = 1u << k;
         if (!(changed & bit)) continue;
-        if (mask & bit) {
+        if (eff & bit) {
             request(bit);
         } else {
             h.irq_flags &= ~bit;
         }
     }
-    h.buttons = (uint8_t)(mask & VMU_LINE_BUTTONS);
+    h.buttons = eff;
+    if (sleep) h.asleep = 1;
+}
+
+/*----------------------
+ | vmu_host_set_dock
+ | Description: The dock line follows port 7: docking requests it, undocking drops its level.
+ | Author: suinevere
+ | Dependencies: request
+ | Globals: h
+ | Params: on -- nonzero when docked
+ | Returns: N/A
+ ----------------------*/
+void vmu_host_set_dock(uint8_t on) {
+    if (on) {
+        request(VMU_LINE_DOCK);
+    } else {
+        h.irq_flags &= ~VMU_LINE_DOCK;
+    }
 }
 
 void vmu_host_set_frame(void (*frame)(void)) { h.frame = frame; }
 
 /*----------------------
- | vmu_host_cycles / vmu_host_file / vmu_host_io_log
- | Description: Clock cycles run, the file as it stands, and the peripheral write log.
+ | vmu_host_time / vmu_host_save / vmu_host_buzz_log
+ | Description: Timer counts run, the save as it stands, and the buzzer log.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
  | Params: count -- set to the log's length
  | Returns: the value
  ----------------------*/
-uint64_t vmu_host_cycles(void) { return h.cycles; }
+uint64_t vmu_host_time(void) { return h.time; }
 
-const uint8_t *vmu_host_file(void) { return h.file; }
+const uint8_t *vmu_host_save(void) { return h.save; }
 
-const VmuIoWrite *vmu_host_io_log(uint32_t *count) {
+const VmuBuzz *vmu_host_buzz_log(uint32_t *count) {
     *count = h.log_n;
     return h.log;
 }

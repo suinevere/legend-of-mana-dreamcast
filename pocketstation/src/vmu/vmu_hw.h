@@ -1,6 +1,6 @@
 /*----------------------
  | vmu_hw.h
- | Description: The only way the VMU-shaped Ring Ring Land reaches RAM, the screen, buttons, interrupts, timers, the clock, the system and its file.
+ | Description: The only way the VMU-shaped Ring Ring Land reaches RAM, the screen, buttons, five interrupt lines and their one handler, its tick, the sound end, the buzzer, the system, its tables and its pet save.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: vmu_ram
@@ -39,8 +39,8 @@
 #define VMU_BTN_UP 0x10
 
 /*----------------------
- | VMU_LINE_BUTTONS / VMU_LINE_COM / VMU_LINE_TIMER0 / VMU_LINE_TIMER1 / VMU_LINE_RTC / VMU_LINE_DOCK / VMU_LINE_LINK / VMU_LINE_TIMER2
- | Description: Interrupt lines, numbered as the PocketStation's; COM and Timer 2 go to the FIQ handler, the rest to the IRQ handler.
+ | VMU_LINE_BUTTONS / VMU_LINE_TICK / VMU_LINE_RTC / VMU_LINE_DOCK / VMU_LINE_SOUND
+ | Description: The five interrupt lines, numbered as the PocketStation's: buttons, the tick, the RTC's rising edge, the dock and the sound end. All go to the one handler.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -48,13 +48,36 @@
  | Returns: N/A
  ----------------------*/
 #define VMU_LINE_BUTTONS 0x001Fu
-#define VMU_LINE_COM 0x0040u
-#define VMU_LINE_TIMER0 0x0080u
-#define VMU_LINE_TIMER1 0x0100u
+#define VMU_LINE_TICK 0x0100u
 #define VMU_LINE_RTC 0x0200u
 #define VMU_LINE_DOCK 0x0400u
-#define VMU_LINE_LINK 0x0800u
-#define VMU_LINE_TIMER2 0x2000u
+#define VMU_LINE_SOUND 0x2000u
+
+/*----------------------
+ | VMU_TICK_OFF / VMU_TICK_FRAME / VMU_TICK_FAST / VMU_TICK_STANDBY
+ | Description: vmu_tick_mode modes: no tick; reload 15,625 counts at clock 5; reload 15,625 at clock 6, the waited-sound rate; reload 1,953 at clock 2. A period is reload + 1 counts.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define VMU_TICK_OFF 0
+#define VMU_TICK_FRAME 1
+#define VMU_TICK_FAST 2
+#define VMU_TICK_STANDBY 3
+
+/*----------------------
+ | VMU_SOUND_SLOW / VMU_SOUND_FAST
+ | Description: vmu_sound_play sample reloads in timer counts: 500 (a 501-count sample period) for sounds, 71 (72 counts) for a waited sound.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define VMU_SOUND_SLOW 500
+#define VMU_SOUND_FAST 71
 
 /*----------------------
  | VMU_SYS_MUTE / VMU_SYS_QUIT / VMU_SYS_SND_MODE
@@ -71,7 +94,7 @@
 
 /*----------------------
  | VMU_POWER_STANDBY / VMU_POWER_EXIT / VMU_POWER_EXIT_DOCKED
- | Description: vmu_power modes: stop until an enabled line, leave to the BIOS, leave to the BIOS because docked.
+ | Description: vmu_power modes: stop until an enabled button or RTC line, leave to the BIOS, leave to the BIOS because docked.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -81,25 +104,6 @@
 #define VMU_POWER_STANDBY 1
 #define VMU_POWER_EXIT 2
 #define VMU_POWER_EXIT_DOCKED 3
-
-/*----------------------
- | VMU_IO_PORT / VMU_IO_DAC_CTRL / VMU_IO_DAC_DATA / VMU_IO_IRDA / VMU_IO_LCD_MODE / VMU_IO_LCD_REG20 / VMU_IO_PORT_SET / VMU_IO_PORT_CLR / VMU_IO_PORT_20
- | Description: Peripheral registers for vmu_io_write and vmu_io_read: sound port control, DAC control and sample, infrared mode, LCD mode, LCD register 0x20, and the sound port's set-bits, clear-bits and 0x20 registers.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: N/A
- | Returns: N/A
- ----------------------*/
-#define VMU_IO_PORT 0
-#define VMU_IO_DAC_CTRL 1
-#define VMU_IO_DAC_DATA 2
-#define VMU_IO_IRDA 3
-#define VMU_IO_LCD_MODE 4
-#define VMU_IO_LCD_REG20 5
-#define VMU_IO_PORT_SET 6
-#define VMU_IO_PORT_CLR 7
-#define VMU_IO_PORT_20 8
 
 /*----------------------
  | vmu_ram
@@ -169,7 +173,7 @@ void vmu_present(void);
 
 /*----------------------
  | vmu_idle
- | Description: The game's only wait point: lets time run to the next timer expiry or RTC edge, then calls the handlers for the lines that are due.
+ | Description: The game's only wait point: lets time run to the next tick, sound end or RTC edge, then calls the handler while an enabled line is latched.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -202,7 +206,7 @@ void vmu_irq_disable(uint16_t lines);
 
 /*----------------------
  | vmu_irq_ack
- | Description: Clears latched lines, and their request levels except for buttons, COM, RTC and the link, which follow their signals.
+ | Description: Clears latched lines, and their request levels except for buttons and RTC, which follow their signals.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -224,7 +228,7 @@ uint16_t vmu_irq_pending(void);
 
 /*----------------------
  | vmu_irq_levels
- | Description: Interrupt request levels: buttons held, the dock and the other signal lines.
+ | Description: Interrupt request levels: buttons held, the RTC square wave and the dock.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -245,59 +249,48 @@ uint16_t vmu_irq_levels(void);
 uint16_t vmu_irq_mask(void);
 
 /*----------------------
- | vmu_set_handlers
- | Description: Installs the IRQ and FIQ handlers vmu_idle calls; null drops one.
+ | vmu_set_handler
+ | Description: Installs the one handler vmu_idle calls for every line; with none, vmu_idle acknowledges what it would have delivered.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: irq -- IRQ handler; fiq -- FIQ handler
+ | Params: irq -- handler, or null
  | Returns: N/A
  ----------------------*/
-void vmu_set_handlers(void (*irq)(void), void (*fiq)(void));
+void vmu_set_handler(void (*irq)(void));
 
 /*----------------------
- | vmu_set_timer
- | Description: Sets a timer's reload and divider code (0-3: 2, 32, 512, 2 clock cycles) and runs or stops it; the prescaler restarts, and the count loads when it starts.
+ | vmu_tick_mode
+ | Description: Sets the tick mode; OFF stops the tick, a running mode from OFF loads a full period, and between running modes the current period finishes and the next is the new mode's.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: which -- timer 0-2; reload -- count; prescale -- divider code; run -- nonzero to run
+ | Params: mode -- VMU_TICK_*
  | Returns: N/A
  ----------------------*/
-void vmu_set_timer(uint8_t which, uint16_t reload, uint8_t prescale, uint8_t run);
+void vmu_tick_mode(uint8_t mode);
 
 /*----------------------
- | vmu_timer_run
- | Description: Runs or stops a timer with its reload and divider kept; the prescaler restarts either way.
+ | vmu_sound_play
+ | Description: Latches VMU_LINE_SOUND after (samples + 1) * (counts_per_sample + 1) counts, when a sample timer would play samples samples and expire once more; replaces any sound already timed.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: which -- timer 0-2; run -- nonzero to run
+ | Params: samples -- samples to play; counts_per_sample -- VMU_SOUND_*
  | Returns: N/A
  ----------------------*/
-void vmu_timer_run(uint8_t which, uint8_t run);
+void vmu_sound_play(uint32_t samples, uint16_t counts_per_sample);
 
 /*----------------------
- | vmu_set_clock
- | Description: Sets the CPU clock speed (0-8, 32 kHz to 8 MHz); timers count clock cycles, so their periods follow it at once; the RTC's current half-period also finishes at the new speed, and the next is set from it.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: level -- speed
- | Returns: the previous speed
- ----------------------*/
-uint8_t vmu_set_clock(uint8_t level);
-
-/*----------------------
- | vmu_clock
- | Description: The CPU clock speed.
+ | vmu_sound_stop
+ | Description: Cancels the sound end and acknowledges VMU_LINE_SOUND.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
  | Params: N/A
- | Returns: speed 0-8
+ | Returns: N/A
  ----------------------*/
-uint8_t vmu_clock(void);
+void vmu_sound_stop(void);
 
 /*----------------------
  | vmu_sys_flags
@@ -312,7 +305,7 @@ uint8_t vmu_sys_flags(void);
 
 /*----------------------
  | vmu_power
- | Description: Stands by until an enabled line, or leaves the game for the BIOS.
+ | Description: Stands by, taking events with no handler until an enabled button or RTC line is latched (left for the next vmu_idle), or leaves the game for the BIOS.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -322,47 +315,58 @@ uint8_t vmu_sys_flags(void);
 void vmu_power(uint8_t mode);
 
 /*----------------------
- | vmu_file8
- | Description: Reads a byte of the game's own file, the PocketStation header included.
+ | vmu_rom8
+ | Description: Reads a byte of the game's tables, at the offsets of the PocketStation file, its header included.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: off -- file offset
+ | Params: off -- table offset
  | Returns: the byte
  ----------------------*/
-uint8_t vmu_file8(uint16_t off);
+uint8_t vmu_rom8(uint16_t off);
 
 /*----------------------
- | vmu_file_write
- | Description: Writes 128 bytes of RAM to one 128-byte sector of the game's file.
+ | vmu_save_read
+ | Description: Reads one 128-byte sector of the pet save BASLUSP01013, laid out as the PocketStation file, into RAM.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: vmu_ram
- | Params: sector -- sector number; src -- RAM offset
+ | Params: sector -- sector number; dst -- RAM offset, 0x100-0x268 (work RAM before the runtime's rt_save)
  | Returns: 0 on success, 1 on failure
  ----------------------*/
-uint8_t vmu_file_write(uint16_t sector, uint16_t src);
+uint8_t vmu_save_read(uint16_t sector, uint16_t dst);
 
 /*----------------------
- | vmu_io_write
- | Description: Writes a peripheral register.
+ | vmu_save_write
+ | Description: Writes 128 bytes of RAM to one 128-byte sector of the pet save BASLUSP01013; the VMU also refreshes the save package's CRC.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: vmu_ram
+ | Params: sector -- sector number; src -- RAM offset, 0x100-0x268 (work RAM before the runtime's rt_save)
+ | Returns: 0 on success, 1 on failure
+ ----------------------*/
+uint8_t vmu_save_write(uint16_t sector, uint16_t src);
+
+/*----------------------
+ | vmu_buzz
+ | Description: Sets the buzzer: 0 silences it, 1-255 sounds a square wave of that pitch step until the next call.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: reg -- VMU_IO_*; value -- value
+ | Params: tone -- 0 off, 1-255 a pitch step
  | Returns: N/A
  ----------------------*/
-void vmu_io_write(uint8_t reg, uint16_t value);
+void vmu_buzz(uint8_t tone);
 
 /*----------------------
- | vmu_io_read
- | Description: Reads a peripheral register.
+ | vmu_lcd
+ | Description: Switches the LCD on or off; the frame buffer is kept either way.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: reg -- VMU_IO_*
- | Returns: the value
+ | Params: on -- nonzero for on
+ | Returns: N/A
  ----------------------*/
-uint16_t vmu_io_read(uint8_t reg);
+void vmu_lcd(uint8_t on);
 
 #endif

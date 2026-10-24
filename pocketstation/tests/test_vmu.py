@@ -1,6 +1,6 @@
 """----------------------
  | test_vmu.py
- | Description: Tests the VMU interface's host backend against psk_host (timer and RTC delivery, masked expiries, handler nesting, buttons, the file write, the frame buffer), that the VMU-shaped game makes no PocketStation call, and that it runs every script to its end.
+ | Description: Tests the VMU interface's host backend against psk_host (tick modes, sound end and RTC delivery, masked expiries, buttons, the buzzer log, the split of tables and pet save, the frame buffer), the state comparison against the original's fields and fb, that the VMU-shaped game uses only the narrow interface, and that it runs every script to its end.
  | Author: suinevere
  | Dependencies: pocketstation/src/vmu/*, pocketstation/src/psk/psk_host.c, tests/host/vmu_host_test.c, runner/vmu_runner.c, test_game.py, psk_trace.py, lom-pocket image
  | Globals: N/A
@@ -44,40 +44,26 @@ def host():
 
 def both(r):
     assert r.returncode == 0, r.stderr
-    m = re.match(r"psk (.*)\nvmu (.*)\ncycles (\d+)\n", r.stdout)
+    m = re.match(r"psk (.*)\nvmu (.*)\ncounts (\d+)\n", r.stdout)
     assert m, r.stdout[-500:]
     return m.group(1), m.group(2), int(m.group(3))
 
 
-@pytest.mark.parametrize("timer,reload,prescale,clock_at,clock", [
-    (1, "0x80", 1, 700, 6),
-    (0, "1000", 0, 1200, 3),
-    (2, "0x47", 1, 1500, 6),
-    (1, "4", 2, 400, 2),
-    (2, "500", 1, 2000, 7),
-])
-def test_timer_and_rtc_deliveries_match_psk_host(host, timer, reload, prescale, clock_at, clock):
-    psk, vmu, cycles = both(host("schedule", str(timer), reload, str(prescale), str(clock_at), str(clock)))
-    line = "%X" % (0x80, 0x100, 0x2000)[timer]
-    assert cycles > 3000000 and psk.count(("f" if timer == 2 else "i") + line) > 10 and "i0" in psk
-    assert vmu == psk
-
-
-def test_two_timers_keep_their_phases_across_rtc_edges(host):
-    psk, vmu, cycles = both(host("pair"))
-    assert cycles > 3000000 and psk.count("i80") > 100 and psk.count("i100") > 100 and "i0" in psk
+@pytest.mark.parametrize("case", ["frame", "slow", "waited", "standby", "same", "fastsame", "rtcsame"])
+def test_narrow_timing_matches_psk_host(host, case):
+    psk, vmu, counts = both(host("narrow", case))
+    assert counts > 1000000 and psk.count("t") > 400 and "r" in psk
+    assert psk.count("s") == (0 if case in ("frame", "standby", "rtcsame") else 1)
+    if case in ("same", "fastsame"):
+        assert re.search(r"(^| )\d+st ", psk)
+    if case == "rtcsame":
+        assert re.search(r" \d+tr1 ", psk) and not re.search(r"\d[a-z]*[2-9] ", psk)
     assert vmu == psk
 
 
 def test_masked_expiry_stays_pending_until_unmasked(host):
     psk, vmu, _ = both(host("masked"))
     assert "p100" in psk and psk.count("i100") >= 1
-    assert vmu == psk
-
-
-def test_fiq_nests_in_an_irq_handler_but_not_in_a_fiq_handler(host):
-    psk, vmu, _ = both(host("nesting"))
-    assert "-" in psk
     assert vmu == psk
 
 
@@ -89,17 +75,35 @@ def test_buttons_read_back_and_latch_only_enabled_lines(host, mask):
     assert r.stdout.split() == ["%02X" % m, "%02X" % m, "%02X" % (m & 5), "00", "00", "%02X" % (m & 5)]
 
 
-def test_file_write_changes_exactly_one_sector(host):
-    r = host("file")
+def test_buzz_log_records_each_call_with_its_idle_index(host):
+    r = host("buzz")
     assert r.returncode == 0, r.stderr
-    assert r.stdout.split() == ["ok", "0", "bad", "1", "changed", "128", "first", "180", "last", "1FF", "read",
-                                "%02X" % ((~0 ^ 0x5A) & 0xFF)]
+    assert r.stdout.splitlines() == ["0 b 5", "2 l 0", "2 b 0", "3 l 1"]
+
+
+def test_save_split_writes_only_the_save(host):
+    r = host("save")
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.split() == ["ok", "0", "bad", "1", "changed", "128", "first", "180", "last", "1FF", "rom", "0", "read", "0",
+                                "back", "1", "readbad", "1"]
 
 
 def test_frame_buffer_is_192_bytes_and_present_calls_the_frame_once(host):
     r = host("frame")
     assert r.returncode == 0, r.stderr
     assert r.stdout.split() == ["bytes", "192", "frames", "1", "fb", "A5"]
+
+
+WIDE = r"\bvmu_io_|\bVMU_IO_|\bvmu_set_handlers\b|\bvmu_set_clock|\bvmu_clock|\bvmu_set_timer|\bvmu_timer_run|\bVMU_LINE_TIMER|\bVMU_LINE_COM\b|\bVMU_LINE_LINK\b"
+
+
+def test_vmu_c_uses_only_the_narrow_interface():
+    src = os.path.join(REPO, "pocketstation", "src", "vmu")
+    found = []
+    for name in sorted(n for n in os.listdir(src) if n.endswith(".c") and n != "vmu_host.c"):
+        with open(os.path.join(src, name), encoding="utf-8") as f:
+            found += ["%s: %s" % (name, m) for m in sorted(set(re.findall(WIDE, f.read())))]
+    assert not found, found
 
 
 def test_vmu_c_has_no_pocketstation_calls():
@@ -166,6 +170,7 @@ def test_state_compare_maps_handler_addresses_and_file_offsets(tmp_path):
     ps, vmu = blank_pair(fields)
     slot = next(f for f in fields if f["name"] == "irq_handler")
     snd = next(f for f in fields if f["name"] == "snd_start")
+    snd.pop("nocmp")
     ps[slot["ps"] - 0x200 + 8 * 4:slot["ps"] - 0x200 + 9 * 4] = (0x02003E70).to_bytes(4, "little")
     vmu[slot["vmu"] + 8] = 2
     ps[snd["ps"] - 0x200:snd["ps"] - 0x200 + 4] = (0x0200A9F0).to_bytes(4, "little")
@@ -175,18 +180,41 @@ def test_state_compare_maps_handler_addresses_and_file_offsets(tmp_path):
     assert state_compare.compare(fields, bytes(ps), bytes(vmu))[0] == "frame 0 field irq_handler[8] ps %d vmu 1" % 0x02003E70
 
 
+def test_state_compare_skips_nocmp_fields(tmp_path):
+    import state_compare
+    fields, _ = fields_json(str(tmp_path))
+    ps, vmu = blank_pair(fields)
+    skipped = [f["name"] for f in fields if f.get("nocmp")]
+    assert skipped == ["snd_start", "snd_pos", "snd_len"]
+    pos = next(f for f in fields if f["name"] == "snd_pos")
+    vmu[pos["vmu"]] = 7
+    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("same 1", True)
+
+
+def test_state_compare_takes_pixels_from_fb_not_the_lcd(tmp_path):
+    import state_compare
+    fields, _ = fields_json(str(tmp_path))
+    ps, vmu = blank_pair(fields)
+    fb = next(f for f in fields if f["name"] == "fb")
+    assert fb["vmu"] is None
+    ps[0x600] = 0xFF
+    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("same 1", True)
+    ps[fb["ps"] - 0x200] = 0x01
+    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("frame 0 fb x 8 y 0", False)
+
+
 def test_state_compare_spots_a_pixel(tmp_path):
     import state_compare
     fields, _ = fields_json(str(tmp_path))
     ps, vmu = blank_pair(fields)
-    ps[0x600 + 5 * 4] = 0x01
+    ps[0x40 + 5 * 4] = 0x01
     vmu[0x400 + 5 * 6 + 1] = 0x80
     assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("same 1", True)
     vmu[0x400 + 5 * 6 + 1] = 0x40
-    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("frame 0 lcd x 8 y 5", False)
+    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("frame 0 fb x 8 y 5", False)
     vmu[0x400 + 5 * 6 + 1] = 0x80
     vmu[0x400 + 7 * 6] = 0x01
-    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("frame 0 lcd x 7 y 7", False)
+    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("frame 0 fb x 7 y 7", False)
 
 
 @pytest.fixture(scope="module")

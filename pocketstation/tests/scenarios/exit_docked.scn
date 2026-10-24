@@ -1,0 +1,5 @@
+# exit_docked.scn: the docked exit, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# After one idle the run leaves for the BIOS with mode 3.
+idle 1
+power 3

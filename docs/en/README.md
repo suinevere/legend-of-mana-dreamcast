@@ -40,7 +40,10 @@ ownership, timing, and known limitations. Source links accompany the details.
 - [Save file format](technical/reference/save-file.md) - what's inside a memory card save
   and how to fix its checksum.
 - [Ring Ring Land RAM](technical/reference/ring-ring-land-ram.md) - every RAM byte the
-  PocketStation game uses, at its original address and its VMU offset.
+  PocketStation game uses, at its original address, its VMU offset and its place on the VMU.
+- [VMU runtime](technical/reference/vmu-runtime.md) - how Ring Ring Land's VMU port calls
+  its runtime, where the runtime keeps its state, how it orders events, and what the test
+  harness models of the BIOS.
 - [Text tables](technical/reference/text-tables.md) - where menu text lives and how the US
   text is encoded.
 - [Overlay ID prefix](technical/reference/overlay-id-prefix.md) - overlay identification and

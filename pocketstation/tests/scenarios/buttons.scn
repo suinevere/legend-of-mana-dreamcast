@@ -1,0 +1,35 @@
+# buttons.scn: the button lines and Mode, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# A press latches its enabled line and comes with the next tick; a release drops the level. A press while the
+# line is masked raises only the level, and enabling the line later latches nothing. Mode raises the quit flag
+# until the game reads it, and a released button latches again when pressed again.
+enable 0x011F
+tick 1
+idle 2
+press 0x10 3
+idle 1
+log_buttons
+log_levels
+release 0x10 4
+press 0x09 5
+idle 2
+log_buttons
+log_levels
+disable 0x0001
+release 0x09 6
+press 0x01 7
+idle 2
+log_levels
+enable 0x0001
+idle 1
+press 0x22 9
+log_sys
+idle 1
+log_sys
+log_sys
+log_buttons
+release 0x23 10
+idle 1
+log_buttons
+press 0x10 11
+idle 1

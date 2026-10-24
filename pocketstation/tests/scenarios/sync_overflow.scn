@@ -1,0 +1,15 @@
+# sync_overflow.scn: schedule changes made with a Timer 0 overflow pending, for the harness's count drift report, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# In frame mode, with only the sound line enabled, each of 200 rounds times a slow sound of 2 samples, which ends about 17 Timer 0 periods on, then with interrupts masked reads the buttons 10 times, longer than that segment, so Timer 0 overflows untaken, and cancels the sound, whose rt_ev_sync meets the pending overflow; then it idles.
+enable 0x2000
+tick 1
+repeat 200
+sound 2 0
+mask
+repeat 10
+log_buttons
+end_repeat
+sound_stop
+unmask
+idle 1
+end_repeat

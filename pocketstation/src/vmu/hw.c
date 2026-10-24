@@ -1,6 +1,6 @@
 /*----------------------
  | hw.c
- | Description: Ring Ring Land's timer helpers (reload, mode, start, stop, interrupt enable, reset) and its arithmetic helpers (a 16-bit divide and a capped digit add).
+ | Description: Ring Ring Land's timer interrupt enable and its arithmetic helpers (a 16-bit divide and a capped digit add).
  | Author: suinevere
  | Dependencies: game.h
  | Globals: N/A
@@ -11,46 +11,20 @@
 
 /*----------------------
  | timer_line
- | Description: The interrupt line of timer n: 0x80, 0x100, else 0x2000.
+ | Description: The interrupt line of the original's timer n: the tick's for Timer 1, else the sound end's.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: n -- timer
+ | Params: n -- timer 1 or 2
  | Returns: the line bit
  ----------------------*/
 static uint32_t timer_line(uint32_t n) {
-    return n == 0 ? 0x80u : n == 1 ? 0x100u : 0x2000u;
-}
-
-/*----------------------
- | game_timer_setup
- | Description: Sets timer n's reload and its mode to (flags << 2) | divider.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: n -- timer; reload -- reload value; divider -- low mode bits; flags -- mode bits from bit 2
- | Returns: the mode written
- ----------------------*/
-void game_timer_setup(uint32_t n, uint32_t reload, uint32_t divider, uint32_t flags) {
-    vmu_set_timer((uint8_t)n, (uint16_t)reload, (uint8_t)divider, (uint8_t)(flags & 1u));
-}
-
-/*----------------------
- | game_timer_run
- | Description: Starts or stops timer n through mode bit 2.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: n -- timer; on -- nonzero to start
- | Returns: the mode written
- ----------------------*/
-void game_timer_run(uint32_t n, uint8_t on) {
-    vmu_timer_run((uint8_t)n, on);
+    return n == 1 ? VMU_LINE_TICK : VMU_LINE_SOUND;
 }
 
 /*----------------------
  | game_timer_irq
- | Description: Enables (after acknowledging) or disables (then acknowledges) timer n's interrupt line.
+ | Description: Enables (after acknowledging) or disables (then acknowledges) the interrupt line of the original's timer n.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -66,21 +40,6 @@ void game_timer_irq(uint32_t n, uint8_t on) {
         vmu_irq_disable(line);
         vmu_irq_ack(line);
     }
-}
-
-/*----------------------
- | game_timer_reset
- | Description: Stops timer n and its interrupt, then sets its reload and divider with the other mode bits clear. Reload and divider are narrowed from the ARM's words; every caller passes constants that fit.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: n -- timer; reload -- reload value; divider -- low mode bits
- | Returns: N/A
- ----------------------*/
-void game_timer_reset(uint8_t n, uint16_t reload, uint8_t divider) {
-    game_timer_run(n, 0);
-    game_timer_irq(n, 0);
-    game_timer_setup(n, reload, divider, 0);
 }
 
 /*----------------------

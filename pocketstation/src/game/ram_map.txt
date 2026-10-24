@@ -1,95 +1,96 @@
 # ram_map.txt: Ring Ring Land's RAM, one field per line, for pocketstation/tools/gen_ram.py.
-# <PocketStation addr|-> <u8|s8|u16|s16|u32>[<count>] <name> <VMU addr|+|->[:<VMU type>][:handler|:file] <description>
+# <PocketStation addr|-> <u8|s8|u16|s16|u32>[<count>] <name> <VMU addr|+|->[:<VMU type>][:handler|:file][:nocmp] <description>
+# ':nocmp' marks a field whose VMU meaning differs, which state_compare.py leaves out.
 # VMU offsets come from pocketstation/tools/pack_ram.py; '+' keeps a field right after the line before, as the original reads them together.
 # Every field is named; save_gap and save_tail are state block bytes only the save reads.
 0x200 u32 kernel_calls - the first word of the kernel's system call table (SWI 14), saved by 02000400
-0x204 u8 docked 0x016 nonzero after the line-10 (dock) interrupt; sounds are skipped and 02000440 shows the kernel's dock screen while set
+0x204 u8 docked 0x035 nonzero after the line-10 (dock) interrupt; sounds are skipped and 02000440 shows the kernel's dock screen while set
 0x205 u8[3] free - no script reads these bytes
-0x208 u32[13] irq_handler 0x237:u8:handler interrupt handlers by line; 02002B88 calls slot n for interrupt bit n; in vmu_ram each slot is a handler id (0 none, 1 buttons, 2 timer tick, 3 sound, 4 dock)
-0x23C u32 fiq_driver 0x004:u8:handler routine the FIQ callback jumps to after acknowledging Timer 2; 0 runs the interrupt dispatch instead; slot 13 of irq_handler, which the original runs on into, and a handler id in vmu_ram
-0x240 u32[32] fb 0x059 frame buffer, one word per row, copied to the LCD each frame; the reel window runs on past row 31 into blit_a and blit_b, so they follow it
-0x2C0 u32[32] blit_a + the blitter's first shifted copy of a sprite
-0x340 u32[32] blit_b + the blitter's second shifted copy (masks)
+0x208 u32[13] irq_handler 0x1DE:u8:handler interrupt handlers by line; 02002B88 calls slot n for interrupt bit n; in vmu_ram each slot is a handler id (0 none, 1 buttons, 2 timer tick, 3 sound, 4 dock)
+0x23C u32 fiq_driver 0x068:u8:handler routine the FIQ callback jumps to after acknowledging Timer 2; 0 runs the interrupt dispatch instead; slot 13 of irq_handler, which the original runs on into, and a handler id in vmu_ram
+0x240 u32[32] fb - frame buffer, one word per row, copied to the LCD each frame; the reel window runs on past row 31 into blit_a and blit_b, which follow it; the VMU draws into its own frame buffer and sends those rows to blit_a and blit_b
+0x2C0 u32[32] blit_a 0x079 the blitter's first shifted copy of a sprite
+0x340 u32[32] blit_b 0x100 the blitter's second shifted copy (masks)
 0x3C0 u32 com_flags - address of the kernel's communication flags from SWI 6; bit 0 set skips sounds, bit 8 ends the main loop
-0x3C4 u16 seed 0x013 random seed: seed = (seed + 1) * 0x3D09 per draw
-0x3C6 u8 btn_prev 0x006 buttons held at the last read
-0x3C7 u8 btn_new 0x015 buttons newly pressed at the last read
-0x3C8 u8 btn_press 0x022 new presses plus auto-repeats at the last read
-0x3C9 u8 btn_latch 0x012 buttons the interrupt saw pressed since the last read
-0x3CA u8 hold_reload 0x027 frames of fire hold that count as a long hold
-0x3CB u8 hold_count 0x021 frames left of the current long fire hold
-0x3CC u8 idle_lo 0x007 low byte of the main loop's 16-bit idle counter, whose high byte is repeat_up as in the original; it restarts at 0xF00 and standby follows when it runs out
+0x3C4 u16 seed 0x027 random seed: seed = (seed + 1) * 0x3D09 per draw
+0x3C6 u8 btn_prev 0x021 buttons held at the last read
+0x3C7 u8 btn_new 0x029 buttons newly pressed at the last read
+0x3C8 u8 btn_press 0x034 new presses plus auto-repeats at the last read
+0x3C9 u8 btn_latch 0x026 buttons the interrupt saw pressed since the last read
+0x3CA u8 hold_reload 0x03A frames of fire hold that count as a long hold
+0x3CB u8 hold_count 0x033 frames left of the current long fire hold
+0x3CC u8 idle_lo 0x022 low byte of the main loop's 16-bit idle counter, whose high byte is repeat_up as in the original; it restarts at 0xF00 and standby follows when it runs out
 0x3CD u8 repeat_up + auto-repeat countdown for up, also the high byte of the main loop's idle counter
-0x3CE u8 repeat_down 0x019 auto-repeat countdown for down
-0x3CF u8 repeat_left 0x01A auto-repeat countdown for left
-0x3D0 u8 repeat_right 0x01B auto-repeat countdown for right
+0x3CE u8 repeat_down 0x02C auto-repeat countdown for down
+0x3CF u8 repeat_left 0x02D auto-repeat countdown for left
+0x3D0 u8 repeat_right 0x02E auto-repeat countdown for right
 0x3D1 u8[3] free - no script reads these bytes
-0x3D4 u8 mode 0x005 current game mode; mode handlers are tabled at 0x020084B4
-0x3D5 u8 mode_phase 0x035 step within the current mode
-0x3D6 u8 mode_wait 0x02E frames the current mode waits
+0x3D4 u8 mode 0x020 current game mode; mode handlers are tabled at 0x020084B4
+0x3D5 u8 mode_phase 0x048 step within the current mode
+0x3D6 u8 mode_wait 0x041 frames the current mode waits
 0x3D7 u8 wait_hi + mode_wait's high byte when the reel spins read it as a 16-bit word; the two-reel payout sets it to 0x40
-0x3D8 u8 mode_done 0x01E set when a mode has finished; also the three-way menu cursor 02002416 moves, and the phase 02001E42 steps through 0-3
-0x3D9 u8 scene_id 0x041 set to 0x5E when the board starts; other modes test it; 02001E42 counts it down as a frame wait
-0x3DA u8 scratch_wait 0x038 shared byte: 0xFF makes 02001F28 start its scroll at 0x68; 02002AE4 and 02002464 set a 20-frame countdown here; 02000614 reads 0x3DA-0x3DB as a signed halfword
+0x3D8 u8 mode_done 0x031 set when a mode has finished; also the three-way menu cursor 02002416 moves, and the phase 02001E42 steps through 0-3
+0x3D9 u8 scene_id 0x054 set to 0x5E when the board starts; other modes test it; 02001E42 counts it down as a frame wait
+0x3DA u8 scratch_wait 0x04B shared byte: 0xFF makes 02001F28 start its scroll at 0x68; 02002AE4 and 02002464 set a 20-frame countdown here; 02000614 reads 0x3DA-0x3DB as a signed halfword
 0x3DB u8 scratch_kinds + shared byte: one bit per item kind (low byte of the item's 0x02008094 entry) in the list for 02002D22; the lowest of the three symbols 02004566 picks; the first reel's next symbol from 0200225C; a scroll frame from 02001E42
 0x3DC u8 scratch_first + shared byte: lowest kind in scratch_kinds for 02002D22; the middle symbol 02004566 picks; the second reel's next symbol from 0200225C; 0200448A writes 0x40 here as a halfword with scratch_count; 02001F28 scrolls it up to 0x68
 0x3DD u8 scratch_count + shared count: the item of kind scratch_first 02002D8A looks for (0 the first), a frame countdown in 02001F28, the payout kind 0200234C reads, a shown count in 02000CA4; the highest symbol 02004566 picks; 02001E42 scrolls 0x3DC-0x3DD as a signed halfword
-0x3DE u8 bag_nth_index 0x054 list index of that item
-0x3DF u8 bag_kind_count 0x042 distinct kinds in the list
-0x3E0 u8 scratch_lo 0x04D low byte of a shared halfword that 0200234C writes with the payout and 02000AF8 reads whole; 02001008 reads it as a signed byte; 02002D64 counts items of kind scratch_first into it
+0x3DE u8 bag_nth_index 0x074 list index of that item
+0x3DF u8 bag_kind_count 0x055 distinct kinds in the list
+0x3E0 u8 scratch_lo 0x06D low byte of a shared halfword that 0200234C writes with the payout and 02000AF8 reads whole; 02001008 reads it as a signed byte; 02002D64 counts items of kind scratch_first into it
 0x3E1 u8 scratch_hi + high byte of that halfword; 02001008 reads it as a signed byte
-0x3E2 u8 bag_full 0x058 set when the item list fills
-0x3E3 u8 cycle16 0x017 counter stepping 16 down to 1 each frame
-0x3E4 u8 odds_set 0x04A mode sub-state byte 0; picks the weight set at 0x02009EEC
-0x3E5 u8 steps 0x049 cells walked; reaching (odds_set + 1) * 32 ends the lap
-0x3E6 u8 walk_behind 0x04F cells walked back from steps; forward steps retrace them before counting new cells
+0x3E2 u8 bag_full 0x078 set when the item list fills
+0x3E3 u8 cycle16 0x02A counter stepping 16 down to 1 each frame
+0x3E4 u8 odds_set 0x066 mode sub-state byte 0; picks the weight set at 0x02009EEC
+0x3E5 u8 steps 0x065 cells walked; reaching (odds_set + 1) * 32 ends the lap
+0x3E6 u8 walk_behind 0x06F cells walked back from steps; forward steps retrace them before counting new cells
 0x3E7 u8 free - no script reads these bytes
-0x3E8 u8 sel_a 0x047 mode sub-state byte 4
-0x3E9 u8 sel_b 0x045 mode sub-state byte 5
-0x3EA u8 sel_c 0x01C mode sub-state byte 6
-0x3EB u8 sel_d 0x02D mode sub-state byte 7
-0x3EC u8 cell_saved 0x009 sel_c as the board started
-0x3ED u8 facing_saved 0x051 sel_d as the board started
-0x3EE u8 sel_e 0x011 mode sub-state byte 10
-0x3EF u8 walk_busy 0x01F set while a step round the ring animates
-0x3F0 u8 walk_frame 0x023 frame of the running step
-0x3F1 u8 walk_kind 0x02A running step: 0 forward a cell, 1 back a cell, 2 the opening count up to 12, above 2 a count down
-0x3F2 u8 bonus_done 0x056 set when a 0x10 cell or the lap's end on odds set 2 starts bonus scene 13
+0x3E8 u8 sel_a 0x05F mode sub-state byte 4
+0x3E9 u8 sel_b 0x05D mode sub-state byte 5
+0x3EA u8 sel_c 0x02F mode sub-state byte 6
+0x3EB u8 sel_d 0x040 mode sub-state byte 7
+0x3EC u8 cell_saved 0x024 sel_c as the board started
+0x3ED u8 facing_saved 0x071 sel_d as the board started
+0x3EE u8 sel_e 0x025 mode sub-state byte 10
+0x3EF u8 walk_busy 0x032 set while a step round the ring animates
+0x3F0 u8 walk_frame 0x036 frame of the running step
+0x3F1 u8 walk_kind 0x03D running step: 0 forward a cell, 1 back a cell, 2 the opening count up to 12, above 2 a count down
+0x3F2 u8 bonus_done 0x076 set when a 0x10 cell or the lap's end on odds set 2 starts bonus scene 13
 0x3F3 u8 free - no script reads these bytes
-0x3F4 u8 meter_max 0x055 meter a refill cell restores; a refill at full raises it by one up to 9
-0x3F5 u8 meter_shown 0x02C meter value on show, catching up with meter
-0x3F6 u8 meter 0x02B meter value; reaching 0 on show ends in mode 12
-0x3F7 u8 meter_delay 0x030 frames counted up to 30 (40 at meter 0) before meter_shown takes meter; left at the limit after
-0x3F8 u8 walk_back 0x046 set while the pending steps walk backwards; walk_kind takes it XOR sel_b
-0x3F9 u8 walk_left 0x03D steps still to walk on their own, one started each time the last ends
-0x3FA u8 step_result 0x048 how the last step ended: 0 nothing to do, 1 an ordinary step, 2 keeps a refill cell from refilling, 3 the lap's last step
+0x3F4 u8 meter_max 0x075 meter a refill cell restores; a refill at full raises it by one up to 9
+0x3F5 u8 meter_shown 0x03F meter value on show, catching up with meter
+0x3F6 u8 meter 0x03E meter value; reaching 0 on show ends in mode 12
+0x3F7 u8 meter_delay 0x043 frames counted up to 30 (40 at meter 0) before meter_shown takes meter; left at the limit after
+0x3F8 u8 walk_back 0x05E set while the pending steps walk backwards; walk_kind takes it XOR sel_b
+0x3F9 u8 walk_left 0x050 steps still to walk on their own, one started each time the last ends
+0x3FA u8 step_result 0x064 how the last step ended: 0 nothing to do, 1 an ordinary step, 2 keeps a refill cell from refilling, 3 the lap's last step
 0x3FB u8 free - no script reads these bytes
-0x3FC u8 bag_cursor 0x057 cursor into the item list
+0x3FC u8 bag_cursor 0x077 cursor into the item list
 0x3FD u8 free - no script reads these bytes
-0x3FE u16 lap_points 0x04B points won this lap: 0200284A clears it at the lap start and 0200234C adds each payout
+0x3FE u16 lap_points 0x06B points won this lap: 0200284A clears it at the lap start and 0200234C adds each payout
 0x400 u8[4] free - no script reads these bytes
-0x404 u8 reel_phase 0x01D reel spin step: 0 speeding up, 1 full speed, 2 slowing, 3 stopping, 4 stopped
-0x405 u8 reel_count 0x050 reel layout: 3 when the reels load, 4 from 0200448A, 5 from 020044B6
-0x406 u8 reel_slide 0x03C 0200153C draws the reel window at y = reel_slide - 12 while reel_phase is 0 or 7; 02004354 clears it
-0x407 u8 reel_delay 0x043 frames reel A keeps spinning after its stop is called
-0x408 u8 lap_mark 0x052 cleared at each lap start and by a refill cell; 020044B6 raises strip symbols by it
-0x409 u8 reel_len 0x024 symbols on a reel strip; reel positions wrap at reel_len * 0x200
-0x40A u8 reel_len_b 0x040 symbols on the second reel's strip, as 0200225C reads it
-0x40B u8 strip_c_len 0x053 symbols 0200284A loads into strip_c; 020044B6 copies that many into strip_a
-0x40C u16 reel_speed_a 0x028 first reel's speed, added to reel_pos_a each frame
-0x40E u16 reel_speed_b 0x033 second reel's speed, added to reel_pos_b each frame
-0x410 u16 reel_pos_a 0x025 first reel's position, 0x200 per symbol; the board's random stops (02004532) and symbol lookups (0200454A) count 0x280 per symbol
-0x412 u16 reel_pos_b 0x031 second reel's position, 0x200 per symbol; the board's random stops (02004532) and symbol lookups (0200454A) count 0x280 per symbol
-0x414 u16 reel_speed_c 0x03E third reel's speed, added to reel_pos_c each frame
-0x416 u16 reel_pos_c 0x036 third reel's position, 0x200 per symbol
+0x404 u8 reel_phase 0x030 reel spin step: 0 speeding up, 1 full speed, 2 slowing, 3 stopping, 4 stopped
+0x405 u8 reel_count 0x070 reel layout: 3 when the reels load, 4 from 0200448A, 5 from 020044B6
+0x406 u8 reel_slide 0x04F 0200153C draws the reel window at y = reel_slide - 12 while reel_phase is 0 or 7; 02004354 clears it
+0x407 u8 reel_delay 0x056 frames reel A keeps spinning after its stop is called
+0x408 u8 lap_mark 0x072 cleared at each lap start and by a refill cell; 020044B6 raises strip symbols by it
+0x409 u8 reel_len 0x037 symbols on a reel strip; reel positions wrap at reel_len * 0x200
+0x40A u8 reel_len_b 0x053 symbols on the second reel's strip, as 0200225C reads it
+0x40B u8 strip_c_len 0x073 symbols 0200284A loads into strip_c; 020044B6 copies that many into strip_a
+0x40C u16 reel_speed_a 0x03B first reel's speed, added to reel_pos_a each frame
+0x40E u16 reel_speed_b 0x046 second reel's speed, added to reel_pos_b each frame
+0x410 u16 reel_pos_a 0x038 first reel's position, 0x200 per symbol; the board's random stops (02004532) and symbol lookups (0200454A) count 0x280 per symbol
+0x412 u16 reel_pos_b 0x044 second reel's position, 0x200 per symbol; the board's random stops (02004532) and symbol lookups (0200454A) count 0x280 per symbol
+0x414 u16 reel_speed_c 0x051 third reel's speed, added to reel_pos_c each frame
+0x416 u16 reel_pos_c 0x049 third reel's position, 0x200 per symbol
 0x418 u8[12] free - no script reads these bytes
-0x424 u8[16] marker 0x227 four marker slots of four bytes: object type (0xFF free), frame, frames left on it, signed x offset
-0x434 u8[40] anim 0x1FF ten animation slots of four bytes: id (0xFF free), argument (for ids 8 and up but 0x16, bit 0 two frames on and bit 1 mirrored), frame toggle, timer
+0x424 u8[16] marker 0x1CE four marker slots of four bytes: object type (0xFF free), frame, frames left on it, signed x offset
+0x434 u8[40] anim 0x1A6 ten animation slots of four bytes: id (0xFF free), argument (for ids 8 and up but 0x16, bit 0 two frames on and bit 1 mirrored), frame toggle, timer
 0x45C u8[8] free - no script reads these bytes
-0x464 u8[32] board_list 0x1DF the board draw's on-screen cells as (y, x, cell) byte triples, the walker's own cell first
-0x484 u8[32] cell_arg 0x274 each board cell's argument by sel_c: a scene, a meter step or 0 for a refill
-0x4A4 u8[32] cell_type 0x294 each board cell's type by sel_c: 2-4 scenes, 0x10 the bonus, 0xFF the argument's event, others a choice
-0x4C4 u32 points 0x2B4 points total, capped at 99999 by 0200234C; the first word of the saved state block
+0x464 u8[32] board_list 0x186 the board draw's on-screen cells as (y, x, cell) byte triples, the walker's own cell first
+0x484 u8[32] cell_arg 0x21B each board cell's argument by sel_c: a scene, a meter step or 0 for a refill
+0x4A4 u8[32] cell_type 0x23B each board cell's type by sel_c: 2-4 scenes, 0x10 the bonus, 0xFF the argument's event, others a choice
+0x4C4 u32 points 0x25B points total, capped at 99999 by 0200234C; the first word of the saved state block
 0x4C8 u32 bag_count + items in the list
 0x4CC u8[51] bag_items + item ids, oldest first
 0x4FF u8 save_gap + the state block byte after bag_items; only game_save reads it, writing the block to flash
@@ -100,16 +101,19 @@
 0x504 u32 board_arg_set + bit n offers cell arg n + 1 to 02003EA4
 0x508 u8[20] board_arg_kinds + by cell arg 7-26: choice kinds such a cell may become in 02003EA4, one bit each
 0x51C u8[40] save_tail + the rest of the 128-byte state block game_save writes to flash; nothing but the save reads it
-0x544 u8[16] strip_a 0x244 first reel's symbol strip, loaded from strip 0; strip 3 from 0200448A, strip_c raised by lap_mark from 020044B6
+0x544 u8[16] strip_a 0x1EB first reel's symbol strip, loaded from strip 0; strip 3 from 0200448A, strip_c raised by lap_mark from 020044B6
 0x554 u8[16] strip_b + second reel's symbol strip, loaded from strip 1
 0x564 u8[16] strip_c + third reel's symbol strip, loaded from strip 2
 0x574 u8[80] free - no script reads these bytes
-0x5C4 u32 snd_start 0x00F:u16:file address of the playing sound's samples (the reference traces zero 0x5C4-0x5D1); in vmu_ram its offset in the game's file
-0x5C8 u32 snd_pos 0x000 next sample index
-0x5CC u32 snd_len 0x00A samples in the playing sound
-0x5D0 u8 snd_playing 0x020 id of the playing sound, 0xFF for none
-0x5D1 u8 snd_next 0x044 id queued to play next, 0xFF for none
-0x5D2 u8 sound_req 0x018 request byte for the sound driver
-0x5D3 u8 snd_mode 0x00E 1 when samples are signed bytes scaled into ten bits; 2 turns sound off
-0x5D4 u8[6] ticks 0x1D9 three (count, seen) tick counter pairs; the timer callback advances count, the frame wait records seen
-- u8[32] stack 0x334 vmu_ram's stack reserve: Phase 1 reads no stack byte, so this is the plan's 32-byte margin alone
+0x5C4 u32 snd_start 0x069:u16:file:nocmp address of the playing sound's samples (the reference traces zero 0x5C4-0x5D1); in vmu_ram its offset in the game's file, set when a sound starts
+0x5C8 u32 snd_pos 0x060:nocmp next sample index; in vmu_ram only set when a sound starts, cut or chains, as the VMU times a sound's end and plays no samples
+0x5CC u32 snd_len 0x059:nocmp samples in the playing sound; in vmu_ram the length its end is timed from
+0x5D0 u8 snd_playing 0x058 id of the playing sound, 0xFF for none
+0x5D1 u8 snd_next 0x057 id queued to play next, 0xFF for none
+0x5D2 u8 sound_req 0x02B request byte for the sound driver
+0x5D3 u8 snd_mode 0x067 1 when samples are signed bytes scaled into ten bits; 2 turns sound off
+0x5D4 u8[6] ticks 0x180 three (count, seen) tick counter pairs; the timer callback advances count, the frame wait records seen
+- u8[32] rt_reserved 0x000 the VMU runtime's block at the start of bank 1: R0-R3 live at 0x00-0x03 and the runtime's variables after them; no game field uses it
+- u8[7] rt_input 0x0F9 the VMU runtime's input state in bank 1's last bytes: buttons held, buttons read as released until let go, and the Sleep, quit and LCD flags; no game field uses it
+- u8[24] rt_save 0x2E8 the VMU runtime's pet save block list in WRAM's last bytes: the save's sector count and first payload page, then its flash blocks in chain order, found once at reset; no game field uses it
+- u8[32] stack 0x300 vmu_ram's stack reserve: Phase 1 reads no stack byte, so this is the plan's 32-byte margin alone; it never reaches the VMU, whose stack is bank 0's
