@@ -77,7 +77,7 @@ endif
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c \
+KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/hang_watch.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c \
 	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/system/perf_hud.c src/movie/movie_decode_kos.c
 
 #----------------------
@@ -763,6 +763,18 @@ gen/main_data.c: | $(PRE_BUILD_STAMP)
 -include $(OBJS:.o=.d) $(OVERLAY_OBJS:.o=.d)
 
 #----------------------
+# | SDK_HEADERS
+# | Description: Every object also depends on the decomp's include/sdk headers outright, since .d files written before the decomp rules switched to -MD never list them and left objects built against old headers (WMAP kept the raw 0x1F800000 scratchpad pointer).
+# | Author: suinevere
+# | Dependencies: OBJS, OVERLAY_OBJS
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+SDK_HEADERS := $(wildcard ../include/sdk/*.h)
+$(OBJS) $(OVERLAY_OBJS): $(SDK_HEADERS)
+
+#----------------------
 # | $(KOS_CDROM_PATCH_DIR)/.stamp
 # | Description: Extracts the two colliding libkallisti members and renames their cdrom_init symbol to kos_real_cdrom_init, so our decomp cdrom_init stays the only cdrom_init in the final link.
 # | Author: suinevere
@@ -972,7 +984,7 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = card_save card_load movie_skip pet_send pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
+PADSEL_SCRIPTS = exit_map card_save card_load movie_skip pet_send pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*

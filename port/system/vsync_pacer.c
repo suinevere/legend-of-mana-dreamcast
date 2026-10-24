@@ -90,3 +90,23 @@ int vsync_wait(int mode, VsyncClock clock)
     s_last_vsync = now;
     return 0;
 }
+
+/*----------------------
+ | vsync_wait_after
+ | Description: Returns once a vblank has passed since the last wait returned, at once if one already has, so a frame that overran is shown without waiting a further vblank.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_last_vsync
+ | Params: clock -- vblank counter to poll
+ | Returns: N/A
+ ----------------------*/
+void vsync_wait_after(VsyncClock clock)
+{
+    unsigned now = clock();
+
+    while ((int)(now - (s_last_vsync + 1u)) < 0)
+    {
+        now = clock();
+    }
+    s_last_vsync = now;
+}

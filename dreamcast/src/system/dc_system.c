@@ -208,6 +208,20 @@ static const LogPort s_scif_port = { scif_tx_room, scif_tx_put, timer_us_gettime
  | Params: format -- printf-style format string, ... -- format arguments
  | Returns: N/A
  ----------------------*/
+/*----------------------
+ | RECENT_LINES / RECENT_BYTES / s_recent / s_recent_next
+ | Description: The last log lines kept in memory whatever the serial port does, oldest at s_recent_next, for the halt screen.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define RECENT_LINES 2
+#define RECENT_BYTES 89
+static char s_recent[RECENT_LINES][RECENT_BYTES];
+static unsigned s_recent_next;
+
 void dc_log(const char *format, ...)
 {
     char buf[256];
@@ -218,6 +232,9 @@ void dc_log(const char *format, ...)
     len = snprintf(buf, sizeof buf, "LOM: ");
     vsnprintf(buf + len, sizeof buf - (size_t)len - 1u, format, args);
     va_end(args);
+    strncpy(s_recent[s_recent_next], buf + len, RECENT_BYTES - 1);
+    s_recent[s_recent_next][RECENT_BYTES - 1] = 0;
+    s_recent_next = (s_recent_next + 1u) % RECENT_LINES;
     if (s_log_async < 0)
     {
         const char *dev = dbgio_dev_get();
@@ -257,10 +274,10 @@ void dc_log(const char *format, ...)
 
 /*----------------------
  | dc_halt
- | Description: Logs "LOM HALT: <message>" and prints it on screen once, split at newlines and wrapped inside the visible area, then spins forever: on a plain empty loop with interrupts disabled if called from interrupt context, otherwise via thd_sleep(1000).
+ | Description: Logs "LOM HALT: <message>" followed by the last log lines and prints it on screen once, split at newlines and wrapped inside the visible area, then spins forever: on a plain empty loop with interrupts disabled if called from interrupt context, otherwise via thd_sleep(1000).
  | Author: suinevere
  | Dependencies: log_ring_flush, dbglog, dc_print, memcpy, thd_sleep, irq_inside_int, irq_disable
- | Globals: N/A
+ | Globals: s_recent, s_recent_next
  | Params: message -- halt reason
  | Returns: N/A
  ----------------------*/
@@ -272,6 +289,14 @@ void dc_halt(const char *message)
     int row = HALT_ROW;
 
     snprintf(buf, sizeof buf, "LOM HALT: %s", message);
+    for (row = 0; row < RECENT_LINES; row++)
+    {
+        const char *recent = s_recent[(s_recent_next + (unsigned)row) % RECENT_LINES];
+
+        if (recent[0] != 0)
+            snprintf(buf + strlen(buf), sizeof buf - strlen(buf), "\nLOG %s", recent);
+    }
+    row = HALT_ROW;
     log_ring_flush();
     dbglog(DBG_INFO, "%s\n", buf);
     for (at = buf; *at != 0 && row < HALT_ROW + HALT_ROWS; row++)

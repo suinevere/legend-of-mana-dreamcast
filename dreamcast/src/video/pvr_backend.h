@@ -33,8 +33,9 @@ typedef struct
 /*----------------------
  | PvrBackend
  | Description: Starts and finishes a scene, sets the background, and writes a polygon header or a whole triangle strip of PvrVertex in one call.
- | scene_begin returns 0 when the previous flip is not yet confirmed, leaving a pending texture flush for later; scene_shown checks the same without waiting.
+ | scene_begin returns 0 when the previous flip is not yet confirmed, leaving a pending texture flush for later; scene_shown checks the same without waiting, and wait_shown waits a few vblanks at most for it.
  | frame_texture loads the RGB565 rows (512-pixel pitch) of a 24-bit display frame into a texture of its own and returns it, or NULL when texture memory has no room.
+ | strip_mark returns a handle to the next strip while the scene is still being recorded, or NULL once it streams; patch_strip rewrites that strip's vertex positions.
  | Author: suinevere
  | Dependencies: DcSurfaceTexture, BlendPass
  | Globals: N/A
@@ -49,7 +50,10 @@ typedef struct
     void (*header)(const DcSurfaceTexture *tex, const BlendPass *pass);
     void (*strip)(const PvrVertex *verts, unsigned count);
     int (*scene_shown)(unsigned scenes_closed);
+    int (*wait_shown)(unsigned scenes_closed);
     const DcSurfaceTexture *(*frame_texture)(const uint16_t *pixels, unsigned width, unsigned height);
+    void *(*strip_mark)(void);
+    void (*patch_strip)(void *mark, const PvrVertex *verts, unsigned count);
 } PvrBackend;
 
 /*----------------------

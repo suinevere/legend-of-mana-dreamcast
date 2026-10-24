@@ -116,6 +116,17 @@ int pvr_submit_scene_has_prims(void);
 int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y);
 
 /*----------------------
+ | pvr_frame_settle
+ | Description: Before VRAM at a rect is read back, waits for the last closed scene to reach the screen when it drew there and the frame on screen did not, so the read sees that frame as the PS1's VRAM would instead of nothing.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: x, y, w, h -- VRAM rect about to be read
+ | Returns: N/A
+ ----------------------*/
+void pvr_frame_settle(int x, int y, int w, int h);
+
+/*----------------------
  | pvr_submit_rgb24
  | Description: Shows a 24-bit display area as one opaque full-screen textured quad in its own scene, counted by the frame probe like any flip.
  | Author: suinevere

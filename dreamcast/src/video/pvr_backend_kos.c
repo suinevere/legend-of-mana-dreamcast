@@ -1,6 +1,6 @@
 /*----------------------
  | pvr_backend_kos.c
- | Description: KallistiOS PowerVR backend for pvr_submit: one autosort-off translucent list written through the store queues, the texture and palette memory hooks, and the displayed framebuffer for readback.
+ | Description: KallistiOS PowerVR backend for pvr_submit: one autosort-off translucent list, recorded in RAM and copied to the TA when the scene closes, the texture and palette memory hooks, and the displayed framebuffer for readback.
  | Author: suinevere
  | Dependencies: kos.h, pvr_submit.h, pvr_backend.h, texture_cache.h, palette_bank.h, blend.h, dc_system.h
  | Globals: s_flip_base, s_settle_closed, s_settled, s_dr, s_dr_active, s_blend_factor, s_texture_ops, s_palette_ops, s_kos_backend
@@ -433,12 +433,40 @@ unsigned pvr_backend_take_render_max_us(void)
 }
 
 /*----------------------
- | kos_scene_begin
- | Description: Starts a scene and its translucent list once the TA buffer is free, waiting for the previous flip only when a texture flush is pending; later writes settle lazily.
- | The first scene skips pvr_wait_ready, whose semaphore starts at zero.
+ | CMD_BUFFER_BYTES / s_cmd / s_cmd_words / s_cmd_capacity / s_streaming / s_begin_closed
+ | Description: The open scene's TA commands recorded in main RAM and replayed in one store-queue copy when the scene closes; past capacity the scene starts on the hardware and the rest streams straight through.
+ |              Recording means only the close waits for the previous render to start, which KallistiOS does at a vblank, instead of the next frame's first primitive stalling the game up to a vblank.
  | Author: suinevere
- | Dependencies: pvr_wait_ready, pvr_get_stats, texture_cache_flush_pending, settle_previous_scene, kos_scene_shown, pvr_scene_begin, pvr_list_begin
- | Globals: s_dr_active, s_settle_closed, s_settled, s_pvr_wait_us, s_render_max_us
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define CMD_BUFFER_BYTES (256u * 1024u)
+static uint32_t *s_cmd;
+static unsigned s_cmd_words;
+static unsigned s_cmd_capacity;
+static int s_streaming;
+static unsigned s_begin_closed;
+
+/*----------------------
+ | s_bg_pending / s_bg
+ | Description: A background colour set while recording, applied once the scene starts on the hardware so it cannot reach a scene still waiting to render.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_bg_pending;
+static float s_bg[3];
+
+/*----------------------
+ | kos_scene_begin
+ | Description: Opens a scene for recording without touching the PowerVR, waiting for the previous flip only when a texture flush is pending; later texture and palette writes settle lazily.
+ | Author: suinevere
+ | Dependencies: texture_cache_flush_pending, settle_previous_scene, kos_scene_shown
+ | Globals: s_settle_closed, s_settled, s_cmd_words, s_streaming, s_begin_closed
  | Params: scenes_closed -- scenes handed to the PowerVR so far
  | Returns: 1 if every closed scene is confirmed on screen, else 0
  ----------------------*/
@@ -448,7 +476,35 @@ static int kos_scene_begin(unsigned scenes_closed)
 
     s_settle_closed = scenes_closed;
     s_settled = 1;
+    s_begin_closed = scenes_closed;
+    s_cmd_words = 0;
+    s_streaming = 0;
     if (scenes_closed != 0)
+    {
+        s_settled = 0;
+        if (texture_cache_flush_pending())
+        {
+            settle_previous_scene();
+        }
+        flip_ok = kos_scene_shown(scenes_closed);
+        s_settled = s_settled || flip_ok;
+    }
+    return flip_ok;
+}
+
+/*----------------------
+ | start_hardware_scene
+ | Description: Waits for the TA buffer (the previous scene's render to start), applies a pending background, begins the scene and its translucent list and replays the recorded commands.
+ |              The first scene skips pvr_wait_ready, whose semaphore starts at zero.
+ | Author: suinevere
+ | Dependencies: pvr_wait_ready, pvr_get_stats, pvr_set_bg_color, pvr_scene_begin, pvr_list_begin, pvr_prim
+ | Globals: s_begin_closed, s_pvr_wait_us, s_render_max_us, s_bg_pending, s_bg, s_dr_active, s_cmd, s_cmd_words, s_streaming
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void start_hardware_scene(void)
+{
+    if (s_begin_closed != 0)
     {
         uint64 t0 = timer_us_gettime64();
         pvr_stats_t stats;
@@ -460,48 +516,140 @@ static int kos_scene_begin(unsigned scenes_closed)
         {
             s_render_max_us = (unsigned)(stats.rnd_last_time / 1000u);
         }
-        s_settled = 0;
-        if (texture_cache_flush_pending())
-        {
-            settle_previous_scene();
-        }
-        flip_ok = kos_scene_shown(scenes_closed);
-        s_settled = s_settled || flip_ok;
+    }
+    if (s_bg_pending)
+    {
+        pvr_set_bg_color(s_bg[0], s_bg[1], s_bg[2]);
+        s_bg_pending = 0;
     }
     pvr_scene_begin();
     pvr_list_begin(PVR_LIST_TR_POLY);
     s_dr_active = 0;
-    return flip_ok;
+    if (s_cmd_words != 0)
+    {
+        pvr_prim(s_cmd, (int)(s_cmd_words * 4u));
+        s_cmd_words = 0;
+    }
+    s_streaming = 1;
+}
+
+/*----------------------
+ | emit
+ | Description: Appends one 32-byte TA command to the recording, or writes it through the store queues once the scene streams.
+ | Author: suinevere
+ | Dependencies: start_hardware_scene, dr_begin, pvr_dr_target, pvr_dr_commit
+ | Globals: s_cmd, s_cmd_words, s_cmd_capacity, s_streaming, s_dr
+ | Params: words -- the command's eight words
+ | Returns: N/A
+ ----------------------*/
+static void emit(const uint32_t *words)
+{
+    uint32_t *dst;
+    int i;
+
+    if (!s_streaming && s_cmd_words + 8u > s_cmd_capacity)
+    {
+        start_hardware_scene();
+    }
+    if (s_streaming)
+    {
+        dr_begin();
+        dst = (uint32_t *)pvr_dr_target(s_dr);
+        for (i = 0; i < 8; i++)
+        {
+            dst[i] = words[i];
+        }
+        pvr_dr_commit(dst);
+        return;
+    }
+    dst = &s_cmd[s_cmd_words];
+    for (i = 0; i < 8; i++)
+    {
+        dst[i] = words[i];
+    }
+    s_cmd_words += 8u;
+}
+
+/*----------------------
+ | kos_strip_mark
+ | Description: PvrBackend.strip_mark: the recording slot the next command lands in, or NULL once the scene streams.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_cmd, s_cmd_words, s_cmd_capacity, s_streaming
+ | Params: N/A
+ | Returns: the slot, or NULL
+ ----------------------*/
+static void *kos_strip_mark(void)
+{
+    if (s_streaming || s_cmd_words + 8u > s_cmd_capacity)
+    {
+        return NULL;
+    }
+    return &s_cmd[s_cmd_words];
+}
+
+/*----------------------
+ | kos_patch_strip
+ | Description: PvrBackend.patch_strip: rewrites the x and y of the recorded vertices starting at a mark, each a pvr_vertex_t of eight words.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: mark -- from kos_strip_mark, verts -- new positions, count -- vertices
+ | Returns: N/A
+ ----------------------*/
+static void kos_patch_strip(void *mark, const PvrVertex *verts, unsigned count)
+{
+    pvr_vertex_t *vert = (pvr_vertex_t *)mark;
+    unsigned i;
+
+    for (i = 0; i < count; i++)
+    {
+        vert[i].x = verts[i].x;
+        vert[i].y = verts[i].y;
+    }
 }
 
 /*----------------------
  | kos_scene_finish
- | Description: Finishes the translucent list and the scene, which also releases the store queues.
+ | Description: Starts the recorded scene on the hardware unless it already streams, then finishes the translucent list and the scene, which also releases the store queues.
  | Author: suinevere
- | Dependencies: pvr_list_finish, pvr_scene_finish
- | Globals: s_dr_active
+ | Dependencies: start_hardware_scene, pvr_list_finish, pvr_scene_finish
+ | Globals: s_streaming, s_dr_active
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 static void kos_scene_finish(void)
 {
+    if (!s_streaming)
+    {
+        start_hardware_scene();
+    }
     pvr_list_finish();
     pvr_scene_finish();
     s_dr_active = 0;
+    s_streaming = 0;
 }
 
 /*----------------------
  | kos_background
- | Description: Sets the colour the PowerVR clears the scene to.
+ | Description: Sets the colour the PowerVR clears the scene to, at once while the scene streams, else when it starts on the hardware.
  | Author: suinevere
  | Dependencies: pvr_set_bg_color
- | Globals: N/A
+ | Globals: s_bg, s_bg_pending, s_streaming
  | Params: r, g, b -- 8-bit channels
  | Returns: N/A
  ----------------------*/
 static void kos_background(uint8_t r, uint8_t g, uint8_t b)
 {
-    pvr_set_bg_color(r / 255.0f, g / 255.0f, b / 255.0f);
+    s_bg[0] = r / 255.0f;
+    s_bg[1] = g / 255.0f;
+    s_bg[2] = b / 255.0f;
+    if (s_streaming)
+    {
+        pvr_set_bg_color(s_bg[0], s_bg[1], s_bg[2]);
+        return;
+    }
+    s_bg_pending = 1;
 }
 
 /*----------------------
@@ -590,7 +738,7 @@ static HeaderCacheEntry *header_cache_entry(const DcSurfaceTexture *tex, const B
  | kos_header
  | Description: Sends a point-sampled, depth-always, unculled polygon header with the pass's blend factors, compiling it only the first time its texture and blend are seen.
  | Author: suinevere
- | Dependencies: header_cache_entry, pvr_poly_cxt_txr, pvr_poly_cxt_col, pvr_poly_compile, texture_format, dr_begin, pvr_dr_target, pvr_dr_commit
+ | Dependencies: header_cache_entry, pvr_poly_cxt_txr, pvr_poly_cxt_col, pvr_poly_compile, texture_format, emit
  | Globals: s_dr, s_blend_factor
  | Params: tex -- texture, or null for untextured, pass -- blend pass
  | Returns: N/A
@@ -600,18 +748,10 @@ static void kos_header(const DcSurfaceTexture *tex, const BlendPass *pass)
     pvr_poly_cxt_t cxt;
     HeaderCacheEntry *entry = header_cache_entry(tex, pass);
     const uint32_t *src = (const uint32_t *)&entry->hdr;
-    uint32_t *dst;
-    int i;
 
     if (entry->valid)
     {
-        dr_begin();
-        dst = (uint32_t *)pvr_dr_target(s_dr);
-        for (i = 0; i < 8; i++)
-        {
-            dst[i] = src[i];
-        }
-        pvr_dr_commit(dst);
+        emit(src);
         return;
     }
     if (tex != 0)
@@ -633,42 +773,34 @@ static void kos_header(const DcSurfaceTexture *tex, const BlendPass *pass)
     cxt.blend.dst = s_blend_factor[pass->dst];
     pvr_poly_compile(&entry->hdr, &cxt);
     entry->valid = 1;
-    dr_begin();
-    dst = (uint32_t *)pvr_dr_target(s_dr);
-    for (i = 0; i < 8; i++)
-    {
-        dst[i] = src[i];
-    }
-    pvr_dr_commit(dst);
+    emit(src);
 }
 
 /*----------------------
  | kos_strip
- | Description: Sends a triangle strip's vertices at z = 1 through the store queues in one loop, ending the strip on the last.
+ | Description: Sends a triangle strip's vertices at z = 1, ending the strip on the last.
  | Author: suinevere
- | Dependencies: dr_begin, pvr_dr_target, pvr_dr_commit
+ | Dependencies: emit
  | Globals: s_dr
  | Params: verts -- strip vertices, count -- how many
  | Returns: N/A
  ----------------------*/
 static void kos_strip(const PvrVertex *verts, unsigned count)
 {
+    pvr_vertex_t vert __attribute__((aligned(32)));
     unsigned i;
 
-    dr_begin();
+    vert.z = 1.0f;
+    vert.oargb = 0;
     for (i = 0; i < count; i++)
     {
-        pvr_vertex_t *vert = pvr_dr_target(s_dr);
-
-        vert->flags = i + 1 == count ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
-        vert->x = verts[i].x;
-        vert->y = verts[i].y;
-        vert->z = 1.0f;
-        vert->u = verts[i].u;
-        vert->v = verts[i].v;
-        vert->argb = verts[i].argb;
-        vert->oargb = 0;
-        pvr_dr_commit(vert);
+        vert.flags = i + 1 == count ? PVR_CMD_VERTEX_EOL : PVR_CMD_VERTEX;
+        vert.x = verts[i].x;
+        vert.y = verts[i].y;
+        vert.u = verts[i].u;
+        vert.v = verts[i].v;
+        vert.argb = verts[i].argb;
+        emit((const uint32_t *)&vert);
     }
 }
 
@@ -676,12 +808,13 @@ static void kos_strip(const PvrVertex *verts, unsigned count)
  | s_kos_backend
  | Description: The KallistiOS hooks pvr_submit_init binds.
  | Author: suinevere
- | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown
+ | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown, wait_previous_flip, kos_frame_texture, kos_strip_mark, kos_patch_strip
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown, kos_frame_texture };
+static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown, wait_previous_flip, kos_frame_texture,
+                                          kos_strip_mark, kos_patch_strip };
 
 /*----------------------
  | pvr_backend_frame_pixels
@@ -702,8 +835,8 @@ const uint16_t *pvr_backend_frame_pixels(unsigned *pitch_px)
  | pvr_submit_init
  | Description: Initialises the PowerVR with only the translucent list sized and autosort off, ARGB8888 palettes and a black background, and binds the caches and the backend.
  | Author: suinevere
- | Dependencies: pvr_init, pvr_set_pal_format, pvr_set_bg_color, pvr_get_stats, texture_cache_init, palette_bank_init, pvr_submit_set_backend
- | Globals: s_flip_base, s_texture_ops, s_palette_ops, s_kos_backend
+ | Dependencies: pvr_init, memalign, pvr_set_pal_format, pvr_set_bg_color, pvr_get_stats, texture_cache_init, palette_bank_init, pvr_submit_set_backend
+ | Globals: s_flip_base, s_cmd, s_cmd_capacity, s_texture_ops, s_palette_ops, s_kos_backend
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -720,6 +853,8 @@ void pvr_submit_init(void)
     pvr_stats_t stats;
 
     pvr_init(&params);
+    s_cmd = memalign(32, CMD_BUFFER_BYTES);
+    s_cmd_capacity = s_cmd != NULL ? CMD_BUFFER_BYTES / 4u : 0u;
     pvr_set_pal_format(PVR_PAL_ARGB8888);
     pvr_set_bg_color(0.0f, 0.0f, 0.0f);
     texture_cache_init(&s_texture_ops);

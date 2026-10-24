@@ -129,6 +129,16 @@ def test_dreamcast_build_relocates_only_inside_pointer_and_skips_rules(monkeypat
     assert "_synth_tim = 0x8C801010;" in script
 
 
+def test_dreamcast_overlay_leaves_main_owned_variables_to_main(monkeypatch):
+    spec, overlay = synth_overlay()
+    with_synth_pointer_rule(monkeypatch, spec)
+    symbols = dict(SYNTH_SYMBOLS, g_pending_game_state=SYNTH_START + 0x20, g_field_scene_request_pending=SYNTH_START + 0x24)
+    _, script = overlay_rules.build_overlay(spec, overlay, symbols, synth_target(0x40))
+    assert "_g_pending_game_state" not in script
+    assert "_g_field_scene_request_pending" not in script
+    assert "_synth_tim = 0x8C801010;" in script
+
+
 def test_dreamcast_build_rejects_blob_over_data_size(monkeypatch):
     spec, overlay = synth_overlay()
     with_synth_pointer_rule(monkeypatch, spec)

@@ -51,6 +51,17 @@
 static unsigned s_scenes;
 
 /*----------------------
+ | s_drawn
+ | Description: Closed scenes that drew something since start-up.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static volatile unsigned s_drawn;
+
+/*----------------------
  | s_prims
  | Description: Primitives submitted since the period started.
  | Author: suinevere
@@ -121,6 +132,16 @@ static int s_started;
 void frame_probe_scene(void)
 {
     s_scenes++;
+}
+
+void frame_probe_drawn(void)
+{
+    s_drawn++;
+}
+
+unsigned frame_probe_drawn_total(void)
+{
+    return s_drawn;
 }
 
 /*----------------------

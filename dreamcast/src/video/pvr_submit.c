@@ -366,6 +366,159 @@ static void send_strip(const DcPoly *poly, uint8_t alpha, int textured, int raw,
 }
 
 /*----------------------
+ | INVERT_PASS / BOX_MARGIN
+ | Description: The coverage pass that inverts the pixels under a strip, and how far an inversion box reaches past its primitives, since inverting a pixel twice leaves it unchanged.
+ | Author: suinevere
+ | Dependencies: BL_*, PAL_OPAQUE
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const BlendPass INVERT_PASS = { BL_INVDSTCOLOR, BL_INVSRCALPHA, 255, PAL_OPAQUE, 1 };
+#define BOX_MARGIN 1.0f
+
+/*----------------------
+ | s_inv_open / s_inv_mark / s_inv_box
+ | Description: Whether a run of subtractive primitives has inverted the pixels under s_inv_box, the recorded opening strip to widen as the run grows (NULL once streaming), and the box as x0, y0, x1, y1.
+ |              Clamped subtraction commutes, so the run adds every primitive inside one inversion instead of inverting around each.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_inv_open;
+static void *s_inv_mark;
+static float s_inv_box[4];
+
+/*----------------------
+ | box_strip
+ | Description: Fills a white four-vertex strip covering a box.
+ | Author: suinevere
+ | Dependencies: PvrVertex
+ | Globals: N/A
+ | Params: box -- x0, y0, x1, y1, verts -- four outputs
+ | Returns: N/A
+ ----------------------*/
+static void box_strip(const float *box, PvrVertex *verts)
+{
+    unsigned i;
+
+    for (i = 0; i < 4; i++)
+    {
+        verts[i].x = (i & 1u) ? box[2] : box[0];
+        verts[i].y = (i & 2u) ? box[3] : box[1];
+        verts[i].u = 0.0f;
+        verts[i].v = 0.0f;
+        verts[i].argb = 0xFFFFFFFFu;
+    }
+}
+
+/*----------------------
+ | invert_close
+ | Description: Ends an open subtractive run by inverting its box back.
+ | Author: suinevere
+ | Dependencies: send_header, box_strip, PvrBackend.strip
+ | Globals: s_inv_open, s_inv_box, s_backend, s_scene_has_prims
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void invert_close(void)
+{
+    PvrVertex verts[4];
+
+    if (!s_inv_open)
+    {
+        return;
+    }
+    s_inv_open = 0;
+    send_header(0, &INVERT_PASS);
+    box_strip(s_inv_box, verts);
+    s_scene_has_prims = 1;
+    s_backend->strip(verts, 4);
+}
+
+/*----------------------
+ | invert_cover
+ | Description: Makes sure the pixels under box are inverted: widens the open run's recorded opening strip, or when that strip already streamed and does not cover box, closes it and opens a new run.
+ | Author: suinevere
+ | Dependencies: invert_close, send_header, box_strip, PvrBackend.strip_mark, PvrBackend.patch_strip, PvrBackend.strip
+ | Globals: s_inv_open, s_inv_mark, s_inv_box, s_backend, s_scene_has_prims
+ | Params: box -- x0, y0, x1, y1 of the next subtractive primitive
+ | Returns: N/A
+ ----------------------*/
+static void invert_cover(const float *box)
+{
+    PvrVertex verts[4];
+
+    if (s_inv_open)
+    {
+        float grown[4];
+
+        if (box[0] >= s_inv_box[0] && box[1] >= s_inv_box[1] && box[2] <= s_inv_box[2] && box[3] <= s_inv_box[3])
+        {
+            return;
+        }
+        if (s_inv_mark != 0)
+        {
+            grown[0] = box[0] < s_inv_box[0] ? box[0] : s_inv_box[0];
+            grown[1] = box[1] < s_inv_box[1] ? box[1] : s_inv_box[1];
+            grown[2] = box[2] > s_inv_box[2] ? box[2] : s_inv_box[2];
+            grown[3] = box[3] > s_inv_box[3] ? box[3] : s_inv_box[3];
+            s_inv_box[0] = grown[0];
+            s_inv_box[1] = grown[1];
+            s_inv_box[2] = grown[2];
+            s_inv_box[3] = grown[3];
+            box_strip(s_inv_box, verts);
+            s_backend->patch_strip(s_inv_mark, verts, 4);
+            return;
+        }
+        invert_close();
+    }
+    send_header(0, &INVERT_PASS);
+    s_inv_box[0] = box[0];
+    s_inv_box[1] = box[1];
+    s_inv_box[2] = box[2];
+    s_inv_box[3] = box[3];
+    s_inv_mark = s_backend->strip_mark != 0 ? s_backend->strip_mark() : 0;
+    box_strip(s_inv_box, verts);
+    s_scene_has_prims = 1;
+    s_backend->strip(verts, 4);
+    s_inv_open = 1;
+}
+
+/*----------------------
+ | poly_box
+ | Description: The screen box of a clipped polygon, as send_strip places it, widened by BOX_MARGIN.
+ | Author: suinevere
+ | Dependencies: PVR_SCALE, BOX_MARGIN
+ | Globals: s_origin_x, s_origin_y
+ | Params: poly -- clipped polygon, box -- x0, y0, x1, y1 output
+ | Returns: N/A
+ ----------------------*/
+static void poly_box(const DcPoly *poly, float *box)
+{
+    unsigned i;
+
+    box[0] = box[2] = (poly->v[0].x + s_origin_x) * PVR_SCALE;
+    box[1] = box[3] = (poly->v[0].y + s_origin_y) * PVR_SCALE;
+    for (i = 1; i < poly->count; i++)
+    {
+        float x = (poly->v[i].x + s_origin_x) * PVR_SCALE;
+        float y = (poly->v[i].y + s_origin_y) * PVR_SCALE;
+
+        box[0] = x < box[0] ? x : box[0];
+        box[1] = y < box[1] ? y : box[1];
+        box[2] = x > box[2] ? x : box[2];
+        box[3] = y > box[3] ? y : box[3];
+    }
+    box[0] -= BOX_MARGIN;
+    box[1] -= BOX_MARGIN;
+    box[2] += BOX_MARGIN;
+    box[3] += BOX_MARGIN;
+}
+
+/*----------------------
  | has_excess
  | Description: Whether any vertex of a clipped polygon tints its texture above 1.0, so its colour passes need excess passes.
  | Author: suinevere
@@ -408,9 +561,9 @@ void pvr_submit_set_backend(const PvrBackend *backend)
 /*----------------------
  | pvr_submit_prim
  | Description: Clips one primitive to the draw area and writes it as up to four blended triangle strips, opening the scene first if none is open.
- | Each colour pass is followed by an excess pass when the texture tint exceeds 1.0.
+ | Each colour pass is followed by an excess pass when the texture tint exceeds 1.0; a pure subtraction only adds inside the open run's inversion, any other primitive closes the run first.
  | Author: suinevere
- | Dependencies: clip_prim, palette_clut_stp, open_scene, blend_plan, texture_cache_lookup, send_header, send_strip, has_excess, blend_excess_pass, frame_probe_prim
+ | Dependencies: clip_prim, palette_clut_stp, open_scene, blend_plan, texture_cache_lookup, send_header, send_strip, has_excess, blend_excess_pass, poly_box, invert_cover, invert_close, frame_probe_prim
  | Globals: s_frame, s_origin_x, s_origin_y, s_scene_area, s_scene_area_valid
  | Params: prim -- decoded primitive, state -- GPU state carrying the draw area
  | Returns: N/A
@@ -425,6 +578,7 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
     unsigned i;
     int stp = STP_ALL;
     int brighten;
+    int run;
 
     s_scene_area.rect.x = state->area_x1;
     s_scene_area.rect.y = state->area_y1;
@@ -443,9 +597,10 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
     }
     open_scene();
     count = blend_plan(prim->textured, prim->semi, prim->abr, stp, prim->depth != DC_DEPTH_15, passes);
+    run = count == 3 && passes[0].cover && passes[2].cover;
     if (prim->textured)
     {
-        for (i = 0; i < count; i++)
+        for (i = run ? 1u : 0u; i < (run ? 2u : count); i++)
         {
             if (texture_cache_lookup(prim->tpage_x, prim->tpage_y, prim->clut_x, prim->clut_y, prim->depth,
                                      passes[i].variant, s_frame, &tex[i]) < 0)
@@ -455,6 +610,23 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
         }
     }
     brighten = has_excess(&poly, prim->textured, prim->raw);
+    if (run)
+    {
+        float box[4];
+
+        poly_box(&poly, box);
+        invert_cover(box);
+        send_header(prim->textured ? &tex[1] : 0, &passes[1]);
+        send_strip(&poly, passes[1].alpha, prim->textured, prim->raw, 0, 0);
+        if (brighten && blend_excess_pass(&passes[1], &excess))
+        {
+            send_header(&tex[1], &excess);
+            send_strip(&poly, excess.alpha, prim->textured, prim->raw, 0, 1);
+        }
+        frame_probe_prim();
+        return;
+    }
+    invert_close();
     for (i = 0; i < count; i++)
     {
         send_header(prim->textured ? &tex[i] : 0, &passes[i]);
@@ -470,9 +642,9 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
 
 /*----------------------
  | pvr_submit_flip
- | Description: Finishes the scene if one is open, so the PowerVR renders it, counts the scene for the probe, and hands its snapshot to s_pending_rect to confirm later.
+ | Description: Finishes the scene if one is open, so the PowerVR renders it, counts the scene for the probe (and as drawn when it held a strip), and hands its snapshot to s_pending_rect to confirm later.
  | Author: suinevere
- | Dependencies: PvrBackend.scene_finish, frame_probe_scene
+ | Dependencies: invert_close, PvrBackend.scene_finish, frame_probe_scene, frame_probe_drawn
  | Globals: s_backend, s_scene_open, s_scenes_closed, s_scene_area, s_scene_area_valid, s_pending_rect, s_pending_rect_valid
  | Params: N/A
  | Returns: N/A
@@ -483,6 +655,7 @@ void pvr_submit_flip(void)
     {
         return;
     }
+    invert_close();
     s_backend->scene_finish();
     s_scene_open = 0;
     s_scenes_closed++;
@@ -493,6 +666,10 @@ void pvr_submit_flip(void)
     }
     s_scene_area_valid = 0;
     frame_probe_scene();
+    if (s_scene_has_prims)
+    {
+        frame_probe_drawn();
+    }
 }
 
 /*----------------------
@@ -528,9 +705,9 @@ void pvr_submit_background(uint16_t ps1_colour)
 
 /*----------------------
  | pvr_submit_rect
- | Description: Opens the scene and draws an opaque untextured rectangle, standing in for a ClearImage that only covers part of the draw area.
+ | Description: Opens the scene, closes any subtractive run, and draws an opaque untextured rectangle, standing in for a ClearImage that only covers part of the draw area.
  | Author: suinevere
- | Dependencies: open_scene, ps1_channel, send_header, send_strip
+ | Dependencies: open_scene, invert_close, ps1_channel, send_header, send_strip
  | Globals: N/A
  | Params: x, y -- top-left relative to the draw area in PS1 pixels, w, h -- size, ps1_colour -- PS1 15-bit colour
  | Returns: N/A
@@ -562,6 +739,7 @@ void pvr_submit_rect(int x, int y, int w, int h, uint16_t ps1_colour)
         poly.v[i].b = b;
     }
     open_scene();
+    invert_close();
     send_header(0, &pass);
     send_strip(&poly, pass.alpha, 0, 0, 0, 0);
 }
@@ -637,6 +815,35 @@ int pvr_submit_scene_has_prims(void)
  | Params: x, y, w, h, origin_x, origin_y -- outputs, filled when a confirmed frame exists
  | Returns: 1 if a confirmed frame's rect was returned, 0 if there is none yet
  ----------------------*/
+/*----------------------
+ | pvr_frame_settle
+ | Description: When the rect overlaps the last closed scene's area but not the frame on screen, and that scene is not yet shown, waits for it through PvrBackend.wait_shown and promotes it.
+ |              Real renders finish after the vblank a game's VSync returned on, so a capture early in the next frame otherwise read the frame before it, often the other buffer, and got black.
+ | Author: suinevere
+ | Dependencies: PvrBackend.scene_shown, PvrBackend.wait_shown, promote_pending_rect
+ | Globals: s_backend, s_pending_rect, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_scenes_closed
+ | Params: x, y, w, h -- VRAM rect about to be read
+ | Returns: N/A
+ ----------------------*/
+void pvr_frame_settle(int x, int y, int w, int h)
+{
+    const RECT *r = &s_pending_rect.rect;
+    const RECT *f = &s_frame_rect.rect;
+
+    if (!s_pending_rect_valid || x >= r->x + r->w || r->x >= x + w || y >= r->y + r->h || r->y >= y + h)
+    {
+        return;
+    }
+    if (s_frame_rect_valid && x < f->x + f->w && f->x < x + w && y < f->y + f->h && f->y < y + h)
+    {
+        return;
+    }
+    if (s_backend->scene_shown(s_scenes_closed) || s_backend->wait_shown(s_scenes_closed))
+    {
+        promote_pending_rect();
+    }
+}
+
 int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y)
 {
     if (s_pending_rect_valid && s_backend->scene_shown(s_scenes_closed))

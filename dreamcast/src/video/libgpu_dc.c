@@ -419,10 +419,11 @@ int DrawSync(int mode)
 /*----------------------
  | VSync
  | Description: Flips an open PowerVR scene on the waiting modes (0 and above 1) and paces the game on the shared vblank counter.
+ | VSync(0) under a 24-bit display returns at once when a vblank has passed since the last wait, since a movie frame's software decode runs close to its four vblanks and the extra wait pushed most frames to five.
  | Then delivers due CD stream sectors and runs the hook unless this was a counter read; VSync(1) returns at once on the PS1 and games call it mid-frame, so it never flips.
  | Author: suinevere
- | Dependencies: pvr_submit_flip, vsync_wait, idle_count, s_async_poll, cdrom_dc_vsync_tick
- | Globals: s_vsync_hook, s_async_poll
+ | Dependencies: pvr_submit_flip, vsync_wait, vsync_wait_after, idle_count, s_async_poll, cdrom_dc_vsync_tick
+ | Globals: s_vsync_hook, s_async_poll, s_disp_env
  | Params: mode -- PS1 VSync mode
  | Returns: vblank count for mode < 0, else 0
  ----------------------*/
@@ -436,7 +437,15 @@ int VSync(int mode)
         pvr_submit_flip();
     }
     t0 = dc_time_us();
-    result = vsync_wait(mode, idle_count);
+    result = 0;
+    if (mode == 0 && s_disp_env.isrgb24)
+    {
+        vsync_wait_after(idle_count);
+    }
+    else
+    {
+        result = vsync_wait(mode, idle_count);
+    }
     s_vsync_wait_us += dc_time_us() - t0;
 
     if (s_async_poll != 0)
@@ -709,10 +718,10 @@ static uint16_t s_readback_line[FRAME_READBACK_LINE_MAX];
 
 /*----------------------
  | consult_frame
- | Description: Where rect overlaps both the last confirmed PowerVR frame and the screen it was placed on, reads those pixels back into the mirror row by row.
+ | Description: Where rect overlaps both the last confirmed PowerVR frame and the screen it was placed on, reads those pixels back into the mirror row by row, first letting a just-closed scene that drew there reach the screen.
  | So StoreImage, MoveImage and MoveImage2 see the screen, mapping each VRAM pixel through the frame's screen origin before sampling it.
  | Author: suinevere
- | Dependencies: pvr_frame_rect, DrawSync, pvr_backend_frame_pixels, frame_readback_copy, vram_mirror_invalidate
+ | Dependencies: pvr_frame_settle, pvr_frame_rect, DrawSync, pvr_backend_frame_pixels, frame_readback_copy, vram_mirror_invalidate
  | Globals: s_readback_line
  | Params: rect -- VRAM rectangle about to be read or moved
  | Returns: N/A
@@ -728,6 +737,7 @@ static void consult_frame(const RECT *rect)
     int row;
     int w;
 
+    pvr_frame_settle(rect->x, rect->y, rect->w, rect->h);
     if (!pvr_frame_rect(&frame.x, &frame.y, &frame.w, &frame.h, &origin_x, &origin_y))
     {
         return;

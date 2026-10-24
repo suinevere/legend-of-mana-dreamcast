@@ -68,6 +68,12 @@ int vsync_wait(int mode, VsyncClock clock)
     return 0;
 }
 
+void vsync_wait_after(VsyncClock clock)
+{
+    (void)clock;
+    s_fake_vblanks++;
+}
+
 void dc_log(const char *format, ...)
 {
     (void)format;
@@ -92,6 +98,22 @@ static int s_probe_scenes;
 void frame_probe_scene(void)
 {
     s_probe_scenes++;
+}
+
+/*----------------------
+ | s_probe_drawn / frame_probe_drawn
+ | Description: Counts the closed scenes pvr_submit_flip reports as having drawn something.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_probe_drawn
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_probe_drawn;
+
+void frame_probe_drawn(void)
+{
+    s_probe_drawn++;
 }
 
 /*----------------------
@@ -134,6 +156,25 @@ static int fake_scene_shown(unsigned scenes_closed)
 {
     (void)scenes_closed;
     return s_scene_shown_result;
+}
+
+/*----------------------
+ | s_wait_shown_calls / fake_wait_shown
+ | Description: Counts the backend waits for a closed scene to reach the screen; the wait shows it, as a flip arriving would.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_wait_shown_calls, s_scene_shown_result
+ | Params: scenes_closed -- unused
+ | Returns: 1
+ ----------------------*/
+static int s_wait_shown_calls;
+
+static int fake_wait_shown(unsigned scenes_closed)
+{
+    (void)scenes_closed;
+    s_wait_shown_calls++;
+    s_scene_shown_result = 1;
+    return 1;
 }
 
 static void fake_scene_finish(void)
@@ -236,7 +277,44 @@ static void fake_strip(const PvrVertex *verts, unsigned count)
     }
 }
 
-static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_strip, fake_scene_shown, fake_frame_texture };
+/*----------------------
+ | s_mark_strip / s_patch_box / s_patches / fake_strip_mark / fake_patch_strip
+ | Description: Marks hand back the index of the next strip; a patch records the box it rewrote that strip to.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_strips, s_mark_strip, s_patch_box, s_patches
+ | Params: mark -- index from fake_strip_mark, verts, count -- the rewritten corners
+ | Returns: fake_strip_mark -- an opaque mark
+ ----------------------*/
+static int s_mark_strip = -1;
+static float s_patch_box[4];
+static int s_patches;
+
+static void *fake_strip_mark(void)
+{
+    s_mark_strip = s_strips;
+    return (void *)(uintptr_t)(s_strips + 1);
+}
+
+static void fake_patch_strip(void *mark, const PvrVertex *verts, unsigned count)
+{
+    unsigned i;
+
+    (void)mark;
+    s_patch_box[0] = s_patch_box[2] = verts[0].x;
+    s_patch_box[1] = s_patch_box[3] = verts[0].y;
+    for (i = 1; i < count; i++)
+    {
+        s_patch_box[0] = verts[i].x < s_patch_box[0] ? verts[i].x : s_patch_box[0];
+        s_patch_box[1] = verts[i].y < s_patch_box[1] ? verts[i].y : s_patch_box[1];
+        s_patch_box[2] = verts[i].x > s_patch_box[2] ? verts[i].x : s_patch_box[2];
+        s_patch_box[3] = verts[i].y > s_patch_box[3] ? verts[i].y : s_patch_box[3];
+    }
+    s_patches++;
+}
+
+static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_strip, fake_scene_shown, fake_wait_shown, fake_frame_texture,
+                                   fake_strip_mark, fake_patch_strip };
 
 static void *fake_alloc(unsigned bytes)
 {
@@ -391,6 +469,7 @@ static void test_subtractive_tile_inverts_adds_and_inverts(void)
     reset();
     DrawOTag(&chain[0]);
     gpu_decode_set_base(0);
+    VSync(0);
     CHECK(s_strips == 3);
     CHECK(s_headers == 3);
     CHECK(s_header_log[0].src == BL_INVDSTCOLOR && s_header_log[0].dst == BL_INVSRCALPHA);
@@ -399,7 +478,44 @@ static void test_subtractive_tile_inverts_adds_and_inverts(void)
     CHECK(s_strip_colour[0] == 0x00FFFFFFu);
     CHECK(s_strip_colour[1] == 0x00804020u);
     CHECK(s_strip_colour[2] == 0x00FFFFFFu);
+}
+
+static void test_subtractive_run_shares_one_inversion_box(void)
+{
+    u_long chain[2 + 3 * (1 + sizeof(TILE) / sizeof(u_long))];
+    TILE *a = (TILE *)&chain[3];
+    TILE *b = (TILE *)&chain[3 + 1 + sizeof(TILE) / sizeof(u_long)];
+    TILE *c = (TILE *)&chain[3 + 2 * (1 + sizeof(TILE) / sizeof(u_long))];
+    unsigned tile_words = 1 + sizeof(TILE) / sizeof(u_long);
+
+    put_draw_area(0, 0, 320, 240);
+    gpu_decode_set_base((uintptr_t)chain);
+    setlen(&chain[0], 1);
+    setaddr(&chain[0], (uint32_t)(2 * sizeof(u_long)));
+    chain[1] = 0xE1000040u;
+    setlen(&chain[2], 0);
+    setaddr(&chain[2], (uint32_t)(3 * sizeof(u_long)));
+    make_tile(a, 8, 8);
+    a->code = 0x62;
+    setaddr(a, (uint32_t)((3 + tile_words) * sizeof(u_long)));
+    make_tile(b, 100, 50);
+    b->code = 0x62;
+    setaddr(b, (uint32_t)((3 + 2 * tile_words) * sizeof(u_long)));
+    make_tile(c, 40, 40);
+    reset();
+    s_patches = 0;
+    DrawOTag(&chain[0]);
+    gpu_decode_set_base(0);
+    CHECK(s_strips == 5);
+    CHECK(s_header_log[0].src == BL_INVDSTCOLOR);
+    CHECK(s_header_log[1].src == BL_ONE && s_header_log[1].dst == BL_ONE);
+    CHECK(s_header_log[2].src == BL_INVDSTCOLOR);
+    CHECK(s_mark_strip == 0);
+    CHECK(s_patches >= 1);
+    CHECK(s_patch_box[0] <= 16.0f && s_patch_box[1] <= 16.0f && s_patch_box[2] >= 232.0f && s_patch_box[3] >= 116.0f);
+    CHECK(s_last_strip_min_x == 80.0f && s_last_strip_min_y == 80.0f);
     VSync(0);
+    CHECK(s_strips == 5);
 }
 
 static void test_bright_textured_sprite_adds_its_excess(void)
@@ -531,6 +647,40 @@ static void test_frame_rect_promotes_lazily_once_the_flip_is_shown(void)
     s_scene_shown_result = 0;
 }
 
+static void test_frame_settle_waits_for_a_closed_scene_a_read_overlaps(void)
+{
+    int16_t x, y, w, h, ox, oy;
+
+    s_scene_begin_result = 1;
+    s_scene_shown_result = 1;
+    put_draw_area(0, 0, 320, 240);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    put_draw_area(0, 240, 320, 240);
+    draw_tile_ot(10, 10);
+    s_scene_shown_result = 0;
+    VSync(0);
+    s_wait_shown_calls = 0;
+    pvr_frame_settle(512, 0, 64, 64);
+    CHECK(s_wait_shown_calls == 0);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(y == 0);
+    pvr_frame_settle(0, 240, 320, 240);
+    CHECK(s_wait_shown_calls == 1);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(y == 240 && h == 240);
+    pvr_frame_settle(0, 240, 320, 240);
+    CHECK(s_wait_shown_calls == 1);
+
+    put_draw_area(0, 240, 320, 240);
+    draw_tile_ot(10, 10);
+    s_scene_shown_result = 0;
+    VSync(0);
+    pvr_frame_settle(0, 240, 320, 240);
+    CHECK(s_wait_shown_calls == 1);
+    s_scene_shown_result = 0;
+}
+
 /*----------------------
  | test_rgb24_frame_is_one_opaque_full_screen_scene
  | Description: An RGB24 frame loads its texture once and draws one full-screen strip with it in a scene of its own, counted by the probe.
@@ -540,6 +690,20 @@ static void test_frame_rect_promotes_lazily_once_the_flip_is_shown(void)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+static void test_flip_reports_only_scenes_that_drew(void)
+{
+    s_scene_begin_result = 1;
+    put_draw_area(0, 0, 320, 240);
+    VSync(0);
+    s_probe_drawn = 0;
+    draw_tile_ot(10, 10);
+    VSync(0);
+    CHECK(s_probe_drawn == 1);
+    ClearImage(&(RECT){ 0, 0, 320, 240 }, 0, 0, 0);
+    VSync(0);
+    CHECK(s_probe_drawn == 1);
+}
+
 static void test_rgb24_frame_is_one_opaque_full_screen_scene(void)
 {
     static uint16_t pixels[512 * 256];
@@ -571,11 +735,14 @@ int main(void)
     test_isbg_only_frame_shows_its_background();
     test_partial_clear_only_frame_draws_its_rect();
     test_subtractive_tile_inverts_adds_and_inverts();
+    test_subtractive_run_shares_one_inversion_box();
     test_bright_textured_sprite_adds_its_excess();
     test_clear_after_prims_redraws_full_area();
     test_expired_flip_wait_defers_texture_flush();
     test_frame_rect_promotes_only_after_flip_is_confirmed();
     test_frame_rect_promotes_lazily_once_the_flip_is_shown();
+    test_flip_reports_only_scenes_that_drew();
+    test_frame_settle_waits_for_a_closed_scene_a_read_overlaps();
 
     if (failures != 0)
     {

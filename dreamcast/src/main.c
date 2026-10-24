@@ -23,6 +23,8 @@
 #include "movie_audio_dc.h"
 #include "movie_decode_kos.h"
 #include "cdrom_dc.h"
+#include "hang_watch.h"
+#include "frame_probe.h"
 
 #ifdef LOM_PAD_SCRIPT
 #include "watch.h"
@@ -51,10 +53,32 @@ void (*g_dc_field_movie)(void) = NULL;
 #endif
 
 /*----------------------
+ | vsync_hook
+ | Description: Runs once per VSync: tells the hang check the game is alive when a scene that drew something closed since the last call, then polls the state report.
+ | Author: suinevere
+ | Dependencies: frame_probe_drawn_total, hang_watch_feed, state_report_poll
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void vsync_hook(void)
+{
+    static unsigned drawn = ~0u;
+    unsigned now = frame_probe_drawn_total();
+
+    if (now != drawn)
+    {
+        drawn = now;
+        hang_watch_feed();
+    }
+    state_report_poll();
+}
+
+/*----------------------
  | main
  | Description: Initialises the Dreamcast platform and runs main_game_loop, which never returns on the PS1.
  | Author: suinevere
- | Dependencies: disc_fs_kos_init, dc_system_init, dc_system_video_hz, cd_stream_set_refresh, pvr_submit_init, dc_exception_install, vblank_dc_install, overlay_loader_init, card_store_kos_init, akao_tick_dc_init, dc_set_vsync_hook, dc_set_vsync_idle, dc_yield, movie_decode_kos_init, dc_set_async_poll, movie_audio_set_poll, cdrom_dc_set_poll, libpress_dc_poll, libpress_dc_poll_wait, state_report_poll, dc_log, main_game_loop, dc_halt
+ | Dependencies: disc_fs_kos_init, dc_system_init, dc_system_video_hz, cd_stream_set_refresh, pvr_submit_init, dc_exception_install, hang_watch_install, vblank_dc_install, overlay_loader_init, card_store_kos_init, akao_tick_dc_init, dc_set_vsync_hook, vsync_hook, dc_set_vsync_idle, dc_yield, movie_decode_kos_init, dc_set_async_poll, movie_audio_set_poll, cdrom_dc_set_poll, libpress_dc_poll, libpress_dc_poll_wait, dc_log, main_game_loop, dc_halt
  | Globals: N/A
  | Params: N/A
  | Returns: never
@@ -66,11 +90,12 @@ int main(void)
     cd_stream_set_refresh(dc_system_video_hz());
     pvr_submit_init();
     dc_exception_install();
+    hang_watch_install((unsigned)dc_system_video_hz());
     vblank_dc_install();
     overlay_loader_init();
     card_store_kos_init();
     akao_tick_dc_init();
-    dc_set_vsync_hook(state_report_poll);
+    dc_set_vsync_hook(vsync_hook);
     dc_set_vsync_idle(dc_yield);
     movie_decode_kos_init();
     dc_set_async_poll(libpress_dc_poll);

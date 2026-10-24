@@ -87,6 +87,17 @@ C_DEFINED = {
     "wmap": ("g_wmap_controller_ports",),
 }
 
+#----------------------
+# | MAIN_OWNED
+# | Description: PS1 FIELD-range variables main's field_runtime.c reads and writes; a linked-arena target gives them storage in main (dreamcast/src/boot/main_globals_dc.c), so no overlay may pin its own copy or FIELD's world-map request never reaches main.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+MAIN_OWNED = ("g_pending_game_state", "g_field_scene_request_pending")
+
 
 #----------------------
 # | ps1_to_saturn_color
@@ -1090,7 +1101,7 @@ def append_text_table(buf, spec, symbols):
 # | Description: Packs an overlay's ranges, drops its all-zero tail, applies its TIM and data rules (or only its pointer rule for a target without convert rules),
 # |              and builds its linker symbol script at the target's data address without the FUNCTION_TABLES or C_DEFINED names, giving placed symbols their fixed addresses.
 # | Author: suinevere
-# | Dependencies: target_spec, packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, POINTER_RULES, data_base, append_text_table, targets.SATURN
+# | Dependencies: target_spec, packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, MAIN_OWNED, POINTER_RULES, data_base, append_text_table, targets.SATURN
 # | Globals: N/A
 # | Params: spec -- OverlaySpec, overlay -- decompressed overlay bytes, symbols -- name to PS1 address, target -- targets.Target, Saturn by default
 # | Returns: (packed bytearray, linker script text); raises ValueError when the blob overflows the target's data region
@@ -1130,6 +1141,8 @@ def build_overlay(spec, overlay, symbols, target=targets.SATURN):
     lines = ["_lom_ovl_%s_data_size = 0x%08X;" % (spec.name, len(buf)),
              "_lom_ovl_%s_tail_size = 0x%08X;" % (spec.name, tail_size)]
     in_c = {name for name, _ in tables_for(spec, overlay, symbols)} | set(C_DEFINED.get(spec.name, ()))
+    if target.regions is not None:
+        in_c |= set(MAIN_OWNED)
     placed = dict(spec.placed)
     for name in sorted(symbols, key=lambda n: symbols[n]):
         offset = packed_offset(symbols[name], spec)

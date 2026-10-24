@@ -28,6 +28,7 @@ typedef unsigned (*VsyncClock)(void);
 void vsync_tick(void);
 unsigned vsync_count(void);
 int vsync_wait(int mode, VsyncClock clock);
+void vsync_wait_after(VsyncClock clock);
 
 #ifdef __cplusplus
 }

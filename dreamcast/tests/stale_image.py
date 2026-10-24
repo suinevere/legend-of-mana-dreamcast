@@ -23,7 +23,7 @@ WATCHED_DIRS = ("src", os.path.join("..", "port"), os.path.join("tests", "pad_sc
 
 #----------------------
 # | newest_mtime
-# | Description: The newest modification time of any file under the given directories, walked recursively; missing directories are skipped.
+# | Description: The newest modification time of any file under the given directories, walked recursively; missing directories and Python bytecode caches are skipped.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -36,7 +36,8 @@ def newest_mtime(dc_root, rel_dirs):
         base = os.path.normpath(os.path.join(dc_root, rel))
         if not os.path.isdir(base):
             continue
-        for dirpath, _dirnames, filenames in os.walk(base):
+        for dirpath, dirnames, filenames in os.walk(base):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
             for name in filenames:
                 path = os.path.join(dirpath, name)
                 try:

@@ -64,6 +64,23 @@ void cdrom_dc_vsync_tick(void)
     s_stream_ticks++;
 }
 
+/*----------------------
+ | s_wait_after_calls / vsync_wait_after
+ | Description: Counts the waits VSync makes that return once a vblank has passed since the last, advancing the fake counter like one.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_wait_after_calls, s_fake_vblanks
+ | Params: clock -- unused
+ | Returns: N/A
+ ----------------------*/
+static int s_wait_after_calls;
+
+void vsync_wait_after(VsyncClock clock)
+{
+    (void)clock;
+    s_wait_after_calls++;
+}
+
 int vsync_wait(int mode, VsyncClock clock)
 {
     (void)clock;
@@ -170,6 +187,14 @@ static int16_t s_frame_origin_x;
 static int16_t s_frame_origin_y;
 static uint16_t s_frame_pixels[640 * 480];
 static unsigned s_frame_pitch = 640;
+
+void pvr_frame_settle(int x, int y, int w, int h)
+{
+    (void)x;
+    (void)y;
+    (void)w;
+    (void)h;
+}
 
 int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y)
 {
@@ -933,6 +958,23 @@ static void test_vsync_flips_only_on_waiting_modes(void)
     CHECK(s_flips == 1);
 }
 
+static void test_vsync_shows_a_late_24bit_frame_without_another_wait(void)
+{
+    DISPENV env;
+
+    SetDefDispEnv(&env, 0, 0, 320, 240);
+    env.isrgb24 = 1;
+    PutDispEnv(&env);
+    s_wait_after_calls = 0;
+    VSync(0);
+    CHECK(s_wait_after_calls == 1);
+    VSync(2);
+    CHECK(s_wait_after_calls == 1);
+    put_disp_area(0, 0, 320, 240);
+    VSync(0);
+    CHECK(s_wait_after_calls == 1);
+}
+
 static void test_draw_sync_flips_a_scene_drawn_into_the_displayed_area(void)
 {
     TILE tile;
@@ -1032,6 +1074,7 @@ int main(void)
     test_store_image_clips_to_the_320x240_screen();
     test_move_image_reads_the_shown_frame_like_screen_transition();
     test_vsync_flips_only_on_waiting_modes();
+    test_vsync_shows_a_late_24bit_frame_without_another_wait();
     test_draw_sync_flips_a_scene_drawn_into_the_displayed_area();
     test_draw_sync_leaves_a_scene_drawn_into_the_back_buffer_open();
     test_draw_sync_does_not_flip_an_empty_displayed_scene();

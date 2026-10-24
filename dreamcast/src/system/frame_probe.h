@@ -22,6 +22,18 @@
 void frame_probe_scene(void);
 
 /*----------------------
+ | frame_probe_drawn / frame_probe_drawn_total
+ | Description: Counts a closed scene that drew something, and returns how many have since start-up, for the hang check.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: frame_probe_drawn_total -- the count
+ ----------------------*/
+void frame_probe_drawn(void);
+unsigned frame_probe_drawn_total(void);
+
+/*----------------------
  | frame_probe_prim
  | Description: Counts one primitive pvr_submit_prim wrote to the PowerVR.
  | Author: suinevere
