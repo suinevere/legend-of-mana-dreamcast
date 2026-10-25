@@ -21,6 +21,17 @@
  ----------------------*/
 typedef void (*DcVsyncHook)(void);
 
+/*----------------------
+ | DC_IMMEDIATE_SCENE_HOLD_VBLANKS
+ | Description: Vblanks PutDispEnv keeps a scene drawn only with DrawPrim on screen after presenting it, standing in for the PS1 CD load such a loading card covers.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define DC_IMMEDIATE_SCENE_HOLD_VBLANKS 30
+
 unsigned dc_frame_primitives(void);
 void dc_set_vsync_hook(DcVsyncHook hook);
 

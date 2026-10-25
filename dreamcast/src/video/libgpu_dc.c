@@ -3,7 +3,7 @@
  | Description: Dreamcast backend for the Psy-Q libgpu calls the ported game code makes: mirrors VRAM, decodes ordering tables into the PowerVR submitter, and paces frames on the shared VSync pacer. Also reads back the finished PowerVR frame for StoreImage and MoveImage.
  | Author: suinevere
  | Dependencies: lom_prefix.h, gpu_tag.h, vram_mirror.h, gpu_decode.h, pvr_submit.h, pvr_backend.h, frame_readback.h, vsync_pacer.h, libgpu_dc.h
- | Globals: s_draw_env, s_disp_env, s_disp_seen, s_disp_mask, s_frame_primitives, s_vsync_hook, s_gpu_state, s_readback_line, s_draw_matches_disp
+ | Globals: s_draw_env, s_disp_env, s_disp_seen, s_disp_mask, s_frame_primitives, s_vsync_hook, s_gpu_state, s_readback_line, s_draw_matches_disp, s_immediate_scene
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -204,9 +204,21 @@ static int16_t s_origin_area[2];
  ----------------------*/
 static int s_draw_matches_disp;
 
+/*----------------------
+ | s_immediate_scene
+ | Description: Whether the open scene's first primitive came from DrawPrim and no DrawOTag has added to it since, the mark of a loading card drawn outside the frame loop.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_immediate_scene;
+
 static void update_origin(void);
 static void update_draw_matches_disp(void);
 static void sync_flip(void);
+static void present_immediate_scene(void);
 
 /*----------------------
  | submit_sink
@@ -341,6 +353,8 @@ void DrawOTag(u_long *ot)
 {
     unsigned long long t0 = dc_time_us();
 
+    s_immediate_scene = 0;
+
     gpu_decode_ot(&s_gpu_state, ot, submit_sink, 0);
     s_otag_us += dc_time_us() - t0;
     if (s_draw_sync_callback != 0)
@@ -361,6 +375,11 @@ void DrawOTag(u_long *ot)
 void DrawPrim(void *prim)
 {
     const u_long *packet = (const u_long *)prim;
+
+    if (!pvr_submit_scene_has_prims())
+    {
+        s_immediate_scene = 1;
+    }
 
     gpu_decode_packet(&s_gpu_state, (const uint32_t *)(packet + 1), gpu_tag_len((uint32_t)packet[0]), submit_sink, 0);
 }
@@ -555,7 +574,7 @@ DISPENV *SetDefDispEnv(DISPENV *env, int x, int y, int w, int h)
  | PutDrawEnv
  | Description: Records the draw environment, resets the decoder's area, offset and tpage from it, places it on screen, and sets the PowerVR background when isbg asks for a clear.
  | Author: suinevere
- | Dependencies: gpu_decode_reset, update_origin, update_draw_matches_disp, pvr_submit_background, pack_colour
+ | Dependencies: gpu_decode_reset, update_origin, update_draw_matches_disp, pvr_submit_keep_screen, pvr_submit_background, pack_colour
  | Globals: s_draw_env, s_gpu_state
  | Params: env -- draw environment
  | Returns: env
@@ -573,6 +592,7 @@ DRAWENV *PutDrawEnv(DRAWENV *env)
     s_gpu_state.tpage = (uint16_t)((env->tpage & 0x1FF) | (env->dtd ? 0x200 : 0) | (env->dfe ? 0x400 : 0));
     update_origin();
     update_draw_matches_disp();
+    pvr_submit_keep_screen(!env->isbg);
     if (env->isbg)
     {
         pvr_submit_background(pack_colour(env->r0, env->g0, env->b0));
@@ -611,7 +631,43 @@ DISPENV *PutDispEnv(DISPENV *env)
         s_disp_seen[0] = *r;
     }
     update_draw_matches_disp();
+    if (!env->isrgb24)
+    {
+        present_immediate_scene();
+    }
     return env;
+}
+
+/*----------------------
+ | present_immediate_scene
+ | Description: When the display moves onto an area overlapping the one an open DrawPrim-only scene was drawn in, flips it and holds it for DC_IMMEDIATE_SCENE_HOLD_VBLANKS.
+ |              WMAP's loading globe brightens in three such scenes between CD loads that finish at once here, so each would otherwise never reach the screen.
+ | Author: suinevere
+ | Dependencies: pvr_submit_scene_has_prims, pvr_submit_flip, VSync
+ | Globals: s_immediate_scene, s_draw_env, s_disp_env
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void present_immediate_scene(void)
+{
+    const RECT *draw = &s_draw_env.clip;
+    const RECT *disp = &s_disp_env.disp;
+    int i;
+
+    if (!s_immediate_scene || !pvr_submit_scene_has_prims())
+    {
+        return;
+    }
+    if (draw->x >= disp->x + disp->w || disp->x >= draw->x + draw->w || draw->y >= disp->y + disp->h || disp->y >= draw->y + draw->h)
+    {
+        return;
+    }
+    s_immediate_scene = 0;
+    pvr_submit_flip();
+    for (i = 0; i < DC_IMMEDIATE_SCENE_HOLD_VBLANKS; i++)
+    {
+        VSync(0);
+    }
 }
 
 /*----------------------

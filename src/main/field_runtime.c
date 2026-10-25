@@ -34,6 +34,9 @@ typedef struct
 #define FIELD_WORKSPACE ((FieldWorkspace*)FIELD_WORKSPACE_ADDRESS)
 
 extern void field_set_fade_target(s16, s16, s16, s16);
+#if defined(LOM_DREAMCAST)
+void dc_pad_field_frame(void);
+#endif
 
 extern void field_stop_song(void);
 
@@ -165,6 +168,9 @@ void field_run_frame_loop(FieldRenderHalf* render_buffers)
             PutDrawEnv(&draw_half->draw_env);
             field_flush_vram_uploads();
             DrawOTag(&g_field_current_render_half->ordering_table[FIELD_ORDERING_TABLE_SIZE - 1]);
+#if defined(LOM_DREAMCAST)
+            dc_pad_field_frame();
+#endif
             update_controllers();
             cdrom_process_state();
         }

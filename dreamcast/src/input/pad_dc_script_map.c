@@ -44,6 +44,8 @@ void pad_dc_script_fill(DcPadSample *out, uint16_t want)
     out->joyy = 0;
     out->ltrig = 0;
     out->rtrig = 0;
+    out->stick_moves = 0;
+    out->dpad_buttons = 0;
     if (want & PAD_SCRIPT_BTN_CROSS) out->buttons |= DC_SCRIPT_CONT_A;
     if (want & PAD_SCRIPT_BTN_CIRCLE) out->buttons |= DC_SCRIPT_CONT_B;
     if (want & PAD_SCRIPT_BTN_SQUARE) out->buttons |= DC_SCRIPT_CONT_X;

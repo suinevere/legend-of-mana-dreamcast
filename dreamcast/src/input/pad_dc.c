@@ -31,7 +31,7 @@ static int s_script_started;
 
 /*----------------------
  | pad_dc_read
- | Description: Samples the first Maple controller found, if any, into a DcPadSample; under LOM_PAD_SCRIPT, samples the compiled-in pad script instead, reusing the script dc_system_init already selected through pad_script_selected.
+ | Description: Samples the first Maple controller found, if any, into a DcPadSample with the stick steering; under LOM_PAD_SCRIPT, samples the compiled-in pad script instead, reusing the script dc_system_init already selected through pad_script_selected.
  | Author: suinevere
  | Dependencies: maple_enum_type, maple_dev_status, pad_script_selected, dc_log, pad_script_start, pad_script_buttons (LOM_PAD_SCRIPT), pad_dc_script_fill (LOM_PAD_SCRIPT)
  | Globals: N/A
@@ -60,6 +60,8 @@ int pad_dc_read(DcPadSample *out)
     out->joyy = 0;
     out->ltrig = 0;
     out->rtrig = 0;
+    out->stick_moves = 1;
+    out->dpad_buttons = 0;
     if (dev == NULL || dev->port != 0)
     {
         return 0;

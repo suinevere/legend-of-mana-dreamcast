@@ -13,5 +13,7 @@
 #include "pad_dc_map.h"
 
 int pad_dc_read(DcPadSample *out);
+void dc_pad_field_frame(void);
+void dc_pad_set_field_walking(PadDcWalkingQuery walking);
 
 #endif

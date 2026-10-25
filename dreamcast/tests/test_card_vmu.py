@@ -29,6 +29,19 @@ def package(data):
             "data": data[start:start + data_len]}
 
 
+def package_crc_ok(data):
+    icons, _, _, crc, data_len = struct.unpack_from("<HHHHI", data, 0x40)
+    size = 128 + 512 * icons + data_len
+    body = bytearray(data[:size])
+    body[0x46:0x48] = b"\0\0"
+    n = 0
+    for byte in body:
+        n ^= byte << 8
+        for _ in range(8):
+            n = ((n << 1) ^ 4129) if n & 0x8000 else (n << 1)
+    return (n & 0xFFFF) == crc
+
+
 def lom_files(img):
     return [(name, data) for name, data in vmu_image.files(img) if name.startswith("LOM")]
 
@@ -88,6 +101,7 @@ def test_carda_saves_a_ps1_save_as_one_vms_package(save_run):
     assert pkg["desc_long"].startswith("BASLUS-01013")
     assert len(pkg["data"]) == 0x4000 and pkg["data"][:2] == b"SC"
     assert pkg["icons"] >= 1
+    assert package_crc_ok(saves[0][1])
 
 
 def test_cload_loads_that_save_back_into_home(load_run):
@@ -100,7 +114,7 @@ def test_a_second_save_adds_a_second_file_beside_the_first(save_run, load_run):
     first = {name for name, _ in lom_files(save_run[2])}
     after = lom_files(load_run[2])
     assert len(after) == 2 and first < {name for name, _ in after}
-    assert all(package(data)["data"][:2] == b"SC" for _, data in after)
+    assert all(package(data)["data"][:2] == b"SC" and package_crc_ok(data) for _, data in after)
 
 
 def test_a_full_vmu_takes_the_card_full_path_and_writes_nothing(full_run):

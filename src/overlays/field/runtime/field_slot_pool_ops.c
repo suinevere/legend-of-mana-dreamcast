@@ -68,7 +68,7 @@ void field_run_item_script(s32 offset)
     FIELD_SCRIPT_RECORD_STATE(context->active_record)->pc = g_field_item_tables->bytes + (offset & 0xFFFF);
     FIELD_SCRIPT_RECORD_STATE(context->active_record)->wait.bits.resume = 0;
     FIELD_SCRIPT_RECORD_STATE(context->active_record)->wait.bits.frames = 0;
-    field_write_script_var(context->status.owner_id, FIELD_VAR_EVENT_ARGUMENT << 16, 0);
+    field_write_script_var(context->status.owner_id, FIELD_SCRIPT_VAR_ARG(FIELD_VAR_EVENT_ARGUMENT), 0);
     field_script_run(g_field_script);
 }
 

@@ -160,6 +160,11 @@ int pvr_submit_scene_has_prims(void)
     return s_scene_has_prims_stub;
 }
 
+void pvr_submit_keep_screen(int keep)
+{
+    (void)keep;
+}
+
 /*----------------------
  | s_rgb24_calls / s_rgb24_size / s_rgb24_first / pvr_submit_rgb24
  | Description: Records each RGB24 frame libgpu presents: how many, their size, and their first pixel.
@@ -1028,6 +1033,46 @@ static void test_put_disp_env_flips_a_scene_drawn_into_the_displayed_area(void)
     CHECK(s_flips == 1);
 }
 
+static void test_put_disp_env_presents_and_holds_an_immediate_scene_inside_the_new_display(void)
+{
+    TILE tile;
+    unsigned before;
+
+    make_tile(&tile, 4, 6);
+    setaddr(&tile, GPU_TAG_END);
+    put_disp_area(0, 240, 320, 240);
+    put_draw_area(8, 8, 312, 224);
+    reset_calls();
+    DrawPrim(&tile);
+    before = s_fake_vblanks;
+    put_disp_area(0, 0, 320, 240);
+    CHECK(s_flips >= 1);
+    CHECK(pvr_submit_scene_has_prims() == 0);
+    CHECK(s_fake_vblanks - before >= DC_IMMEDIATE_SCENE_HOLD_VBLANKS);
+}
+
+static void test_put_disp_env_neither_flips_nor_holds_an_ordering_table_scene_inside_the_new_display(void)
+{
+    u_long chain[1 + sizeof(TILE) / sizeof(u_long)];
+    TILE *tile = (TILE *)&chain[1];
+    unsigned before;
+
+    gpu_decode_set_base((uintptr_t)chain);
+    setlen(&chain[0], 0);
+    setaddr(&chain[0], (uint32_t)sizeof(u_long));
+    make_tile(tile, 4, 6);
+    setaddr(tile, GPU_TAG_END);
+    put_disp_area(0, 240, 320, 240);
+    put_draw_area(0, 8, 320, 224);
+    reset_calls();
+    DrawOTag(&chain[0]);
+    before = s_fake_vblanks;
+    put_disp_area(0, 0, 320, 240);
+    CHECK(s_flips == 0);
+    CHECK(s_fake_vblanks == before);
+    gpu_decode_set_base(0);
+}
+
 static void test_set_poly_ft4_marks_a_nine_word_textured_quad_and_keeps_its_link(void)
 {
     POLY_FT4 prim;
@@ -1079,6 +1124,8 @@ int main(void)
     test_draw_sync_leaves_a_scene_drawn_into_the_back_buffer_open();
     test_draw_sync_does_not_flip_an_empty_displayed_scene();
     test_put_disp_env_flips_a_scene_drawn_into_the_displayed_area();
+    test_put_disp_env_presents_and_holds_an_immediate_scene_inside_the_new_display();
+    test_put_disp_env_neither_flips_nor_holds_an_ordering_table_scene_inside_the_new_display();
     test_origin_follows_the_display_showing_the_draw_area();
     test_draw_area_packet_moves_the_origin_for_later_prims();
     test_set_poly_ft4_marks_a_nine_word_textured_quad_and_keeps_its_link();

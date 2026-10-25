@@ -202,8 +202,14 @@ static int s_strip_has_vertex;
 
 static const DcSurfaceTexture *s_last_header_tex;
 
+static const DcSurfaceTexture *s_first_header_tex;
+
 static void fake_header(const DcSurfaceTexture *tex, const BlendPass *pass)
 {
+    if (s_headers == 0)
+    {
+        s_first_header_tex = tex;
+    }
     s_last_header_tex = tex;
     if (s_headers < 8)
     {
@@ -313,8 +319,33 @@ static void fake_patch_strip(void *mark, const PvrVertex *verts, unsigned count)
     s_patches++;
 }
 
+/*----------------------
+ | s_screen_tex / s_captures / s_capture_slot / fake_capture_screen / fake_screen_texture
+ | Description: Screen slots that count captures and remember the last slot captured into.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_screen_tex, s_captures, s_capture_slot
+ | Params: slot -- 0 or 1
+ | Returns: fake_capture_screen -- 1; fake_screen_texture -- the slot's surface
+ ----------------------*/
+static DcSurfaceTexture s_screen_tex[2] = { { (void *)0x2000, TEX_FMT_RGB565_FRAME, -1 }, { (void *)0x3000, TEX_FMT_RGB565_FRAME, -1 } };
+static int s_captures;
+static unsigned s_capture_slot;
+
+static int fake_capture_screen(unsigned slot)
+{
+    s_captures++;
+    s_capture_slot = slot;
+    return 1;
+}
+
+static const DcSurfaceTexture *fake_screen_texture(unsigned slot)
+{
+    return &s_screen_tex[slot];
+}
+
 static const PvrBackend s_fake = { fake_scene_begin, fake_scene_finish, fake_background, fake_header, fake_strip, fake_scene_shown, fake_wait_shown, fake_frame_texture,
-                                   fake_strip_mark, fake_patch_strip };
+                                   fake_strip_mark, fake_patch_strip, fake_capture_screen, fake_screen_texture };
 
 static void *fake_alloc(unsigned bytes)
 {
@@ -723,6 +754,156 @@ static void test_rgb24_frame_is_one_opaque_full_screen_scene(void)
     CHECK(s_probe_scenes == probes + 1);
 }
 
+/*----------------------
+ | draw_cover_ot
+ | Description: Draws one tile spanning the whole 320x240 draw area through an ordering table, semi-transparent or not.
+ | Author: suinevere
+ | Dependencies: make_tile, DrawOTag
+ | Globals: N/A
+ | Params: semi -- nonzero for a semi-transparent tile
+ | Returns: N/A
+ ----------------------*/
+static void draw_cover_ot(int semi)
+{
+    u_long chain[1 + sizeof(TILE) / sizeof(u_long)];
+    TILE *tile = (TILE *)&chain[1];
+
+    gpu_decode_set_base((uintptr_t)chain);
+    setlen(&chain[0], 0);
+    setaddr(&chain[0], (uint32_t)sizeof(u_long));
+    make_tile(tile, 0, 0);
+    tile->w = 320;
+    tile->h = 240;
+    if (semi)
+    {
+        setSemiTrans(tile, 1);
+    }
+    DrawOTag(&chain[0]);
+    gpu_decode_set_base(0);
+}
+
+static void put_keep_area(int y)
+{
+    DRAWENV env;
+
+    SetDefDrawEnv(&env, 0, y, 320, 240);
+    env.isbg = 0;
+    PutDrawEnv(&env);
+}
+
+/*----------------------
+ | test_keep_screen_scene_starts_with_what_its_area_last_showed
+ | Description: A non-clearing scene whose first primitive is a blended full-area tile first draws a carried screen: the shown frame the first time, then the frame its own area showed one scene earlier.
+ | Author: suinevere
+ | Dependencies: put_keep_area, draw_cover_ot, draw_tile_ot, reset
+ | Globals: s_captures, s_capture_slot, s_header_log, s_last_header_tex, s_scene_shown_result
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_keep_screen_scene_starts_with_what_its_area_last_showed(void)
+{
+    unsigned first;
+
+    s_scene_begin_result = 1;
+    s_scene_shown_result = 1;
+    put_keep_area(0);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    put_keep_area(240);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    reset();
+    s_scene_shown_result = 1;
+    s_captures = 0;
+    put_keep_area(0);
+    draw_cover_ot(1);
+    CHECK(s_captures == 1);
+    first = s_capture_slot;
+    CHECK(s_headers >= 2);
+    CHECK(s_header_log[0].src == BL_SRCALPHA && s_header_log[0].dst == BL_INVSRCALPHA && s_header_log[0].alpha == 255);
+    VSync(0);
+    CHECK(s_strips_in_last_scene >= 2);
+
+    s_headers = 0;
+    put_keep_area(240);
+    draw_cover_ot(1);
+    CHECK(s_captures == 2);
+    CHECK(s_capture_slot != first);
+    CHECK(s_first_header_tex == &s_screen_tex[first]);
+    VSync(0);
+
+    s_headers = 0;
+    s_last_header_tex = 0;
+    put_keep_area(0);
+    draw_cover_ot(1);
+    CHECK(s_captures == 3);
+    CHECK(s_capture_slot == first);
+    CHECK(s_first_header_tex == &s_screen_tex[!first]);
+    VSync(0);
+    s_scene_shown_result = 0;
+}
+
+/*----------------------
+ | test_keep_screen_carry_needs_a_blended_full_area_lead
+ | Description: A clearing scene, an opaque full-area tile, or a blended full-area tile after several primitives does not carry the screen.
+ | Author: suinevere
+ | Dependencies: put_draw_area, put_keep_area, draw_cover_ot, draw_tile_ot
+ | Globals: s_captures, s_scene_shown_result
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_keep_screen_carry_needs_a_blended_full_area_lead(void)
+{
+    DRAWENV env;
+
+    s_scene_begin_result = 1;
+    s_scene_shown_result = 1;
+    put_keep_area(0);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    s_captures = 0;
+
+    SetDefDrawEnv(&env, 0, 240, 320, 240);
+    env.isbg = 1;
+    PutDrawEnv(&env);
+    draw_cover_ot(1);
+    VSync(0);
+    CHECK(s_captures == 0);
+
+    put_keep_area(0);
+    draw_cover_ot(0);
+    VSync(0);
+    CHECK(s_captures == 0);
+
+    put_keep_area(240);
+    draw_tile_ot(10, 10);
+    draw_tile_ot(30, 10);
+    draw_tile_ot(50, 10);
+    draw_cover_ot(1);
+    VSync(0);
+    CHECK(s_captures == 0);
+    s_scene_shown_result = 0;
+}
+
+/*----------------------
+ | test_flip_leaves_no_scene_with_prims
+ | Description: Once a scene with primitives is flipped, pvr_submit_scene_has_prims reports none until another primitive opens a scene.
+ | Author: suinevere
+ | Dependencies: put_draw_area, draw_tile_ot, pvr_submit_scene_has_prims
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void test_flip_leaves_no_scene_with_prims(void)
+{
+    s_scene_begin_result = 1;
+    put_draw_area(0, 0, 320, 240);
+    draw_tile_ot(10, 10);
+    CHECK(pvr_submit_scene_has_prims() == 1);
+    VSync(0);
+    CHECK(pvr_submit_scene_has_prims() == 0);
+}
+
 int main(void)
 {
     texture_cache_init(&s_texture_ops);
@@ -743,6 +924,9 @@ int main(void)
     test_frame_rect_promotes_lazily_once_the_flip_is_shown();
     test_flip_reports_only_scenes_that_drew();
     test_frame_settle_waits_for_a_closed_scene_a_read_overlaps();
+    test_keep_screen_scene_starts_with_what_its_area_last_showed();
+    test_keep_screen_carry_needs_a_blended_full_area_lead();
+    test_flip_leaves_no_scene_with_prims();
 
     if (failures != 0)
     {

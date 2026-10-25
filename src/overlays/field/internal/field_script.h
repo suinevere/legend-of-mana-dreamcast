@@ -125,6 +125,21 @@ void field_script_branch();
 s32 field_read_script_var();
 void field_write_script_var();
 
+/*----------------------
+ | FIELD_SCRIPT_VAR_ARG
+ | Description: A plain reference passed where field_read_script_var or field_write_script_var takes FieldScriptVariableRef; SH compilers carry that struct in the low half, so only the PS1 shifts it.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: ref -- 16-bit variable reference
+ | Returns: the register value the callee expects
+ ----------------------*/
+#if defined(LOM_DREAMCAST) || defined(LOM_BIG_ENDIAN)
+#define FIELD_SCRIPT_VAR_ARG(ref) (ref)
+#else
+#define FIELD_SCRIPT_VAR_ARG(ref) ((ref) << 16)
+#endif
+
 s32 field_get_script_var(s32 owner_id, s32 variable);
 void field_set_script_var(s32 owner_id, u32 variable, s32 value);
 

@@ -70,7 +70,8 @@ FUNCTION_TABLES = {
              ("D_800D60C8", 4), ("D_800D60D8", 4), ("D_800D60E8", 6), ("D_800D6100", 8), ("D_800D6120", 6),
              ("D_800D6138", 6), ("g_wmap_view_sequence_steps", 2), ("g_wmap_land_focus_steps", 10),
              ("g_wmap_effect35_emitter_b_steps", 6), ("g_wmap_land_entry_steps", 4), ("g_wmap_land_return_steps", 6), ("g_wmap_special_travel_steps", 20),
-             ("g_wmap_special_return_steps", 14), ("g_wmap_land_effect_13_sequence_9_steps", 6)),
+             ("g_wmap_special_return_steps", 14), ("g_wmap_land_effect_13_sequence_9_steps", 6),
+             ("D_800D4DB4", 6)),
 }
 
 
@@ -1097,11 +1098,40 @@ def append_text_table(buf, spec, symbols):
 
 
 #----------------------
+# | TEXT_SWAPS
+# | Description: Same-length string replacements the Dreamcast build makes in an overlay's packed data, by overlay name; none at present.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+TEXT_SWAPS = {}
+
+
+#----------------------
+# | swap_text
+# | Description: Replaces each old string with its same-length new one in place, so no other string or pointer moves.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: buf -- packed bytearray, changed in place; swaps -- (old, new) byte-string pairs
+# | Returns: N/A; raises ValueError when lengths differ or an old string is not found exactly once
+#----------------------
+def swap_text(buf, swaps):
+    for old, new in swaps:
+        at = buf.find(old)
+        if len(old) != len(new) or at < 0 or buf.find(old, at + 1) >= 0:
+            raise ValueError("text swap %r -> %r needs equal lengths and exactly one match" % (old, new))
+        buf[at:at + len(old)] = new
+
+
+#----------------------
 # | build_overlay
 # | Description: Packs an overlay's ranges, drops its all-zero tail, applies its TIM and data rules (or only its pointer rule for a target without convert rules),
 # |              and builds its linker symbol script at the target's data address without the FUNCTION_TABLES or C_DEFINED names, giving placed symbols their fixed addresses.
 # | Author: suinevere
-# | Dependencies: target_spec, packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, MAIN_OWNED, POINTER_RULES, data_base, append_text_table, targets.SATURN
+# | Dependencies: target_spec, packed_offset, symbol_offset, convert_tim, tables_for, C_DEFINED, MAIN_OWNED, POINTER_RULES, data_base, append_text_table, targets.SATURN, swap_text, TEXT_SWAPS
 # | Globals: N/A
 # | Params: spec -- OverlaySpec, overlay -- decompressed overlay bytes, symbols -- name to PS1 address, target -- targets.Target, Saturn by default
 # | Returns: (packed bytearray, linker script text); raises ValueError when the blob overflows the target's data region
@@ -1132,6 +1162,8 @@ def build_overlay(spec, overlay, symbols, target=targets.SATURN):
     moved = {}
     if target.name == targets.DREAMCAST.name and spec.name in TEXT_TABLES:
         moved = append_text_table(buf, spec, symbols)
+    if target.name == targets.DREAMCAST.name and spec.name in TEXT_SWAPS:
+        swap_text(buf, TEXT_SWAPS[spec.name])
 
     base = data_base(spec, target)
     if target.regions is not None and len(buf) > target.regions[spec.name].data_size:

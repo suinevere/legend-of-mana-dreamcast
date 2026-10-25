@@ -4,6 +4,7 @@
  | Author: suinevere
  | Dependencies: pad_dc_map.h, pad_dc_script_map.h, common/pad.h
  ----------------------*/
+#include <stddef.h>
 #include <stdio.h>
 
 #define INCLUDE_ASM_H
@@ -37,6 +38,8 @@ static DcPadSample zero_sample(void)
     s.joyy = 0;
     s.ltrig = 0;
     s.rtrig = 0;
+    s.stick_moves = 0;
+    s.dpad_buttons = 0;
     return s;
 }
 
@@ -186,6 +189,89 @@ static void test_held_word_reads_back_as_logical_buttons(void)
     }
 }
 
+static void test_stick_moves_and_dpad_steers_in_menus(void)
+{
+    DcPadSample s = zero_sample();
+
+    s.stick_moves = 1;
+    CHECK(pad_dc_logical_buttons(&s) == 0);
+    s.joyx = -63;
+    CHECK(pad_dc_logical_buttons(&s) == 0);
+    s.joyx = -64;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_LEFT);
+    s.joyx = 64;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_RIGHT);
+    s.joyx = 0;
+    s.joyy = -64;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_UP);
+    s.joyy = 64;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_DOWN);
+    s.joyx = 100;
+    CHECK(pad_dc_logical_buttons(&s) == (PAD_BTN_DOWN | PAD_BTN_RIGHT));
+    s.joyx = 0;
+    s.joyy = 0;
+    s.buttons = DC_CONT_DPAD_LEFT;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_LEFT);
+    s.buttons = DC_CONT_DPAD_UP | DC_CONT_DPAD_RIGHT;
+    CHECK(pad_dc_logical_buttons(&s) == (PAD_BTN_UP | PAD_BTN_RIGHT));
+    s.buttons = DC_CONT_DPAD_DOWN;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_DOWN);
+    s.buttons = DC_CONT_A | DC_CONT_C;
+    s.ltrig = 255;
+    CHECK(pad_dc_logical_buttons(&s) == (PAD_BTN_CROSS | PAD_BTN_L2 | PAD_BTN_L1));
+    s.buttons = 0;
+    s.ltrig = 0;
+    s.joyy = 64;
+    CHECK(title_read(pad_dc_held_word(&s)) == PAD_BTN_DOWN);
+}
+
+static void test_walking_dpad_gives_l2_r2_select(void)
+{
+    DcPadSample s = zero_sample();
+
+    s.stick_moves = 1;
+    s.dpad_buttons = 1;
+    s.buttons = DC_CONT_DPAD_LEFT;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_L2);
+    s.buttons = DC_CONT_DPAD_RIGHT;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_R2);
+    s.buttons = DC_CONT_DPAD_DOWN;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_SELECT);
+    s.buttons = DC_CONT_DPAD_UP;
+    CHECK(pad_dc_logical_buttons(&s) == 0);
+    s.buttons = 0;
+    s.joyx = -64;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_LEFT);
+    s.stick_moves = 0;
+    s.joyx = 0;
+    s.buttons = DC_CONT_DPAD_LEFT;
+    CHECK(pad_dc_logical_buttons(&s) == PAD_BTN_LEFT);
+}
+
+static int s_walking_answer;
+static int s_walking_asked;
+
+static int fake_walking(void)
+{
+    s_walking_asked++;
+    return s_walking_answer;
+}
+
+static void test_dpad_acts_as_buttons_only_while_walking(void)
+{
+    s_walking_answer = 1;
+    CHECK(pad_dc_dpad_as_buttons(PAD_DC_STATE_WORLD_MAP, 0, NULL) == 1);
+    CHECK(pad_dc_dpad_as_buttons(PAD_DC_STATE_FIELD, 1, fake_walking) == 1);
+    CHECK(pad_dc_dpad_as_buttons(PAD_DC_STATE_ATTRACT_1, 1, fake_walking) == 1);
+    CHECK(pad_dc_dpad_as_buttons(PAD_DC_STATE_ATTRACT_2, 1, fake_walking) == 1);
+    CHECK(pad_dc_dpad_as_buttons(PAD_DC_STATE_FIELD, 0, fake_walking) == 0);
+    CHECK(pad_dc_dpad_as_buttons(PAD_DC_STATE_FIELD, 1, NULL) == 0);
+    s_walking_answer = 0;
+    CHECK(pad_dc_dpad_as_buttons(PAD_DC_STATE_FIELD, 1, fake_walking) == 0);
+    s_walking_asked = 0;
+    CHECK(pad_dc_dpad_as_buttons(2, 1, fake_walking) == 0 && s_walking_asked == 0);
+}
+
 int main(void)
 {
     test_all_zero_gives_nothing();
@@ -196,6 +282,9 @@ int main(void)
     test_c_and_z_alias_l2_r2();
     test_script_fill_round_trips_through_real_map();
     test_held_word_reads_back_as_logical_buttons();
+    test_stick_moves_and_dpad_steers_in_menus();
+    test_walking_dpad_gives_l2_r2_select();
+    test_dpad_acts_as_buttons_only_while_walking();
     if (s_failures == 0)
     {
         printf("OK\n");

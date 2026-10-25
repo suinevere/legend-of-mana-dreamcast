@@ -3,7 +3,7 @@
  | Description: Scene policy for PowerVR submission: clips, textures and blends PS1 primitives into one translucent list at 2x, opening a scene on first use and closing it at the flip. Remembers the finished frame's draw area.
  | Author: suinevere
  | Dependencies: pvr_submit.h, pvr_backend.h, clip.h, blend.h, palette_bank.h, texture_cache.h, frame_probe.h
- | Globals: s_backend, s_scene_open, s_frame, s_scenes_closed, s_origin_x, s_origin_y, s_header, s_header_valid, s_scene_has_prims, s_scene_area, s_scene_area_valid, s_pending_rect, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid
+ | Globals: s_backend, s_scene_open, s_frame, s_scenes_closed, s_origin_x, s_origin_y, s_header, s_header_valid, s_scene_has_prims, s_scene_area, s_scene_area_valid, s_pending_rect, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_keep_screen, s_scene_prims, s_carry
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -142,6 +142,47 @@ static int s_header_valid;
  | Returns: N/A
  ----------------------*/
 static int s_scene_has_prims;
+
+/*----------------------
+ | s_keep_screen / s_scene_prims
+ | Description: Whether the draw environment leaves the previous frame in place, and how many primitives reached pvr_submit_prim since the last flip.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_keep_screen;
+static unsigned s_scene_prims;
+
+/*----------------------
+ | CARRY_LEAD_PRIMS
+ | Description: How many primitives may precede a full-area blended one for its scene to still count as drawing over the previous frame.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define CARRY_LEAD_PRIMS 2u
+
+/*----------------------
+ | ScreenCarry / s_carry
+ | Description: What each backend screen slot holds: the draw area of the frame captured into it and s_scenes_closed when it was captured.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct
+{
+    int valid;
+    int16_t x, y;
+    unsigned stamp;
+} ScreenCarry;
+
+static ScreenCarry s_carry[2];
 
 /*----------------------
  | FrameSnapshot
@@ -553,6 +594,106 @@ static int has_excess(const DcPoly *poly, int textured, int raw)
  | Params: backend -- hooks, kept by pointer
  | Returns: N/A
  ----------------------*/
+/*----------------------
+ | covers_area
+ | Description: Whether a primitive's vertices span the whole draw area.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: prim -- decoded primitive, state -- GPU state carrying the draw area
+ | Returns: 1 if it spans the area, else 0
+ ----------------------*/
+static int covers_area(const DcPrim *prim, const DcGpuState *state)
+{
+    int x1 = prim->v[0].x, y1 = prim->v[0].y, x2 = prim->v[0].x, y2 = prim->v[0].y;
+    unsigned i;
+
+    for (i = 1; i < prim->nverts; i++)
+    {
+        x1 = prim->v[i].x < x1 ? prim->v[i].x : x1;
+        y1 = prim->v[i].y < y1 ? prim->v[i].y : y1;
+        x2 = prim->v[i].x > x2 ? prim->v[i].x : x2;
+        y2 = prim->v[i].y > y2 ? prim->v[i].y : y2;
+    }
+    return x1 <= state->area_x1 && y1 <= state->area_y1 && x2 >= state->area_x2 && y2 >= state->area_y2;
+}
+
+/*----------------------
+ | SCREEN_PASS
+ | Description: Opaque replace, the blend a carried screen is drawn with.
+ | Author: suinevere
+ | Dependencies: BlendPass
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const BlendPass SCREEN_PASS = { BL_SRCALPHA, BL_INVSRCALPHA, 255, PAL_OPAQUE, 0 };
+
+/*----------------------
+ | carry_screen
+ | Description: Starts a non-clearing scene with what its draw area last showed, as the PS1's untouched buffer would hold, so blends that build on the previous frame build on it here too.
+ |              Captures the shown frame into the slot for its area, then draws as an opaque full-screen quad the slot captured one scene earlier for this area, else the frame just captured.
+ | Author: suinevere
+ | Dependencies: PvrBackend.scene_shown, PvrBackend.wait_shown, promote_pending_rect, PvrBackend.capture_screen, PvrBackend.screen_texture, open_scene, invert_close, send_header, PvrBackend.strip
+ | Globals: s_backend, s_scenes_closed, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_carry, s_scene_has_prims
+ | Params: state -- GPU state carrying the scene's draw area
+ | Returns: N/A
+ ----------------------*/
+static void carry_screen(const DcGpuState *state)
+{
+    PvrVertex quad[4] = { { 0.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFFFFu }, { 640.0f, 0.0f, 320.0f / 512.0f, 0.0f, 0xFFFFFFFFu },
+                          { 0.0f, 480.0f, 0.0f, 240.0f / 256.0f, 0xFFFFFFFFu }, { 640.0f, 480.0f, 320.0f / 512.0f, 240.0f / 256.0f, 0xFFFFFFFFu } };
+    const DcSurfaceTexture *tex;
+    unsigned slot;
+    unsigned use;
+
+    if (!s_backend->scene_shown(s_scenes_closed) && !s_backend->wait_shown(s_scenes_closed))
+    {
+        return;
+    }
+    if (s_pending_rect_valid)
+    {
+        promote_pending_rect();
+    }
+    if (!s_frame_rect_valid)
+    {
+        return;
+    }
+    slot = s_carry[1].valid && s_carry[1].x == s_frame_rect.rect.x && s_carry[1].y == s_frame_rect.rect.y ? 1u : 0u;
+    if (!(s_carry[slot].valid && s_carry[slot].x == s_frame_rect.rect.x && s_carry[slot].y == s_frame_rect.rect.y))
+    {
+        slot = !s_carry[0].valid ? 0u : !s_carry[1].valid ? 1u : s_carry[0].stamp <= s_carry[1].stamp ? 0u : 1u;
+    }
+    if (!s_backend->capture_screen(slot))
+    {
+        return;
+    }
+    s_carry[slot].valid = 1;
+    s_carry[slot].x = s_frame_rect.rect.x;
+    s_carry[slot].y = s_frame_rect.rect.y;
+    s_carry[slot].stamp = s_scenes_closed;
+    use = slot;
+    if (s_carry[!slot].valid && s_carry[!slot].x == state->area_x1 && s_carry[!slot].y == state->area_y1 && s_carry[!slot].stamp + 1u == s_scenes_closed)
+    {
+        use = !slot;
+    }
+    tex = s_backend->screen_texture(use);
+    if (tex == 0)
+    {
+        return;
+    }
+    open_scene();
+    invert_close();
+    send_header(tex, &SCREEN_PASS);
+    s_backend->strip(quad, 4);
+    s_scene_has_prims = 1;
+}
+
+void pvr_submit_keep_screen(int keep)
+{
+    s_keep_screen = keep;
+}
+
 void pvr_submit_set_backend(const PvrBackend *backend)
 {
     s_backend = backend;
@@ -587,6 +728,11 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
     s_scene_area.origin_x = (int16_t)s_origin_x;
     s_scene_area.origin_y = (int16_t)s_origin_y;
     s_scene_area_valid = 1;
+    if (s_keep_screen && prim->semi && s_scene_prims < CARRY_LEAD_PRIMS && covers_area(prim, state))
+    {
+        carry_screen(state);
+    }
+    s_scene_prims++;
     if (clip_prim(prim, state, &poly) == 0)
     {
         return;
@@ -645,12 +791,13 @@ void pvr_submit_prim(const DcPrim *prim, const DcGpuState *state)
  | Description: Finishes the scene if one is open, so the PowerVR renders it, counts the scene for the probe (and as drawn when it held a strip), and hands its snapshot to s_pending_rect to confirm later.
  | Author: suinevere
  | Dependencies: invert_close, PvrBackend.scene_finish, frame_probe_scene, frame_probe_drawn
- | Globals: s_backend, s_scene_open, s_scenes_closed, s_scene_area, s_scene_area_valid, s_pending_rect, s_pending_rect_valid
+ | Globals: s_backend, s_scene_open, s_scenes_closed, s_scene_area, s_scene_area_valid, s_pending_rect, s_pending_rect_valid, s_scene_prims, s_scene_has_prims
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void pvr_submit_flip(void)
 {
+    s_scene_prims = 0;
     if (!s_scene_open)
     {
         return;
@@ -670,6 +817,7 @@ void pvr_submit_flip(void)
     {
         frame_probe_drawn();
     }
+    s_scene_has_prims = 0;
 }
 
 /*----------------------

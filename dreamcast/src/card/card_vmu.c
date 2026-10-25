@@ -3,7 +3,7 @@
  | Description: Memory-card BIOS, libcard and libmcx calls answered as a PS1 memory card whose files live in a card_store (VMUs on the Dreamcast); with no store or no card a slot answers as empty.
  | Author: suinevere
  | Dependencies: libapi.h, libmcx.h, card_store.h, vmu_format.h, stdlib.h, string.h
- | Globals: s_store, s_event_descs, s_event_specs, s_event_count, s_posted, s_mcx_pending, s_mcx_result, s_files, s_handles, s_dir, s_dir_count, s_dir_valid, s_unreadable, s_search, s_search_count, s_search_pos, s_search_pattern
+ | Globals: s_store, s_event_descs, s_event_specs, s_event_count, s_posted, s_mcx_pending, s_mcx_result, s_files, s_handles, s_dir, s_dir_count, s_dir_valid, s_unreadable, s_search, s_search_count, s_search_pos, s_search_pattern, s_pending
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -189,6 +189,19 @@ static card_handle s_handles[CARD_HANDLES];
 static card_store_entry s_dir[CARD_SLOTS][CARD_DIR_MAX];
 static int s_dir_count[CARD_SLOTS];
 static int s_dir_valid[CARD_SLOTS];
+
+/*----------------------
+ | s_pending
+ | Description: The RAM file a background store write is copying out for an asynchronous lom_card_write, whose SwCARD completion waits on it; NULL when none.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static struct card_ram_file *s_pending;
+
+static void settle_store(void);
 
 /*----------------------
  | s_unreadable
@@ -623,6 +636,55 @@ static int store_ram(card_ram_file *file)
 }
 
 /*----------------------
+ | finish_pending
+ | Description: Settles the background write: on success the file counts as stored and clean; either way its SwCARD outcome is posted.
+ | Author: suinevere
+ | Dependencies: clear_unreadable, post
+ | Globals: s_pending, s_dir_valid
+ | Params: result -- job_poll's final answer, 0 or -1
+ | Returns: N/A
+ ----------------------*/
+static void finish_pending(int result)
+{
+    card_ram_file *file = s_pending;
+
+    s_pending = NULL;
+    if (result != 0)
+    {
+        post(CARD_CLASS_SW, EvSpERROR);
+        return;
+    }
+    file->stored = 1;
+    file->dirty = 0;
+    clear_unreadable(file->slot, file->name);
+    s_dir_valid[file->slot] = 0;
+    post(CARD_CLASS_SW, EvSpIOE);
+}
+
+/*----------------------
+ | settle_store
+ | Description: Waits out a background write before a call that reads or changes the store or the file it is copying.
+ | Author: suinevere
+ | Dependencies: finish_pending
+ | Globals: s_store, s_pending
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void settle_store(void)
+{
+    int result;
+
+    if (s_pending == NULL)
+    {
+        return;
+    }
+    while ((result = s_store->job_poll()) == 1)
+    {
+    }
+    finish_pending(result);
+}
+
+/*----------------------
  | build_listing
  | Description: Fills s_search with a slot's stored files, RAM-only files and, when the VMU's free space is short of the PS1 card's, one filler entry for the difference.
  | Author: suinevere
@@ -736,9 +798,9 @@ long EnableEvent(long event)
 
 /*----------------------
  | TestEvent
- | Description: Reports whether the event's class has its spec waiting, and takes it when so.
+ | Description: Reports whether the event's class has its spec waiting, and takes it when so, first settling a background write that has finished.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: card_store_ops.job_poll, finish_pending
  | Globals: s_event_descs, s_event_specs, s_event_count, s_posted
  | Params: event -- event handle
  | Returns: 1 when the event fired, else 0
@@ -747,7 +809,12 @@ long TestEvent(long event)
 {
     long index = event & ~CARD_EVENT_HANDLE_BASE;
     int cls;
+    int result;
 
+    if (s_pending != NULL && (result = s_store->job_poll()) != 1)
+    {
+        finish_pending(result);
+    }
     if (index < 0 || index >= s_event_count)
     {
         return 0;
@@ -794,7 +861,7 @@ void ExitCriticalSection(void)
  | _card_info
  | Description: Reports a present card as ready, and an empty slot as timed out, dropping that slot's RAM files and unreadable marks.
  | Author: suinevere
- | Dependencies: slot_present, post_done, post_absent, drop_slot_ram, clear_unreadable
+ | Dependencies: settle_store, slot_present, post_done, post_absent, drop_slot_ram, clear_unreadable
  | Globals: N/A
  | Params: chan -- slot channel
  | Returns: 1 (issued)
@@ -803,6 +870,7 @@ long _card_info(long chan)
 {
     int slot = chan_slot(chan);
 
+    settle_store();
     if (!slot_present(slot))
     {
         drop_slot_ram(slot, 0);
@@ -818,7 +886,7 @@ long _card_info(long chan)
  | _card_load
  | Description: Rereads a present card's directory from the store.
  | Author: suinevere
- | Dependencies: slot_present, refresh_dir, drop_slot_ram, post_done, post_absent
+ | Dependencies: settle_store, slot_present, refresh_dir, drop_slot_ram, post_done, post_absent
  | Globals: N/A
  | Params: chan -- slot channel
  | Returns: 1 (issued)
@@ -827,6 +895,7 @@ long _card_load(long chan)
 {
     int slot = chan_slot(chan);
 
+    settle_store();
     if (!slot_present(slot))
     {
         post_absent();
@@ -842,13 +911,14 @@ long _card_load(long chan)
  | _card_clear / _card_format
  | Description: Succeed on a present card without touching it, since a VMU is never cleared or formatted for the PS1.
  | Author: suinevere
- | Dependencies: slot_present, post_done, post_absent
+ | Dependencies: settle_store, slot_present, post_done, post_absent
  | Globals: N/A
  | Params: chan -- slot channel
  | Returns: 1
  ----------------------*/
 long _card_clear(long chan)
 {
+    settle_store();
     if (!slot_present(chan_slot(chan)))
     {
         post_absent();
@@ -867,7 +937,7 @@ long _card_format(long chan)
  | _card_read
  | Description: Reads one 128-byte sector: sector 0 is the "MC" card header, and sector head + k of a directory entry is frame k of that file.
  | Author: suinevere
- | Dependencies: slot_present, listing_file, post, post_absent
+ | Dependencies: settle_store, slot_present, listing_file, post, post_absent
  | Globals: N/A
  | Params: chan -- slot channel, block -- sector number, buf -- 128-byte destination
  | Returns: 1 (issued)
@@ -878,6 +948,7 @@ long _card_read(long chan, long block, unsigned char *buf)
     card_ram_file *file;
     unsigned int offset;
 
+    settle_store();
     if (!slot_present(slot))
     {
         post_absent();
@@ -905,9 +976,9 @@ long _card_read(long chan, long block, unsigned char *buf)
 
 /*----------------------
  | _card_write
- | Description: Writes one 128-byte sector of a file and stores the file, unless it carries a temporary name.
+ | Description: Writes one 128-byte sector of a file and stores the file, unless it carries a temporary name; a stored, clean file is rewritten in place through card_store_ops.rewrite.
  | Author: suinevere
- | Dependencies: slot_present, listing_file, store_ram, is_temp_name, post, post_absent
+ | Dependencies: settle_store, slot_present, listing_file, card_store_ops.rewrite, store_ram, is_temp_name, post, post_absent
  | Globals: N/A
  | Params: chan -- slot channel, block -- sector number, buf -- 128-byte source
  | Returns: 1 (issued)
@@ -918,6 +989,7 @@ long _card_write(long chan, long block, unsigned char *buf)
     card_ram_file *file;
     unsigned int offset;
 
+    settle_store();
     if (!slot_present(slot))
     {
         post_absent();
@@ -928,6 +1000,19 @@ long _card_write(long chan, long block, unsigned char *buf)
     if (file == NULL || offset + CARD_SECTOR_BYTES > file->size)
     {
         post(CARD_CLASS_HW, EvSpERROR);
+        return 1;
+    }
+    if (file->stored && !file->dirty && !is_temp_name(file->name) && s_store->rewrite != NULL)
+    {
+        memcpy(file->data + offset, buf, CARD_SECTOR_BYTES);
+        if (s_store->rewrite(slot, file->name, file->name, file->data, file->size, offset, CARD_SECTOR_BYTES) != 0)
+        {
+            file->dirty = 1;
+            post(CARD_CLASS_HW, EvSpERROR);
+            return 1;
+        }
+        s_dir_valid[slot] = 0;
+        post(CARD_CLASS_HW, EvSpIOE);
         return 1;
     }
     memcpy(file->data + offset, buf, CARD_SECTOR_BYTES);
@@ -964,7 +1049,7 @@ long _card_wait(long drive)
  | firstfile / nextfile
  | Description: Directory search over a slot's listing with the BIOS's '?' and '*' patterns.
  | Author: suinevere
- | Dependencies: path_slot, slot_present, build_listing, name_matches, copy_name
+ | Dependencies: settle_store, path_slot, slot_present, build_listing, name_matches, copy_name
  | Globals: s_search, s_search_count, s_search_pos, s_search_pattern
  | Params: path -- "buX0:" plus pattern, entry -- result record
  | Returns: entry, or NULL when nothing more matches
@@ -973,6 +1058,7 @@ struct DIRENTRY *firstfile(char *path, struct DIRENTRY *entry)
 {
     int slot = path_slot(path);
 
+    settle_store();
     s_search_count = 0;
     s_search_pos = 0;
     if (slot < 0 || !slot_present(slot))
@@ -1009,7 +1095,7 @@ struct DIRENTRY *nextfile(struct DIRENTRY *entry)
  | lom_card_open
  | Description: BIOS open on a card path: a create makes an empty RAM file of the requested blocks when the card has room (never under the filler name), the filler entry opens read-only as one shared block of zeros, as another game's file would on a PS1 card, otherwise the file is loaded for reading or writing.
  | Author: suinevere
- | Dependencies: path_slot, slot_present, find_ram, find_dir, build_listing, ps1_blocks_free, new_ram, load_ram
+ | Dependencies: settle_store, path_slot, slot_present, find_ram, find_dir, build_listing, ps1_blocks_free, new_ram, load_ram
  | Globals: s_store, s_handles
  | Params: path -- "buX0:" plus file name, mode -- Psy-Q open flags
  | Returns: file handle, or -1
@@ -1021,6 +1107,7 @@ long lom_card_open(char *path, unsigned long mode)
     card_ram_file *file;
     int fd;
 
+    settle_store();
     if (slot < 0 || !slot_present(slot))
     {
         return -1;
@@ -1097,9 +1184,9 @@ static card_handle *handle_at(long fd)
 
 /*----------------------
  | lom_card_read / lom_card_write
- | Description: Copy bytes at the handle's position, stopping at the file's end; asynchronous handles post a SwCARD completion.
+ | Description: Copy bytes at the handle's position, stopping at the file's end; asynchronous handles post a SwCARD completion, which an asynchronous write holds until a background store write of the file lands.
  | Author: suinevere
- | Dependencies: handle_at, post
+ | Dependencies: settle_store, handle_at, slot_present, card_store_ops.write_start, post
  | Globals: N/A
  | Params: fd -- file handle, buf -- data, n -- byte count
  | Returns: bytes copied, or -1
@@ -1109,6 +1196,7 @@ long lom_card_read(long fd, void *buf, long n)
     card_handle *handle = handle_at(fd);
     unsigned int count;
 
+    settle_store();
     if (handle == NULL || n < 0)
     {
         post(CARD_CLASS_SW, EvSpERROR);
@@ -1130,6 +1218,7 @@ long lom_card_write(long fd, void *buf, long n)
     card_handle *handle = handle_at(fd);
     unsigned int count;
 
+    settle_store();
     if (handle == NULL || n < 0)
     {
         post(CARD_CLASS_SW, EvSpERROR);
@@ -1140,6 +1229,17 @@ long lom_card_write(long fd, void *buf, long n)
     memcpy(handle->file->data + handle->pos, buf, count);
     handle->pos += count;
     handle->file->dirty = 1;
+    if (handle->async && s_store->write_start != NULL)
+    {
+        if (!slot_present(handle->file->slot) ||
+            s_store->write_start(handle->file->slot, handle->file->name, handle->file->data, handle->file->size) != 0)
+        {
+            post(CARD_CLASS_SW, EvSpERROR);
+            return (long)count;
+        }
+        s_pending = handle->file;
+        return (long)count;
+    }
     if (handle->async)
     {
         post(CARD_CLASS_SW, EvSpIOE);
@@ -1151,7 +1251,7 @@ long lom_card_write(long fd, void *buf, long n)
  | lom_card_close
  | Description: Closes a handle; a changed file with a lasting name is stored, and a stored, unchanged file no handle holds leaves RAM.
  | Author: suinevere
- | Dependencies: handle_at, is_temp_name, store_ram, free_ram
+ | Dependencies: settle_store, handle_at, is_temp_name, store_ram, free_ram
  | Globals: N/A
  | Params: fd -- file handle
  | Returns: 0
@@ -1161,6 +1261,7 @@ long lom_card_close(long fd)
     card_handle *handle = handle_at(fd);
     card_ram_file *file;
 
+    settle_store();
     if (handle == NULL)
     {
         return 0;
@@ -1181,9 +1282,9 @@ long lom_card_close(long fd)
 
 /*----------------------
  | lom_card_rename
- | Description: Renames a file and stores it under its new name, replacing any file already there, then removes the old name from the store.
+ | Description: Renames a file and stores it under its new name, replacing any file already there, then removes the old name from the store; a stored, clean file is renamed in place through card_store_ops.rewrite.
  | Author: suinevere
- | Dependencies: path_slot, slot_present, load_ram, copy_name, store_ram, free_ram
+ | Dependencies: settle_store, path_slot, slot_present, load_ram, copy_name, card_store_ops.rewrite, clear_unreadable, store_ram, free_ram
  | Globals: s_store, s_dir_valid
  | Params: from -- current path, to -- new path on the same slot
  | Returns: 0 on success, -1 on failure
@@ -1195,6 +1296,7 @@ long lom_card_rename(char *from, char *to)
     card_ram_file *file;
     int was_stored;
 
+    settle_store();
     if (slot < 0 || slot != path_slot(to) || !slot_present(slot) || (file = load_ram(slot, from + 5)) == NULL)
     {
         return -1;
@@ -1202,6 +1304,17 @@ long lom_card_rename(char *from, char *to)
     copy_name(old_name, file->name);
     was_stored = file->stored;
     copy_name(file->name, to + 5);
+    if (was_stored && !file->dirty && s_store->rewrite != NULL)
+    {
+        if (s_store->rewrite(slot, old_name, file->name, file->data, file->size, 0, 0) != 0)
+        {
+            copy_name(file->name, old_name);
+            return -1;
+        }
+        clear_unreadable(slot, file->name);
+        s_dir_valid[slot] = 0;
+        return 0;
+    }
     if (store_ram(file) != 0)
     {
         copy_name(file->name, old_name);
@@ -1223,7 +1336,7 @@ long lom_card_rename(char *from, char *to)
  | erase
  | Description: Deletes a card file from RAM and from the store, including one marked unreadable.
  | Author: suinevere
- | Dependencies: path_slot, slot_present, find_ram, find_dir, free_ram, is_unreadable, clear_unreadable
+ | Dependencies: settle_store, path_slot, slot_present, find_ram, find_dir, free_ram, is_unreadable, clear_unreadable
  | Globals: s_store, s_dir_valid
  | Params: path -- card file path
  | Returns: 1 when a file was deleted, else 0
@@ -1234,6 +1347,7 @@ long erase(char *path)
     card_ram_file *file;
     int erased = 0;
 
+    settle_store();
     if (slot < 0 || !slot_present(slot))
     {
         return 0;
@@ -1247,9 +1361,9 @@ long erase(char *path)
     if ((find_dir(slot, path + 5) != NULL || is_unreadable(slot, path + 5)) && s_store->remove(slot, path + 5) == 0)
     {
         erased = 1;
+        s_dir_valid[slot] = 0;
     }
     clear_unreadable(slot, path + 5);
-    s_dir_valid[slot] = 0;
     return erased;
 }
 

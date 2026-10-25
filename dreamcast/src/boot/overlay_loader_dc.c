@@ -1,7 +1,7 @@
 /*----------------------
  | overlay_loader_dc.c
  | Description: Dreamcast overlay loading: reads OVLnnC.BIN and OVLnn.BIN from /cd/OVL into the overlay's fixed arena regions, zeroes its .bss and flushes the caches over its code.
- |              The test image calls FIELD's field_watch_entry (its Dreamcast-only extra vector slot) right after FIELD finishes loading.
+ |              FIELD's field_watch_entry (its Dreamcast-only extra vector slot) runs right after FIELD finishes loading.
  | Author: suinevere
  | Dependencies: overlay_loader_dc.h, overlay_region.h, overlay_header.h, gen/overlay_regions.h, dc_system.h, arch/cache.h, texture_cache.h, src/overlays/field_watch_entry.c
  | Globals: s_regions
@@ -169,10 +169,8 @@ void load_overlay(int resource_index)
     memset((void *)(uintptr_t)header.bss_start, 0, header.bss_end - header.bss_start);
     dcache_flush_range(region->code_base, header.code_size);
     icache_flush_range(region->code_base, header.code_size);
-#ifdef LOM_PAD_SCRIPT
     if (resource_index == FIELD_RESOURCE)
     {
         field_watch_entry();
     }
-#endif
 }

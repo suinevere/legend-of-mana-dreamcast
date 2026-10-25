@@ -394,7 +394,7 @@ void field_install_actor_action(FieldLayoutRecord* layout_record, s32 record_ind
     {
         field_runtime_init();
     }
-    value = field_read_script_var(0, layout_record->condition.variable_ref << 16);
+    value = field_read_script_var(0, FIELD_SCRIPT_VAR_ARG(layout_record->condition.variable_ref));
     if ((value >= layout_record->condition.minimum) && (value <= layout_record->condition.maximum))
     {
         switch (layout_record->control.bits.kind)

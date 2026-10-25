@@ -2,14 +2,15 @@
  | controller_dc.c
  | Description: Dreamcast stand-ins for the main executable's controller service, publishing the Maple pad on port A into port 0 and leaving port 1 disconnected.
  | Author: suinevere
- | Dependencies: lom_prefix.h, common/pad.h, main/controller.h, main/controller_internal.h, pad_dc.h, pad_dc_map.h, pad_publish.h, vsync_pacer.h
- | Globals: s_last_vblank
+ | Dependencies: lom_prefix.h, common/pad.h, main/game_state.h, main/controller.h, main/controller_internal.h, pad_dc.h, pad_dc_map.h, pad_publish.h, vsync_pacer.h
+ | Globals: s_last_vblank, s_field_frame, s_field_walking
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 #include <stddef.h>
 
 #include "common/pad.h"
+#include "main/game_state.h"
 #include "main/controller.h"
 #include "main/controller_internal.h"
 
@@ -28,6 +29,37 @@
  | Returns: N/A
  ----------------------*/
 static unsigned s_last_vblank;
+
+/*----------------------
+ | s_field_frame / s_field_walking
+ | Description: Whether FIELD's frame loop marked the coming pad read as its own, and FIELD's query for whether nothing modal is open, registered when FIELD loads.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_field_frame;
+static PadDcWalkingQuery s_field_walking;
+
+/*----------------------
+ | dc_pad_field_frame / dc_pad_set_field_walking
+ | Description: FIELD's frame loop marks its pad read; FIELD's Dreamcast entry registers its walking query.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_field_frame, s_field_walking
+ | Params: walking -- FIELD's query
+ | Returns: N/A
+ ----------------------*/
+void dc_pad_field_frame(void)
+{
+    s_field_frame = 1;
+}
+
+void dc_pad_set_field_walking(PadDcWalkingQuery walking)
+{
+    s_field_walking = walking;
+}
 
 /*----------------------
  | scd_regs_device_type_overlaps_port0
@@ -72,9 +104,10 @@ static PadSample dc_pad_encode_sample(int connected, const DcPadSample *sample)
 /*----------------------
  | update_controllers
  | Description: Publishes the Maple pad on port A as port 0 and an empty port 1, advancing repeat timers by the vblanks elapsed since the last call.
+ |              The D-pad gives L2, R2 and Select only while walking (pad_dc_dpad_as_buttons) and steers every menu otherwise.
  | Author: suinevere
- | Dependencies: vsync_count, pad_dc_read, dc_pad_encode_sample, pad_publish_port
- | Globals: CONTROLLER_STATE, SCD_REGS, s_last_vblank
+ | Dependencies: vsync_count, pad_dc_read, pad_dc_dpad_as_buttons, dc_pad_encode_sample, pad_publish_port
+ | Globals: CONTROLLER_STATE, SCD_REGS, s_last_vblank, s_field_frame, s_field_walking, g_game_state
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -85,6 +118,9 @@ void update_controllers(void)
     int vblanks = (int)(now - s_last_vblank);
     DcPadSample sample;
     int connected = pad_dc_read(&sample);
+
+    sample.dpad_buttons = pad_dc_dpad_as_buttons(g_game_state, s_field_frame, s_field_walking);
+    s_field_frame = 0;
 
     s_last_vblank = now;
     pad_publish_port(&state->ports[0], dc_pad_encode_sample(connected, &sample), vblanks, state->fast_button_repeat, state->sample_unavailable);

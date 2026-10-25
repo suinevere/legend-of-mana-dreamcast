@@ -127,6 +127,17 @@ int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *orig
 void pvr_frame_settle(int x, int y, int w, int h);
 
 /*----------------------
+ | pvr_submit_keep_screen
+ | Description: Tells the submitter whether the current draw environment leaves the previous frame in place (isbg clear) or clears it.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_keep_screen
+ | Params: keep -- nonzero when the draw environment does not clear
+ | Returns: N/A
+ ----------------------*/
+void pvr_submit_keep_screen(int keep);
+
+/*----------------------
  | pvr_submit_rgb24
  | Description: Shows a 24-bit display area as one opaque full-screen textured quad in its own scene, counted by the frame probe like any flip.
  | Author: suinevere

@@ -89,6 +89,11 @@ int pvr_submit_scene_has_prims(void)
     return 0;
 }
 
+void pvr_submit_keep_screen(int keep)
+{
+    (void)keep;
+}
+
 void pvr_frame_settle(int x, int y, int w, int h)
 {
     (void)x;

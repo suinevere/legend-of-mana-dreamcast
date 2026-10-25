@@ -36,6 +36,7 @@ typedef struct
  | scene_begin returns 0 when the previous flip is not yet confirmed, leaving a pending texture flush for later; scene_shown checks the same without waiting, and wait_shown waits a few vblanks at most for it.
  | frame_texture loads the RGB565 rows (512-pixel pitch) of a 24-bit display frame into a texture of its own and returns it, or NULL when texture memory has no room.
  | strip_mark returns a handle to the next strip while the scene is still being recorded, or NULL once it streams; patch_strip rewrites that strip's vertex positions.
+ | capture_screen copies the shown frame at PS1 resolution into screen slot 0 or 1, returning 0 when it cannot; screen_texture returns that slot's last capture, or NULL.
  | Author: suinevere
  | Dependencies: DcSurfaceTexture, BlendPass
  | Globals: N/A
@@ -54,6 +55,8 @@ typedef struct
     const DcSurfaceTexture *(*frame_texture)(const uint16_t *pixels, unsigned width, unsigned height);
     void *(*strip_mark)(void);
     void (*patch_strip)(void *mark, const PvrVertex *verts, unsigned count);
+    int (*capture_screen)(unsigned slot);
+    const DcSurfaceTexture *(*screen_texture)(unsigned slot);
 } PvrBackend;
 
 /*----------------------

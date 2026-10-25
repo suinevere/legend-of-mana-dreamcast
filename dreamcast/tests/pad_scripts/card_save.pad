@@ -39,7 +39,7 @@ capture wsel-cursor-confirmed
 mash CROSS 40 state 1
 wait 10
 capture wmap-loading
-wait 215
+wait 395
 capture wmap-mailbox
 wait 45
 capture wmap-mailbox-carried
@@ -72,5 +72,7 @@ press LEFT 6
 wait 30
 capture carda-prompt-yes
 press CROSS 6
-wait 900
+wait 90
+capture carda-saving
+wait 810
 capture carda-saved

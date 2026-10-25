@@ -70,6 +70,29 @@ def test_scene_controls_match_the_scene_reader():
 # | Params: name, index -- overlay name and CD resource index
 # | Returns: N/A
 #----------------------
+def test_swap_text_replaces_one_same_length_string():
+    swaps = ((b"\x10\x02Vibration\x11", b"\x10\x02Use Stick\x11"),)
+    buf = bytearray(b"\x00\x10\x02Vibration\x11\x00ON\x00")
+    overlay_rules.swap_text(buf, swaps)
+    assert buf == bytearray(b"\x00\x10\x02Use Stick\x11\x00ON\x00")
+    with pytest.raises(ValueError):
+        overlay_rules.swap_text(bytearray(b"\x10\x02Vibration\x11" * 2), swaps)
+    with pytest.raises(ValueError):
+        overlay_rules.swap_text(bytearray(b"abc"), ((b"abc", b"abcd"),))
+
+
+def test_dreamcast_menu_keeps_its_vibration_option():
+    raw = os.path.join(REPO, "build", "us", "overlays", "menu", "menu.raw")
+    if not os.path.exists(raw):
+        pytest.skip("PS1 overlay not built")
+    with open(raw, "rb") as f:
+        overlay = f.read()
+    spec = overlay_rules.OVERLAYS[6]
+    symbols = convert_disc.load_spec_symbols(spec, os.path.join(REPO, "config", "us", "symbols"))
+    buf, _ = overlay_rules.build_overlay(spec, overlay, symbols, targets.DREAMCAST)
+    assert b"\x10\x02Vibration\x11\x00ON\x00OFF\x00" in buf
+
+
 @pytest.mark.parametrize("name,index", [("carda", 12), ("cload", 16), ("niki", 17), ("addhero", 18)])
 def test_dreamcast_overlay_message_tables_hold_the_english_lines(name, index):
     raw = os.path.join(REPO, "build", "us", "overlays", name, name + ".raw")

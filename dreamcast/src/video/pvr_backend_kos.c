@@ -181,6 +181,20 @@ static pvr_ptr_t s_frame_texture;
 static DcSurfaceTexture s_frame_surface;
 
 /*----------------------
+ | SCREEN_CAPTURE_W / SCREEN_CAPTURE_H / s_screen_textures / s_screen_surfaces
+ | Description: The two screen slots capture_screen fills with the shown frame at PS1 resolution, in frame-texture layout, one per PS1 draw buffer.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SCREEN_CAPTURE_W 320
+#define SCREEN_CAPTURE_H 240
+static pvr_ptr_t s_screen_textures[2];
+static DcSurfaceTexture s_screen_surfaces[2];
+
+/*----------------------
  | texture_alloc
  | Description: TextureOps.alloc backed by the PowerVR texture allocator.
  | Author: suinevere
@@ -207,6 +221,8 @@ static void texture_free_all(void)
 {
     settle_previous_scene();
     s_frame_texture = 0;
+    s_screen_textures[0] = 0;
+    s_screen_textures[1] = 0;
     pvr_mem_reset();
 }
 
@@ -294,6 +310,75 @@ static const DcSurfaceTexture *kos_frame_texture(const uint16_t *pixels, unsigne
     s_frame_surface.format = TEX_FMT_RGB565_FRAME;
     s_frame_surface.palette_slot = -1;
     return &s_frame_surface;
+}
+
+/*----------------------
+ | kos_capture_screen
+ | Description: PvrBackend.capture_screen: copies every other pixel of every other row of the shown 640x480 frame into a screen slot's texture, row by row.
+ | Author: suinevere
+ | Dependencies: pvr_mem_malloc, texture_cache_flush_now, texture_upload, vram_l, vid_mode
+ | Globals: s_screen_textures, s_screen_surfaces
+ | Params: slot -- 0 or 1
+ | Returns: 1 once the slot holds the frame, 0 when no texture memory is free
+ ----------------------*/
+static int kos_capture_screen(unsigned slot)
+{
+    static uint16_t line[SCREEN_CAPTURE_W] __attribute__((aligned(32)));
+    const uint16_t *shown = (const uint16_t *)vram_l;
+    unsigned pitch = (unsigned)vid_mode->width;
+    uint8_t *dst;
+    unsigned x, y;
+
+    if (slot > 1u)
+    {
+        return 0;
+    }
+    if (s_screen_textures[slot] == 0)
+    {
+        s_screen_textures[slot] = pvr_mem_malloc(FRAME_TEXTURE_WIDTH * FRAME_TEXTURE_HEIGHT * 2);
+        if (s_screen_textures[slot] == 0)
+        {
+            texture_cache_flush_now();
+            s_screen_textures[slot] = pvr_mem_malloc(FRAME_TEXTURE_WIDTH * FRAME_TEXTURE_HEIGHT * 2);
+        }
+        if (s_screen_textures[slot] == 0)
+        {
+            return 0;
+        }
+    }
+    dst = (uint8_t *)s_screen_textures[slot];
+    for (y = 0; y < SCREEN_CAPTURE_H; y++)
+    {
+        const uint16_t *row = shown + (2u * y) * pitch;
+
+        for (x = 0; x < SCREEN_CAPTURE_W; x++)
+        {
+            line[x] = row[2u * x];
+        }
+        texture_upload(dst + y * FRAME_TEXTURE_WIDTH * 2u, line, sizeof(line));
+    }
+    s_screen_surfaces[slot].texture = s_screen_textures[slot];
+    s_screen_surfaces[slot].format = TEX_FMT_RGB565_FRAME;
+    s_screen_surfaces[slot].palette_slot = -1;
+    return 1;
+}
+
+/*----------------------
+ | kos_screen_texture
+ | Description: PvrBackend.screen_texture: the surface of a screen slot's last capture.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_screen_textures, s_screen_surfaces
+ | Params: slot -- 0 or 1
+ | Returns: the slot's surface, or NULL when it was never captured or texture memory was reset since
+ ----------------------*/
+static const DcSurfaceTexture *kos_screen_texture(unsigned slot)
+{
+    if (slot > 1u || s_screen_textures[slot] == 0)
+    {
+        return 0;
+    }
+    return &s_screen_surfaces[slot];
 }
 
 /*----------------------
@@ -808,13 +893,13 @@ static void kos_strip(const PvrVertex *verts, unsigned count)
  | s_kos_backend
  | Description: The KallistiOS hooks pvr_submit_init binds.
  | Author: suinevere
- | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown, wait_previous_flip, kos_frame_texture, kos_strip_mark, kos_patch_strip
+ | Dependencies: kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown, wait_previous_flip, kos_frame_texture, kos_strip_mark, kos_patch_strip, kos_capture_screen, kos_screen_texture
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 static const PvrBackend s_kos_backend = { kos_scene_begin, kos_scene_finish, kos_background, kos_header, kos_strip, kos_scene_shown, wait_previous_flip, kos_frame_texture,
-                                          kos_strip_mark, kos_patch_strip };
+                                          kos_strip_mark, kos_patch_strip, kos_capture_screen, kos_screen_texture };
 
 /*----------------------
  | pvr_backend_frame_pixels
