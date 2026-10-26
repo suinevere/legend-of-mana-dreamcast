@@ -60,6 +60,18 @@ RAM_BYTES = 0x400
 FB_BYTES = 192
 
 """----------------------
+ | HANDLER
+ | Description: The game's interrupt handler label, which --call's rt_idle stand-in runs once for each vmu_irq_pending a record shows inside a vmu_idle.
+ | Author: suinevere
+ | Dependencies: pocketstation/src/vmu_game/system.s (g_irq_callback), pocketstation/harness/vmu_harness.c (enter_handler)
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------"""
+HANDLER = "g_irq_callback"
+
+
+"""----------------------
  | HW_NAMES
  | Description: The logged vmu_hw.h calls by id, in vmu_record.c's HW_* order.
  | Author: suinevere
@@ -657,6 +669,11 @@ class Setup:
             if other.routine.lower() in ctx.labels:
                 lines.append("poison %s %s" % (other.routine, other.poison))
         lines += ["ret %X" % c.ret for c in rec.hw]
+        if HANDLER.lower() in ctx.labels:
+            lines.append("handler " + HANDLER)
+            lines += ["idle %d" % sum(1 for d in rec.hw[i + 1:next((j for j in range(i + 1, len(rec.hw)) if rec.hw[j].depth <= c.depth), len(rec.hw))]
+                                      if d.name == "vmu_irq_pending" and d.depth == c.depth + 1)
+                      for i, c in enumerate(rec.hw) if c.name == "vmu_idle"]
         lines += ["load " + rec.ram_after[c.args[1]:c.args[1] + SAVE_BLOCK].hex() for c in rec.hw
                   if c.name == "vmu_save_read" and c.ret == 0]
         self.text = "\n".join(lines) + "\n"

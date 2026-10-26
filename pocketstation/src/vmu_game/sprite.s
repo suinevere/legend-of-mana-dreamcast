@@ -2,7 +2,7 @@
 ; | sprite.s
 ; | Description: sprite.c in LC86K assembly: row unpacking and mirroring into blit_a and blit_b, copying rows stored ready to draw, the row plotter and the sprite blitter that draws into XRAM.
 ; | Author: suinevere
-; | Dependencies: pocketstation/src/vmu/sprite.c, game.inc (ARG_BLOCK), fb.s (g_bit_rot), pocketstation/build/vmu_game/rrl_ram.inc (HW_BLIT_A, HWW_BLIT_B), pocketstation/src/vmu_rt/rt_lcd.s (rt_fb_row), pocketstation/build/vmu_game/tables.s (app_tb_map, app_tb_pages, app_sprites, g_spr_*), pocketstation/src/vmu_rt/rt_file.s (rt_rom8, rt_tb_seek, rt_fl_block)
+; | Dependencies: pocketstation/src/vmu/sprite.c, game.inc (ARG_BLOCK), tables.s (g_bit_rot), pocketstation/build/vmu_game/rrl_ram.inc (HW_BLIT_A, HWW_BLIT_B), pocketstation/src/vmu_rt/rt_lcd.s (rt_fb_row), pocketstation/build/vmu_game/tables.s (app_tb_map, app_tb_pages, app_sprites, g_spr_*), pocketstation/src/vmu_rt/rt_file.s (rt_rom8, rt_tb_seek, rt_fl_block)
 ; | Globals: blit_a, blit_b, XRAM rows 0-31, XBNK
 ; | Params: N/A
 ; | Returns: N/A
@@ -2276,17 +2276,97 @@ g_plot_mk0_more:
 	JMPF g_plot_mk0
 
 ;----------------------
-; | g_plot_orr
-; | Description: The row loop for table rows at an x within a byte ORed into XRAM: each row is staged at ARG_BLOCK+2..5 by g_plot_stage and merged as g_plot_orb merges blit_a.
+; | PSTAGE / PSTAGE_MASK
+; | Description: Copies four table bytes from the row address at ARG_BLOCK+0..1 (plus R0 for the mask) to ARG_BLOCK+2..5, then points VRMAD1 at them and TRH:TRL at g_bit_rot's page r. PSTAGE also moves the row address on by four bytes, as the image is a row's last staging.
 ; | Author: suinevere
-; | Dependencies: g_plot_stage, g_plot_advance, PF_ORV, PE_ORV, PL_ORV, PNEXT
+; | Dependencies: g_bit_rot (256-aligned), game.inc (ARG_BLOCK)
+; | Globals: ARG_BLOCK+0..5
+; | Params: ARG_BLOCK+0..1 -- the row's first kept byte's address; R0 -- the mask's offset (PSTAGE_MASK); C -- the plan; VRMAD2 -- ARG_BLOCK's page
+; | Returns: VRMAD1 -- ARG_BLOCK+2; TRH:TRL -- g_bit_rot + 256 r. Destroys ACC, PSW; leaves VSEL bit 4 clear.
+;----------------------
+%macro PSTAGE
+	CLR1 VSEL, 4
+	MOV #<ARG_BLOCK, VRMAD1
+	LD VTRBF
+	ST TRL
+	ADD #$04
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	ST TRH
+	ADDC #$00
+	ST VTRBF
+	INC VRMAD1
+	SET1 VSEL, 4
+	MOV #$00, ACC
+	LDC
+	ST VTRBF
+	MOV #$01, ACC
+	LDC
+	ST VTRBF
+	MOV #$02, ACC
+	LDC
+	ST VTRBF
+	MOV #$03, ACC
+	LDC
+	ST VTRBF
+	CLR1 VSEL, 4
+	MOV #<(ARG_BLOCK+2), VRMAD1
+	LD C
+	AND #$38
+	ROR
+	ROR
+	ROR
+	ADD #>g_bit_rot
+	ST TRH
+	MOV #(g_bit_rot - g_bit_rot / 256 * 256) * 256, TRL
+%end
+
+%macro PSTAGE_MASK
+	SET1 VSEL, 4
+	MOV #<ARG_BLOCK, VRMAD1
+	LD VTRBF
+	ADD $00
+	ST TRL
+	LD VTRBF
+	ADDC #$00
+	ST TRH
+	MOV #$00, ACC
+	LDC
+	ST VTRBF
+	MOV #$01, ACC
+	LDC
+	ST VTRBF
+	MOV #$02, ACC
+	LDC
+	ST VTRBF
+	MOV #$03, ACC
+	LDC
+	ST VTRBF
+	CLR1 VSEL, 4
+	MOV #<(ARG_BLOCK+2), VRMAD1
+	LD C
+	AND #$38
+	ROR
+	ROR
+	ROR
+	ADD #>g_bit_rot
+	ST TRH
+	MOV #(g_bit_rot - g_bit_rot / 256 * 256) * 256, TRL
+%end
+
+;----------------------
+; | g_plot_orr
+; | Description: The row loop for table rows at an x within a byte ORed into XRAM: each row is staged at ARG_BLOCK+2..5 by PSTAGE and merged as g_plot_orb merges blit_a.
+; | Author: suinevere
+; | Dependencies: PSTAGE, PF_ORV, PE_ORV, PL_ORV, PNEXT
 ; | Globals: XRAM rows, ARG_BLOCK+0..5
 ; | Params: ARG_BLOCK+0..1 -- the first row's first kept byte's address; R1, B -- the shift masks; R2 -- its first screen byte; R3 -- rows; C -- the plan; VRMAD2 -- ARG_BLOCK's page
 ; | Returns: N/A. Destroys ACC, TRL, TRH, R2, R3, VRMAD1, PSW.
 ;----------------------
 g_plot_orr:
 	PUSH $02
-	CALLF g_plot_stage
+	PSTAGE
 	BN C, 7, g_plot_orr_f
 	PE_ORV
 g_plot_orr_f:
@@ -2309,7 +2389,6 @@ g_plot_orr_l:
 	BN C, 6, g_plot_orr_n
 	PL_ORV
 g_plot_orr_n:
-	CALLF g_plot_advance
 	POP ACC
 	PNEXT
 	DBNZ $03, g_plot_orr_more
@@ -2321,14 +2400,14 @@ g_plot_orr_more:
 ; | g_plot_mkr
 ; | Description: As g_plot_orr for a masked table sprite: the mask row, R0 bytes on, is staged and cleared from XRAM first, then the image row is staged and ORed in.
 ; | Author: suinevere
-; | Dependencies: g_plot_stage, g_plot_stage_mask, g_plot_advance, PF_ANV, PE_ANV, PL_ANV, PF_ORV, PE_ORV, PL_ORV, PNEXT
+; | Dependencies: PSTAGE, PSTAGE_MASK, PF_ANV, PE_ANV, PL_ANV, PF_ORV, PE_ORV, PL_ORV, PNEXT
 ; | Globals: XRAM rows, ARG_BLOCK+0..5
 ; | Params: as g_plot_orr, with R0 -- 4 * height, the mask's offset (under 256)
 ; | Returns: N/A. Destroys ACC, TRL, TRH, R2, R3, VRMAD1, PSW.
 ;----------------------
 g_plot_mkr:
 	PUSH $02
-	CALLF g_plot_stage_mask
+	PSTAGE_MASK
 	BN C, 7, g_plot_mkr_f
 	PE_ANV
 g_plot_mkr_f:
@@ -2354,7 +2433,7 @@ g_plot_mkr_i:
 	POP ACC
 	PUSH ACC
 	ST $02
-	CALLF g_plot_stage
+	PSTAGE
 	BN C, 7, g_plot_mkr_if
 	PE_ORV
 g_plot_mkr_if:
@@ -2377,99 +2456,12 @@ g_plot_mkr_il:
 	BN C, 6, g_plot_mkr_n
 	PL_ORV
 g_plot_mkr_n:
-	CALLF g_plot_advance
 	POP ACC
 	PNEXT
 	DBNZ $03, g_plot_mkr_more
 	RET
 g_plot_mkr_more:
 	JMPF g_plot_mkr
-
-;----------------------
-; | g_plot_stage / g_plot_stage_mask
-; | Description: Copies four table bytes from the row address at ARG_BLOCK+0..1 (plus R0 for the mask) to ARG_BLOCK+2..5, then points VRMAD1 at them and TRH:TRL at g_bit_rot's page r.
-; | Author: suinevere
-; | Dependencies: g_bit_rot (256-aligned), game.inc (ARG_BLOCK)
-; | Globals: ARG_BLOCK+0..5
-; | Params: ARG_BLOCK+0..1 -- the row's first kept byte's address; R0 -- the mask's offset (g_plot_stage_mask); C -- the plan; VRMAD2 -- ARG_BLOCK's page
-; | Returns: VRMAD1 -- ARG_BLOCK+2; TRH:TRL -- g_bit_rot + 256 r. Destroys ACC, PSW; leaves VSEL bit 4 clear.
-;----------------------
-g_plot_stage_mask:
-	CALLF g_plot_stage_ptr
-	LD TRL
-	ADD $00
-	ST TRL
-	LD TRH
-	ADDC #$00
-	ST TRH
-	BR g_plot_stage_fetch
-g_plot_stage:
-	CALLF g_plot_stage_ptr
-g_plot_stage_fetch:
-	SET1 VSEL, 4
-	MOV #$00, ACC
-	LDC
-	ST VTRBF
-	MOV #$01, ACC
-	LDC
-	ST VTRBF
-	MOV #$02, ACC
-	LDC
-	ST VTRBF
-	MOV #$03, ACC
-	LDC
-	ST VTRBF
-g_plot_stage_tail:
-	CLR1 VSEL, 4
-	MOV #<(ARG_BLOCK+2), VRMAD1
-	LD C
-	AND #$38
-	ROR
-	ROR
-	ROR
-	ADD #>g_bit_rot
-	ST TRH
-	MOV #(g_bit_rot - g_bit_rot / 256 * 256) * 256, TRL
-	RET
-
-;----------------------
-; | g_plot_stage_ptr
-; | Description: Loads the staged row's table address from ARG_BLOCK+0..1 into TRH:TRL, leaving VRMAD1 at ARG_BLOCK+2.
-; | Author: suinevere
-; | Dependencies: game.inc (ARG_BLOCK)
-; | Globals: ARG_BLOCK+0..1
-; | Params: VRMAD2 -- ARG_BLOCK's page
-; | Returns: TRH:TRL -- the address. Destroys ACC, VRMAD1; leaves VSEL bit 4 clear.
-;----------------------
-g_plot_stage_ptr:
-	SET1 VSEL, 4
-	MOV #<ARG_BLOCK, VRMAD1
-	LD VTRBF
-	ST TRL
-	LD VTRBF
-	ST TRH
-	CLR1 VSEL, 4
-	RET
-
-;----------------------
-; | g_plot_advance
-; | Description: Moves the staged row's table address at ARG_BLOCK+0..1 on by one row, four bytes.
-; | Author: suinevere
-; | Dependencies: game.inc (ARG_BLOCK)
-; | Globals: ARG_BLOCK+0..1
-; | Params: VRMAD2 -- ARG_BLOCK's page; VSEL bit 4 clear
-; | Returns: N/A. Destroys ACC, VRMAD1, PSW.
-;----------------------
-g_plot_advance:
-	MOV #<ARG_BLOCK, VRMAD1
-	LD VTRBF
-	ADD #$04
-	ST VTRBF
-	INC VRMAD1
-	LD VTRBF
-	ADDC #$00
-	ST VTRBF
-	RET
 
 ;----------------------
 ; | SCOPY1 / SCOPY2 / SCOPY3 / SCOPY4
@@ -2955,7 +2947,7 @@ ROM_SPRITES_OFF	EQU	$A03C
 ; | g_sprite_info
 ; | Description: game_sprite_info: sprite id's SpriteInfo at x, y: x plus the low six bits of its word's first byte, y plus its second, width and height from the next two, flags from the first byte's top two bits, then the bitmap word.
 ; | Author: suinevere
-; | Dependencies: app_tables, ROM_SPRITES_OFF, game.inc (ARG_BLOCK)
+; | Dependencies: app_tables, ROM_SPRITES_OFF, game.inc (ARG_BLOCK), g_tr_x8
 ; | Globals: N/A
 ; | Params: TRH:TRL -- x; ARG_BLOCK+0..1 -- y; ARG_BLOCK+2..3 -- id
 ; | Returns: ARG_BLOCK+0..11 -- the SpriteInfo (x, y, width, height, flags, a pad byte, bitmap), over y and id. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, PSW; leaves VSEL bit 4 clear.
@@ -2979,15 +2971,7 @@ g_sprite_info:
 	INC VRMAD1
 	LD VTRBF
 	ST TRH
-	MOV #$03, B
-g_sprite_info_x8:
-	LD TRL
-	ADD TRL
-	ST TRL
-	LD TRH
-	ADDC TRH
-	ST TRH
-	DBNZ B, g_sprite_info_x8
+	CALLF g_tr_x8
 	LD TRL
 	ADD #<(app_tables+ROM_SPRITES_OFF)
 	ST TRL
@@ -3039,4 +3023,140 @@ g_sprite_info_bitmap:
 	INC VRMAD1
 	INC C
 	DBNZ B, g_sprite_info_bitmap
+	RET
+
+;----------------------
+; | ROM_FRAME_SETS_OFF
+; | Description: File offset of sprite.c's ROM_FRAME_SETS: one card address per object type from 0x58, each pointing at that type's frame set.
+; | Author: suinevere
+; | Dependencies: pocketstation/src/vmu/sprite.c
+; | Globals: N/A
+; | Params: N/A
+; | Returns: N/A
+;----------------------
+ROM_FRAME_SETS_OFF	EQU	$A384
+
+;----------------------
+; | g_frame_info
+; | Description: game_frame_info for its two callers only: frame's dx, dy, bitmap word and the low byte of extra. The 0x80 set kind masks bit 31; others take dx from bits 24-30.
+; | Author: suinevere
+; | Dependencies: app_tables, ROM_FRAME_SETS_OFF, g_fi_add, g_tr_x4
+; | Globals: N/A
+; | Params: ACC -- type; B -- frame
+; | Returns: R0-R3 (0x00-0x03) -- bitmap, low byte first; B -- dx; C -- dy; ACC -- extra's low byte. The word field is never returned. Destroys TRH, TRL, PSW; keeps VRMAD.
+;----------------------
+g_frame_info:
+	ST TRL
+	MOV #$00, TRH
+	PUSH B
+	CALLF g_tr_x4
+	LD TRL
+	ADD #<(app_tables+ROM_FRAME_SETS_OFF-$160)
+	ST TRL
+	LD TRH
+	ADDC #>(app_tables+ROM_FRAME_SETS_OFF-$160)
+	ST TRH
+	MOV #$00, ACC
+	LDC
+	ST $00
+	MOV #$01, ACC
+	LDC
+	ST $01
+	LD $00
+	ADD #<app_tables
+	ST TRL
+	LD $01
+	ADDC #>app_tables
+	ST TRH
+	MOV #$01, ACC
+	LDC
+	ST C
+	POP B
+	MOV #$00, ACC
+	LDC
+	BNE #$80, g_frame_info_list
+	MOV #$03, ACC
+	CALLF g_fi_add
+	PUSH C
+	MOV #$04, ACC
+	LDC
+	ST $00
+	MOV #$05, ACC
+	LDC
+	ST $01
+	MOV #$06, ACC
+	LDC
+	ST $02
+	MOV #$07, ACC
+	LDC
+	ST B
+	AND #$7F
+	ST $03
+	MOV #$0B, ACC
+	LDC
+	ST C
+	POP ACC
+	RET
+g_frame_info_list:
+	BNE #$81, g_frame_info_plain
+	PUSH C
+	LD TRL
+	ADD #$04
+	ST TRL
+	LD TRH
+	ADDC #$00
+	ST TRH
+	BR g_frame_info_word
+g_frame_info_plain:
+	MOV #$00, ACC
+	PUSH ACC
+g_frame_info_word:
+	MOV #$02, ACC
+	CALLF g_fi_add
+	MOV #$00, ACC
+	LDC
+	ST $00
+	MOV #$01, ACC
+	LDC
+	ST $01
+	MOV #$02, ACC
+	LDC
+	ST $02
+	MOV #$03, ACC
+	LDC
+	ST $03
+	AND #$7F
+	ST B
+	MOV #$00, C
+	POP ACC
+	RET
+
+;----------------------
+; | g_fi_add
+; | Description: Adds B shifted left ACC places to TRH:TRL, for g_frame_info's frame offsets.
+; | Author: suinevere
+; | Dependencies: N/A
+; | Globals: N/A
+; | Params: ACC -- the shift, 1-8; B -- the frame; TRH:TRL -- the address
+; | Returns: TRH:TRL -- the address plus B << ACC. Keeps B and C; destroys ACC, R0-R2, PSW.
+;----------------------
+g_fi_add:
+	ST $02
+	LD B
+	ST $00
+	MOV #$00, $01
+g_fi_add_shift:
+	LD $00
+	ADD $00
+	ST $00
+	LD $01
+	ADDC $01
+	ST $01
+	DBNZ $02, g_fi_add_shift
+	LD TRL
+	ADD $00
+	ST TRL
+	LD TRH
+	ADDC $01
+	ST TRH
 	RET

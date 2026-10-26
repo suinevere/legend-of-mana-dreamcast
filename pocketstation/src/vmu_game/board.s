@@ -1007,6 +1007,19 @@ BOARD_TWIN	EQU	$18
 ANIM_SCENE_CELL	EQU	$16
 
 ;----------------------
+; | BFL
+; | Description: Points VRMAD1 at g_board_fill's local at ARG_BLOCK + k; VRMAD2 and VSEL bit 4 must already be set as BFV sets them.
+; | Author: suinevere
+; | Dependencies: game.inc (ARG_BLOCK)
+; | Globals: N/A
+; | Params: %k -- the offset
+; | Returns: N/A
+;----------------------
+%macro BFL %k
+	MOV #<(ARG_BLOCK+%k), VRMAD1
+%end
+
+;----------------------
 ; | BFV
 ; | Description: Points VRMAD at g_board_fill's local at ARG_BLOCK + k, with VSEL bit 4 clear.
 ; | Author: suinevere
@@ -1042,7 +1055,7 @@ g_bf_cell:
 ; | g_board_fill
 ; | Description: game_board_fill: clears the board's cells, places board_steps args on every fourth free cell, the rest on even cells by board_takes with their choices, then cell scenes 2-4 by odds, copies cell 8 to the twin and returns the kinds still open.
 ; | Author: suinevere
-; | Dependencies: g_next_arg, g_board_free_cell, g_board_takes, g_board_choice_core, g_random, g_anim_start, g_bf_cell, BFV, game.inc (ARG_BLOCK), rrl_ram.inc (HWW_CELL_ARG, HWW_BOARD_STEPS, HWW_BOARD_ARGS, HWW_BOARD_ARG_SET, HW_SEL_A, HW_ODDS_SET)
+; | Dependencies: g_next_arg, g_board_free_cell, g_board_takes, g_board_choice_core, g_random, g_anim_start, g_bf_cell, BFV, BFL, game.inc (ARG_BLOCK), rrl_ram.inc (HWW_CELL_ARG, HWW_BOARD_STEPS, HWW_BOARD_ARGS, HWW_BOARD_ARG_SET, HW_SEL_A, HW_ODDS_SET)
 ; | Globals: seed, cell_arg, cell_type, board_steps, board_args, board_arg_set, sel_a, odds_set, anim slots
 ; | Params: N/A
 ; | Returns: ACC -- the kinds still open. Destroys B, C, TRH, TRL, R0-R3, VRMAD, PSW; keeps ARG_BLOCK; leaves VSEL bit 4 clear; thirteen bytes of stack for ARG_BLOCK on top of its callees'.
@@ -1069,30 +1082,30 @@ g_board_fill_clear:
 g_board_fill_home:
 	CALLF g_bf_cell
 	MOV #$00, VTRBF
-	BFV BF_KINDS
+	BFL BF_KINDS
 	MOV #$FF, VTRBF
-	BFV BF_CHOICES
+	BFL BF_CHOICES
 	MOV #$00, VTRBF
 	MOV #<HWW_BOARD_STEPS, VRMAD1
 	MOV #>HWW_BOARD_STEPS, VRMAD2
 	LD VTRBF
-	BFV BF_PLACED
+	BFL BF_PLACED
 	ST VTRBF
-	BFV BF_LEFT
+	BFL BF_LEFT
 	ST VTRBF
 	BZ g_board_fill_rest
 	CALLF g_bf_set
 	BFV BF_FREE
 	MOV #$06, VTRBF
-	BFV BF_ARG
+	BFL BF_ARG
 	MOV #$00, VTRBF
 g_board_fill_step:
-	BFV BF_ARG
+	BFL BF_ARG
 	LD VTRBF
 	CALLF g_next_arg
 	BFV BF_ARG
 	ST VTRBF
-	BFV BF_FREE
+	BFL BF_FREE
 	LD VTRBF
 	MOV #$04, B
 	MOV #$00, C
@@ -1106,24 +1119,24 @@ g_board_fill_step:
 	CALLF g_bf_cell
 	LD B
 	ST VTRBF
-	BFV BF_FREE
+	BFL BF_FREE
 	LD VTRBF
 	DEC ACC
 	ST VTRBF
-	BFV BF_LEFT
+	BFL BF_LEFT
 	LD VTRBF
 	DEC ACC
 	ST VTRBF
 	BNZ g_board_fill_step
 g_board_fill_rest:
-	BFV BF_PLACED
+	BFL BF_PLACED
 	LD VTRBF
 	ST B
 	MOV #<HWW_BOARD_ARGS, VRMAD1
 	MOV #>HWW_BOARD_ARGS, VRMAD2
 	LD VTRBF
 	SUB B
-	BFV BF_LEFT
+	BFL BF_LEFT
 	ST VTRBF
 	BNZ g_bf_far0
 	JMPF g_board_fill_types
@@ -1134,18 +1147,18 @@ g_bf_far0:
 	SUB B
 	BFV BF_FREE
 	ST VTRBF
-	BFV BF_ARG
+	BFL BF_ARG
 	MOV #$06, VTRBF
 g_board_fill_more:
-	BFV BF_ARG
+	BFL BF_ARG
 	LD VTRBF
 	CALLF g_next_arg
 	BFV BF_ARG
 	ST VTRBF
-	BFV BF_FREE
+	BFL BF_FREE
 	LD VTRBF
 	ST B
-	BFV BF_LEFT
+	BFL BF_LEFT
 	LD VTRBF
 	CALLF g_board_takes
 	BNZ g_bf_far1
@@ -1158,37 +1171,37 @@ g_bf_far1:
 	CALLF g_board_free_cell
 	BFV BF_CELL
 	ST VTRBF
-	BFV BF_ARG
+	BFL BF_ARG
 	LD VTRBF
 	ST B
-	BFV BF_CELL
+	BFL BF_CELL
 	LD VTRBF
 	MOV #$00, C
 	CALLF g_bf_cell
 	LD B
 	ST VTRBF
-	BFV BF_PLACED
+	BFL BF_PLACED
 	LD VTRBF
 	INC ACC
 	ST VTRBF
-	BFV BF_CHOICES
+	BFL BF_CHOICES
 	LD VTRBF
 	ST $03
-	BFV BF_KINDS
+	BFL BF_KINDS
 	LD VTRBF
 	ST C
-	BFV BF_ARG
+	BFL BF_ARG
 	LD VTRBF
 	ST B
-	BFV BF_CELL
+	BFL BF_CELL
 	LD VTRBF
 	CALLF g_board_choice_core
 	BFV BF_KINDS
 	ST VTRBF
-	BFV BF_CHOICES
+	BFL BF_CHOICES
 	LD $03
 	ST VTRBF
-	BFV BF_FREE
+	BFL BF_FREE
 	LD VTRBF
 	DEC ACC
 	ST VTRBF
@@ -1213,16 +1226,16 @@ g_board_fill_odds20:
 g_board_fill_odds30:
 	MOV #30, ACC
 g_board_fill_odds:
-	BFV BF_ODDS
+	BFL BF_ODDS
 	ST VTRBF
-	BFV BF_PLACED
+	BFL BF_PLACED
 	LD VTRBF
 	ST B
 	MOV #30, ACC
 	SUB B
-	BFV BF_FREE
+	BFL BF_FREE
 	ST VTRBF
-	BFV BF_TYPE
+	BFL BF_TYPE
 	MOV #$02, VTRBF
 g_board_fill_type:
 	MOV #$40, TRL
@@ -1246,7 +1259,7 @@ g_board_fill_type:
 	BFV BF_ODDS
 	LD VTRBF
 	ST B
-	BFV BF_TYPE
+	BFL BF_TYPE
 	LD VTRBF
 	BNE #$03, g_board_fill_cut
 	MOV #80, B
@@ -1254,7 +1267,7 @@ g_board_fill_cut:
 	LD C
 	SUB B
 	BN PSW, 7, g_board_fill_next
-	BFV BF_FREE
+	BFL BF_FREE
 	LD VTRBF
 	MOV #$01, B
 	MOV #$01, C
@@ -1268,7 +1281,7 @@ g_board_fill_cut:
 	CALLF g_bf_cell
 	LD B
 	ST VTRBF
-	BFV BF_TYPE
+	BFL BF_TYPE
 	LD VTRBF
 	MOV #ANIM_SCENE_CELL, B
 	MOV #$00, C
@@ -1303,7 +1316,7 @@ g_bf_far3:
 	CALLF g_bf_cell
 	LD B
 	ST VTRBF
-	BFV BF_KINDS
+	BFL BF_KINDS
 	LD VTRBF
 	ST C
 	MOV #<(ARG_BLOCK+12), VRMAD1
@@ -1397,4 +1410,769 @@ g_bf_set6_bit:
 	LD $03
 	ST VTRBF
 	CLR1 VSEL, 4
+	RET
+
+;----------------------
+; | g_cell_exits
+; | Description: game_cell_exits: the board cell's exit bits from sel_c's nibble, or for a 0xF cell the facing and its mirror.
+; | Author: suinevere
+; | Dependencies: g_nibble, g_mirror_direction, rrl_ram.inc (HW_SEL_C, HW_SEL_D)
+; | Globals: sel_c, sel_d
+; | Params: N/A
+; | Returns: ACC -- the exits. Destroys C, TRL, TRH, PSW.
+;----------------------
+g_cell_exits:
+	LD HW_SEL_C
+	CALLF g_nibble
+	BNE #$0F, g_cell_exits_ret
+	LD HW_SEL_D
+	CALLF g_mirror_direction
+	OR HW_SEL_D
+g_cell_exits_ret:
+	RET
+
+;----------------------
+; | g_walk_facing
+; | Description: walk_facing: the direction a walk step leaves in, from sel_d, sel_b, walk_left, walk_back and sel_c's nibble, mirrored or masked as board.c chooses.
+; | Author: suinevere
+; | Dependencies: g_nibble, g_mirror_direction, rrl_ram.inc (HW_SEL_B, HW_SEL_C, HW_SEL_D, HW_WALK_LEFT, HW_WALK_BACK)
+; | Globals: sel_b, sel_c, sel_d, walk_left, walk_back
+; | Params: N/A
+; | Returns: ACC -- the facing. Destroys C, TRL, TRH, PSW.
+;----------------------
+g_walk_facing:
+	LD HW_WALK_LEFT
+	BZ g_walk_facing_one
+	LD HW_WALK_BACK
+	BZ g_walk_facing_one
+	LD HW_SEL_B
+	BZ g_walk_facing_both
+	LD HW_SEL_D
+	JMPF g_mirror_direction
+g_walk_facing_both:
+	LD HW_SEL_C
+	CALLF g_nibble
+	BNE #$0F, g_walk_facing_open
+	LD HW_SEL_D
+	RET
+g_walk_facing_open:
+	ST C
+	LD HW_SEL_D
+	XOR #$FF
+	AND C
+	JMPF g_mirror_direction
+g_walk_facing_one:
+	LD HW_SEL_B
+	BNZ g_walk_facing_cell
+	LD HW_SEL_D
+	RET
+g_walk_facing_cell:
+	LD HW_SEL_C
+	CALLF g_nibble
+	BNE #$0F, g_walk_facing_mask
+	LD HW_SEL_D
+	JMPF g_mirror_direction
+g_walk_facing_mask:
+	ST C
+	LD HW_SEL_D
+	XOR #$FF
+	AND C
+	RET
+
+;----------------------
+; | WALK_STEP_FRAMES
+; | Description: Frames a step forward or back takes, board.c's WALK_STEP_FRAMES.
+; | Author: suinevere
+; | Dependencies: pocketstation/src/vmu/board.c
+; | Globals: N/A
+; | Params: N/A
+; | Returns: N/A
+;----------------------
+WALK_STEP_FRAMES	EQU	16
+
+;----------------------
+; | g_walk_step
+; | Description: game_walk_step: advances a busy walk's frame by its kind; a finished step forward or back moves sel_c one cell and turns sel_d to the new cell's open exits.
+; | Author: suinevere
+; | Dependencies: g_nibble, g_mirror_direction, WALK_STEP_FRAMES, rrl_ram.inc (HW_WALK_BUSY, HW_WALK_FRAME, HW_WALK_KIND, HW_SEL_C, HW_SEL_D)
+; | Globals: walk_busy, walk_frame, walk_kind, sel_c, sel_d
+; | Params: N/A
+; | Returns: N/A. Destroys ACC, B, C, TRL, TRH, PSW.
+;----------------------
+g_walk_step:
+	LD HW_WALK_BUSY
+	BNZ g_walk_step_busy
+	RET
+g_walk_step_busy:
+	LD HW_WALK_KIND
+	BNE #$02, g_walk_step_kind
+	LD HW_WALK_FRAME
+	BE #12, g_walk_step_ret
+	INC HW_WALK_FRAME
+	RET
+g_walk_step_kind:
+	BP PSW, 7, g_walk_step_move
+	DEC HW_WALK_FRAME
+	LD HW_WALK_FRAME
+	BNZ g_walk_step_ret
+	MOV #$00, HW_WALK_BUSY
+	RET
+g_walk_step_move:
+	INC HW_WALK_FRAME
+	LD HW_WALK_FRAME
+	BNE #WALK_STEP_FRAMES, g_walk_step_ret
+	MOV #$00, HW_WALK_BUSY
+	MOV #$00, HW_WALK_FRAME
+	LD HW_SEL_C
+	ST B
+	LD HW_WALK_KIND
+	BNZ g_walk_step_back
+	LD B
+	INC ACC
+	AND #$1F
+	ST HW_SEL_C
+	CALLF g_nibble
+	BE #$0F, g_walk_step_ret
+	ST B
+	LD HW_SEL_D
+	CALLF g_mirror_direction
+	XOR #$FF
+	AND B
+	ST HW_SEL_D
+	RET
+g_walk_step_back:
+	LD B
+	DEC ACC
+	AND #$1F
+	ST HW_SEL_C
+	LD B
+	CALLF g_nibble
+	BE #$0F, g_walk_step_ret
+	ST B
+	LD HW_SEL_D
+	XOR #$FF
+	AND B
+	CALLF g_mirror_direction
+	ST HW_SEL_D
+g_walk_step_ret:
+	RET
+
+;----------------------
+; | g_walk_choose
+; | Description: game_walk_choose: when no walk is busy, starts one along the first held direction open from the cell, backwards when it leaves against the facing.
+; | Author: suinevere
+; | Dependencies: g_cell_exits, rrl_ram.inc (HW_WALK_BUSY, HW_BTN_PREV, HW_SEL_B, HW_SEL_D, HW_WALK_KIND, HW_WALK_FRAME)
+; | Globals: walk_busy, btn_prev, sel_b, sel_c, sel_d, walk_kind, walk_frame
+; | Params: N/A
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, PSW.
+;----------------------
+g_walk_choose:
+	LD HW_WALK_BUSY
+	BNZ g_walk_choose_ret
+	CALLF g_cell_exits
+	ST B
+	AND #$05
+	ST C
+	BZ g_walk_choose_right
+	LD HW_BTN_PREV
+	AND #$04
+	BZ g_walk_choose_right
+	MOV #$05, TRL
+	BR g_walk_choose_found
+g_walk_choose_right:
+	LD B
+	AND #$0A
+	ST C
+	BZ g_walk_choose_up
+	LD HW_BTN_PREV
+	AND #$02
+	BZ g_walk_choose_up
+	MOV #$0A, TRL
+	BR g_walk_choose_found
+g_walk_choose_up:
+	LD B
+	AND #$03
+	ST C
+	BZ g_walk_choose_down
+	LD HW_BTN_PREV
+	AND #$10
+	BZ g_walk_choose_down
+	MOV #$03, TRL
+	BR g_walk_choose_found
+g_walk_choose_down:
+	LD B
+	AND #$0C
+	ST C
+	BZ g_walk_choose_ret
+	LD HW_BTN_PREV
+	AND #$08
+	BZ g_walk_choose_ret
+	MOV #$0C, TRL
+g_walk_choose_found:
+	LD C
+	BNE TRL, g_walk_choose_part
+	MOV #$00, B
+	LD HW_SEL_B
+	BZ g_walk_choose_set
+	BE #$02, g_walk_choose_set
+	MOV #$01, B
+	BR g_walk_choose_set
+g_walk_choose_part:
+	AND HW_SEL_D
+	MOV #$00, B
+	BNZ g_walk_choose_set
+	MOV #$01, B
+g_walk_choose_set:
+	LD B
+	ST HW_WALK_KIND
+	MOV #$01, HW_WALK_BUSY
+	MOV #$00, HW_WALK_FRAME
+g_walk_choose_ret:
+	RET
+
+;----------------------
+; | g_walk_pending
+; | Description: game_walk_pending: steps the meter if it lags; else starts the next queued walk step, advances the walk and, when it is still, faces anim 1 the way it leaves.
+; | Author: suinevere
+; | Dependencies: g_meter_update, g_walk_next, g_walk_step, g_walk_facing, rrl_ram.inc (HW_METER_SHOWN, HW_METER, HW_WALK_BUSY, HW_WALK_LEFT, HW_WALK_BACK, HW_SEL_B, HW_WALK_KIND, HW_WALK_FRAME, HW_STEP_RESULT, HW_MODE_DONE, HWW_ANIM)
+; | Globals: the walk and meter fields, step_result, mode_done, anim
+; | Params: N/A
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, VRMAD, PSW.
+;----------------------
+g_walk_pending:
+	LD HW_METER_SHOWN
+	BE HW_METER, g_walk_pending_walk
+	JMPF g_meter_update
+g_walk_pending_walk:
+	LD HW_WALK_BUSY
+	BNZ g_walk_pending_step
+	LD HW_WALK_LEFT
+	BZ g_walk_pending_step
+	CALLF g_walk_next
+	BZ g_walk_pending_step
+	LD HW_WALK_BACK
+	XOR HW_SEL_B
+	ST HW_WALK_KIND
+	MOV #$01, HW_WALK_BUSY
+	MOV #$00, HW_WALK_FRAME
+g_walk_pending_step:
+	CALLF g_walk_step
+	LD HW_WALK_BUSY
+	BZ g_walk_pending_still
+	LD HW_WALK_FRAME
+	BNZ g_walk_pending_done
+g_walk_pending_still:
+	LD HW_STEP_RESULT
+	BE #$03, g_walk_pending_done
+	CALLF g_walk_facing
+	ST C
+	MOV #$01, B
+	BP C, 0, g_walk_pending_anim
+	MOV #$03, B
+	BP C, 1, g_walk_pending_anim
+	MOV #$00, B
+	BP C, 2, g_walk_pending_anim
+	MOV #$02, B
+g_walk_pending_anim:
+	CLR1 VSEL, 4
+	MOV #<(HWW_ANIM+1), VRMAD1
+	MOV #>(HWW_ANIM+1), VRMAD2
+	LD B
+	ST VTRBF
+g_walk_pending_done:
+	MOV #$00, HW_MODE_DONE
+	RET
+
+;----------------------
+; | g_walk_by_buttons
+; | Description: game_walk_by_buttons: steps a lagging meter, else lets the held buttons choose a walk, then advances the walk.
+; | Author: suinevere
+; | Dependencies: g_meter_update, g_walk_choose, g_walk_step, rrl_ram.inc (HW_METER_SHOWN, HW_METER)
+; | Globals: meter_shown, meter and what the callees write
+; | Params: N/A
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, PSW.
+;----------------------
+g_walk_by_buttons:
+	LD HW_METER_SHOWN
+	BE HW_METER, g_walk_by_buttons_choose
+	CALLF g_meter_update
+	BR g_walk_by_buttons_step
+g_walk_by_buttons_choose:
+	CALLF g_walk_choose
+g_walk_by_buttons_step:
+	JMPF g_walk_step
+
+;----------------------
+; | BOARD_LIST_PAGE
+; | Description: board_list's work RAM page, an expression that fails to assemble if its 32 bytes cross a page, as the entry reads add to the low byte only.
+; | Author: suinevere
+; | Dependencies: rrl_ram.inc (HWW_BOARD_LIST)
+; | Globals: N/A
+; | Params: N/A
+; | Returns: N/A
+;----------------------
+BOARD_LIST_PAGE	EQU	HWW_BOARD_LIST / 256 + 256 * ((HWW_BOARD_LIST + 31) / 256 - HWW_BOARD_LIST / 256)
+
+;----------------------
+; | g_board_draw
+; | Description: game_board_draw: steps the animations, lists the cells around the walker offset by the step under way, draws their tiles, then each cell's item, its character and the walker, which goes in front of the cells below its step.
+; | Author: suinevere
+; | Dependencies: g_keep13, g_anims_tick, g_nibble, g_mirror_direction, g_bd_byte, g_bd_gather, g_bd_exit, g_bd_i, g_bd_xy, g_bd_next, g_info_id, g_draw, g_anim_xy, g_anim_draw, g_bf_cell, BOARD_LIST_PAGE, game.inc (ARG_BLOCK), rrl_ram.inc (HW_SEL_C, HW_SEL_D, HW_SEL_E, HW_MODE, HW_MODE_DONE, HW_MODE_PHASE, HW_SCRATCH_LO, HW_SCRATCH_HI, HW_WALK_BUSY, HW_WALK_FRAME, HW_WALK_KIND, HW_CELL_SAVED, HWW_BOARD_LIST)
+; | Globals: sel_c, sel_d, sel_e, mode, mode_done, mode_phase, scratch_lo, scratch_hi, walk_busy, walk_frame, walk_kind, cell_saved, cell_arg, cell_type, board_list, anim and what the draws write
+; | Params: N/A
+; | Returns: B -- the entry count; TRH:TRL -- the walker's front threshold, signed, cell_saved once sel_e is 0. Keeps ARG_BLOCK; destroys ACC, C, R0-R3, VRMAD, FPR, PSW; leaves VSEL bit 4 clear; g_keep13's sixteen bytes of stack on top of the callees'.
+;----------------------
+g_board_draw:
+	MOV #<g_board_draw_body, $00
+	MOV #>g_board_draw_body, $01
+	JMPF g_keep13
+g_board_draw_body:
+	CALLF g_anims_tick
+	SET1 VSEL, 4
+	MOV #<(ARG_BLOCK+7), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	MOV #$00, VTRBF
+	MOV #$00, VTRBF
+	MOV #$00, VTRBF
+	MOV #$00, VTRBF
+	MOV #$00, VTRBF
+	CLR1 VSEL, 4
+	LD HW_SEL_C
+	CALLF g_nibble
+	ST $03
+	MOV #$00, $01
+	MOV #$00, $02
+	LD HW_MODE
+	BNE #11, g_board_draw_walk
+	LD HW_MODE_DONE
+	SUB #10
+	BP PSW, 7, g_board_draw_walk
+	MOV #<(ARG_BLOCK+7), VRMAD1
+	LD HW_SCRATCH_LO
+	CALLF g_bd_byte
+	MOV #<(ARG_BLOCK+9), VRMAD1
+	LD HW_SCRATCH_HI
+	CALLF g_bd_byte
+	JMPF g_board_draw_list
+g_board_draw_walk:
+	LD HW_WALK_BUSY
+	BNZ g_board_draw_busy
+	JMPF g_board_draw_list
+g_board_draw_busy:
+	LD HW_WALK_FRAME
+	CLR1 PSW, 7
+	RORC
+	ST C
+	LD HW_WALK_KIND
+	SUB #2
+	BP PSW, 7, g_board_draw_turn
+	LD C
+	JMPF g_board_draw_y
+g_board_draw_turn:
+	LD HW_SEL_D
+	ST $00
+	LD HW_WALK_KIND
+	BNE #1, g_board_draw_way
+	LD $03
+	BNE #$0F, g_board_draw_left
+	LD $00
+	CALLF g_mirror_direction
+	ST $00
+	JMPF g_board_draw_way
+g_board_draw_left:
+	LD $00
+	XOR #$FF
+	AND $03
+	ST $00
+g_board_draw_way:
+	MOV #<(ARG_BLOCK+11), VRMAD1
+	LD $00
+	ST VTRBF
+	LD C
+	ADD C
+	ST B
+	LD $00
+	AND #$05
+	BNZ g_board_draw_x
+	MOV #$00, ACC
+	SUB B
+	ST B
+g_board_draw_x:
+	MOV #<(ARG_BLOCK+7), VRMAD1
+	LD B
+	ST VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	BZ g_board_draw_ydir
+	LD $00
+	AND #$05
+	BNZ g_board_draw_ydir
+	MOV #$FF, VTRBF
+g_board_draw_ydir:
+	LD $00
+	AND #$03
+	BNZ g_board_draw_down
+	LD C
+	SUB #4
+	BP PSW, 7, g_board_draw_up
+	MOV #8, ACC
+	SUB C
+	ST $01
+	BN ACC, 7, g_board_draw_up
+	MOV #$FF, $02
+g_board_draw_up:
+	MOV #$00, ACC
+	SUB C
+	JMPF g_board_draw_y
+g_board_draw_down:
+	LD C
+	SUB #4
+	BN PSW, 7, g_board_draw_step
+	LD C
+	ST $01
+g_board_draw_step:
+	LD C
+g_board_draw_y:
+	MOV #<(ARG_BLOCK+9), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	CALLF g_bd_byte
+g_board_draw_list:
+	MOV #<(ARG_BLOCK+9), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	LD VTRBF
+	ST B
+	MOV #<(ARG_BLOCK+7), VRMAD1
+	LD VTRBF
+	ST C
+	MOV #<HWW_BOARD_LIST, VRMAD1
+	MOV #BOARD_LIST_PAGE, VRMAD2
+	SET1 VSEL, 4
+	LD B
+	ST VTRBF
+	LD C
+	ST VTRBF
+	LD HW_SEL_C
+	ST VTRBF
+	CLR1 VSEL, 4
+	PUSH $01
+	PUSH $02
+	MOV #<(ARG_BLOCK+4), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	MOV #$01, VTRBF
+	LD $03
+	BNE #$0F, g_board_draw_exits
+	MOV #$08, ACC
+	MOV #$82, B
+	MOV #$02, C
+	CALLF g_bd_gather
+	MOV #$08, ACC
+	MOV #$04, B
+	MOV #$02, C
+	CALLF g_bd_gather
+	MOV #$18, ACC
+	MOV #$81, B
+	MOV #$02, C
+	CALLF g_bd_gather
+	MOV #$18, ACC
+	MOV #$08, B
+	MOV #$02, C
+	CALLF g_bd_gather
+	JMPF g_board_draw_tiles
+g_board_draw_exits:
+	MOV #$01, ACC
+	MOV #$08, B
+	CALLF g_bd_exit
+	MOV #$02, ACC
+	MOV #$04, B
+	CALLF g_bd_exit
+	MOV #$04, ACC
+	MOV #$02, B
+	CALLF g_bd_exit
+	MOV #$08, ACC
+	MOV #$01, B
+	CALLF g_bd_exit
+g_board_draw_tiles:
+	CLR1 VSEL, 4
+	MOV #<(ARG_BLOCK+4), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	LD VTRBF
+	PUSH ACC
+	MOV #<(ARG_BLOCK+12), VRMAD1
+	MOV #$00, VTRBF
+g_board_draw_tile:
+	POP C
+	PUSH C
+	CALLF g_bd_i
+	BE C, g_board_draw_cells
+	CALLF g_bd_xy
+	MOV #$00, ACC
+	MOV #$00, B
+	CALLF g_info_id
+	CALLF g_draw
+	CALLF g_bd_next
+	JMPF g_board_draw_tile
+g_board_draw_cells:
+	POP C
+	POP $02
+	POP $01
+	MOV #$FF, B
+	LD HW_SEL_E
+	BZ g_board_draw_found
+	MOV #$00, $00
+g_board_draw_scan:
+	LD $00
+	BE C, g_board_draw_last
+	ST B
+	ADD B
+	ADD B
+	ADD #<HWW_BOARD_LIST
+	ST VRMAD1
+	MOV #BOARD_LIST_PAGE, VRMAD2
+	LD VTRBF
+	ST B
+	MOV #$00, TRL
+	BN B, 7, g_board_draw_cmp
+	MOV #$FF, TRL
+g_board_draw_cmp:
+	LD $01
+	SUB B
+	LD $02
+	SUBC TRL
+	BN ACC, 7, g_board_draw_scan_next
+	LD $00
+	ST B
+	JMPF g_board_draw_found
+g_board_draw_scan_next:
+	INC $00
+	JMPF g_board_draw_scan
+g_board_draw_last:
+	LD C
+	ST B
+g_board_draw_found:
+	PUSH $01
+	PUSH $02
+	PUSH C
+	PUSH B
+	CALLF g_bd_i
+	MOV #$00, VTRBF
+g_board_draw_cell:
+	POP B
+	PUSH B
+	CALLF g_bd_i
+	BNE B, g_board_draw_alone
+	MOV #$00, C
+	MOV #$00, B
+	MOV #$00, ACC
+	CALLF g_anim_xy
+g_board_draw_alone:
+	POP B
+	POP C
+	PUSH C
+	PUSH B
+	CALLF g_bd_i
+	BE C, g_board_draw_done
+	CALLF g_bd_xy
+	MOV #$00, C
+	CALLF g_bf_cell
+	LD VTRBF
+	BE #$FF, g_board_draw_type
+	INC ACC
+	MOV #$00, B
+	CALLF g_info_id
+	CALLF g_draw
+g_board_draw_type:
+	CALLF g_bd_xy
+	MOV #$20, C
+	CALLF g_bf_cell
+	LD VTRBF
+	BE #$FF, g_board_draw_saved
+	BE #$10, g_board_draw_saved
+	PUSH ACC
+	CALLF g_bd_xy
+	POP ACC
+	CALLF g_anim_draw
+g_board_draw_saved:
+	LD HW_SEL_E
+	BNZ g_board_draw_next
+	CALLF g_bd_xy
+	BNE HW_CELL_SAVED, g_board_draw_next
+	MOV #$00, ACC
+	CALLF g_anim_draw
+	LD HW_MODE
+	BNE #11, g_board_draw_next
+	LD HW_MODE_DONE
+	SUB #10
+	BP PSW, 7, g_board_draw_next
+	CALLF g_bd_xy
+	CLR1 VSEL, 4
+	MOV #<ARG_BLOCK, VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	LD VTRBF
+	SUB HW_MODE_PHASE
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	SUBC #$00
+	ST VTRBF
+	MOV #$01, ACC
+	CALLF g_anim_draw
+g_board_draw_next:
+	CALLF g_bd_next
+	JMPF g_board_draw_cell
+g_board_draw_done:
+	POP B
+	POP B
+	POP TRH
+	POP TRL
+	LD HW_SEL_E
+	BNZ g_board_draw_ret
+	LD HW_CELL_SAVED
+	ST TRL
+	MOV #$00, TRH
+g_board_draw_ret:
+	RET
+
+;----------------------
+; | g_bd_byte
+; | Description: Stores ACC at VRMAD and its sign in the byte after, a signed byte widened to 16 bits.
+; | Author: suinevere
+; | Dependencies: N/A
+; | Globals: N/A
+; | Params: ACC -- the byte; VRMAD -- where, VSEL bit 4 clear
+; | Returns: N/A. Keeps ACC; leaves VRMAD at the high byte.
+;----------------------
+g_bd_byte:
+	ST VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	BN ACC, 7, g_bd_byte_ret
+	MOV #$FF, VTRBF
+g_bd_byte_ret:
+	RET
+
+;----------------------
+; | g_bd_gather
+; | Description: game_board_gather from g_board_draw's x and y (ARG_BLOCK+7..10) into board_list, storing the new count back in ARG_BLOCK+4.
+; | Author: suinevere
+; | Dependencies: g_board_gather, game.inc (ARG_BLOCK), rrl_ram.inc (HWW_BOARD_LIST)
+; | Globals: what g_board_gather reads and writes
+; | Params: ACC -- cell; B -- dir; C -- depth; ARG_BLOCK+4 -- count; ARG_BLOCK+7..10 -- x, y
+; | Returns: ARG_BLOCK+4 -- the new count. Keeps ARG_BLOCK+7..12; destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_bd_gather:
+	PUSH ACC
+	SET1 VSEL, 4
+	MOV #<(ARG_BLOCK+7), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	PUSH VTRBF
+	PUSH VTRBF
+	PUSH VTRBF
+	PUSH VTRBF
+	CLR1 VSEL, 4
+	MOV #<(ARG_BLOCK+3), VRMAD1
+	POP VTRBF
+	DEC VRMAD1
+	POP VTRBF
+	DEC VRMAD1
+	POP VTRBF
+	DEC VRMAD1
+	POP VTRBF
+	MOV #<(ARG_BLOCK+5), VRMAD1
+	MOV #<(HWW_BOARD_LIST+$100), VTRBF
+	INC VRMAD1
+	MOV #>(HWW_BOARD_LIST+$100), VTRBF
+	POP ACC
+	CALLF g_board_gather
+	CLR1 VSEL, 4
+	MOV #<(ARG_BLOCK+4), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	ST VTRBF
+	RET
+
+;----------------------
+; | g_bd_exit
+; | Description: One of g_board_draw's four exits: when exit bit ACC is open, gathers from sel_c toward ahead B, backward unless sel_d faces it, two deep or three when the turn takes it.
+; | Author: suinevere
+; | Dependencies: g_nibble, g_bd_gather, game.inc (ARG_BLOCK), rrl_ram.inc (HW_SEL_C, HW_SEL_D)
+; | Globals: sel_c, sel_d and what g_board_gather reads and writes
+; | Params: ACC -- the exit bit; B -- its ahead direction; ARG_BLOCK+4 -- count; ARG_BLOCK+7..11 -- x, y, turn
+; | Returns: ARG_BLOCK+4 -- the count. Keeps ARG_BLOCK+7..12; destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_bd_exit:
+	ST $00
+	PUSH B
+	LD HW_SEL_C
+	CALLF g_nibble
+	POP B
+	AND $00
+	BZ g_bd_exit_ret
+	LD HW_SEL_D
+	AND $00
+	BNZ g_bd_exit_depth
+	LD B
+	OR #$80
+	ST B
+g_bd_exit_depth:
+	MOV #$02, C
+	CLR1 VSEL, 4
+	MOV #<(ARG_BLOCK+11), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	LD VTRBF
+	AND $00
+	BZ g_bd_exit_go
+	MOV #$03, C
+g_bd_exit_go:
+	LD HW_SEL_C
+	JMPF g_bd_gather
+g_bd_exit_ret:
+	RET
+
+;----------------------
+; | g_bd_i / g_bd_next
+; | Description: g_board_draw's entry index in ARG_BLOCK+12: g_bd_i reads it, g_bd_next adds one.
+; | Author: suinevere
+; | Dependencies: game.inc (ARG_BLOCK)
+; | Globals: N/A
+; | Params: ARG_BLOCK+12 -- the index
+; | Returns: ACC -- the index (g_bd_next: the old one); VRMAD at ARG_BLOCK+12. Destroys PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_bd_i:
+	CLR1 VSEL, 4
+	MOV #<(ARG_BLOCK+12), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	LD VTRBF
+	RET
+g_bd_next:
+	CALLF g_bd_i
+	INC ACC
+	ST VTRBF
+	RET
+
+;----------------------
+; | g_bd_xy
+; | Description: Reads board_list entry ARG_BLOCK+12: its x and y, widened, set up for a draw, and its cell.
+; | Author: suinevere
+; | Dependencies: g_bd_i, g_xy, BOARD_LIST_PAGE, rrl_ram.inc (HWW_BOARD_LIST)
+; | Globals: board_list
+; | Params: ARG_BLOCK+12 -- the index
+; | Returns: TRH:TRL -- x; ARG_BLOCK+0..1 -- y; ACC -- the cell. Destroys B, C, VRMAD, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_bd_xy:
+	CALLF g_bd_i
+	ST C
+	ADD C
+	ADD C
+	ADD #<HWW_BOARD_LIST
+	ST VRMAD1
+	MOV #BOARD_LIST_PAGE, VRMAD2
+	LD VTRBF
+	ST B
+	INC VRMAD1
+	LD VTRBF
+	ST C
+	INC VRMAD1
+	LD VTRBF
+	PUSH ACC
+	CALLF g_xy
+	POP ACC
 	RET

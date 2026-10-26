@@ -1,6 +1,6 @@
 /*----------------------
  | record_synthetic.c
- | Description: Records the game functions no script reaches, and the level 0 to 2 branch outcomes no script takes. Each case loads a nearby recorded state, sets the steering fields and calls the wrapper, appending synthetic records to DIR.
+ | Description: Records the game functions no script reaches, and the level 0 to 10 branch outcomes no script takes. Each case loads a nearby recorded state, sets the steering fields and calls the wrapper, appending synthetic records to DIR.
  | Author: suinevere
  | Dependencies: game.h, vmu_host.h, vmu_record.h, rrl_ram.h
  | Globals: N/A
@@ -515,6 +515,460 @@ static void case_level3(void) {
     ((void (*)(uint8_t, uint16_t))fn("game_sound_start"))(1, VMU_SOUND_SLOW);
 }
 
+static uint16_t seed_for(uint8_t want, uint16_t limit, int cmp) {
+    uint16_t (*random)(uint16_t) = (uint16_t (*)(uint16_t))fn("game_random");
+    uint8_t (*by_set)(void) = (uint8_t (*)(void))fn("game_pick_by_set");
+    uint16_t saved = ram_seed();
+    rec_pause(1);
+    for (uint32_t s = 0; s < 0x10000u; s++) {
+        set_seed((uint16_t)s);
+        int hit = limit ? (cmp < 0 ? random(limit) < want : random(limit) >= want) : by_set() == want;
+        if (hit) {
+            set_seed(saved);
+            rec_pause(0);
+            return (uint16_t)s;
+        }
+    }
+    fail("no seed for", "case_level4");
+    return 0;
+}
+
+static void case_level4(void) {
+    void (*handler)(uint8_t, uint16_t) = (void (*)(uint8_t, uint16_t))fn("game_call_handler");
+    uint16_t (*pick_item)(uint8_t) = (uint16_t (*)(uint8_t))fn("game_pick_item");
+    SpriteInfo (*marker_frame)(uint8_t) = (SpriteInfo (*)(uint8_t))fn("game_marker_frame");
+    int16_t (*load_pair)(uint8_t *) = (int16_t (*)(uint8_t *))fn("game_reels_load_pair");
+    void (*sound_begin)(uint8_t) = (void (*)(uint8_t))fn("game_sound_begin");
+    SpriteInfo (*sprite_info)(int16_t, int16_t, uint16_t) = (SpriteInfo (*)(int16_t, int16_t, uint16_t))fn("game_sprite_info");
+    void (*sprite_draw)(int16_t, int16_t, uint8_t, uint8_t, uint32_t, uint8_t) =
+        (void (*)(int16_t, int16_t, uint8_t, uint8_t, uint32_t, uint8_t))fn("game_sprite_draw");
+    uint8_t (*nibble)(uint8_t) = (uint8_t (*)(uint8_t))fn("game_nibble");
+    uint8_t (*facing)(void) = (uint8_t (*)(void))fn("walk_facing");
+    static const uint8_t scenes[][6] = {{1, 0, 0, BTN_FIRE, 0, 0}, {1, 1, 0x10, 0, 5, 0}, {2, 0, 0, 0, 0, 0}, {2, 0, 0, BTN_FIRE, 0, 0},
+                                        {2, 1, 0, 0, 2, 3}, {2, 1, 0, 0, 1, 9}, {2, 1, 0, 0, 1, 3}, {2, 1, 0, BTN_FIRE, 0, 0}, {2, 1, 0, 0, 0, 0}};
+    uint8_t last = 0, cells[2] = {0xFF, 0xFF};
+    SpriteInfo s;
+    base("game_sound_fiq", -1, 0, 0);
+    set_snd_next(1);
+    handler(HANDLER_SOUND, 13);
+    base("game_call_handler", -1, 0, 0);
+    handler(0, 0);
+    base("game_call_handler", -1, 0, 0);
+    handler(HANDLER_DOCK, 0);
+    setup();
+    base("game_marker_frame", -1, 0, 0);
+    set_marker(0, 0x58u);
+    set_marker(1, 2);
+    set_marker(2, 3);
+    set_marker(3, 0);
+    marker_frame(0);
+    base("game_mode3_leave", -1, 0, 0);
+    set_sel_b(0);
+    set_odds_set(0);
+    set_steps(32);
+    CALL0("game_mode3_leave");
+    base("game_pick_item", -1, 0, 0);
+    set_odds_set(3);
+    set_seed(seed_for(3, 0, 0));
+    pick_item(2);
+    for (uint8_t k = 0; k < 5; k++) {
+        base("game_pick_item", -1, 0, 0);
+        set_scene_id(13);
+        set_sel_a((uint8_t)(k >> 1 & 1u));
+        set_sel_b((uint8_t)(k & 1u));
+        set_seed(k < 4 ? seed_for(80, 100, -1) : seed_for(80, 100, 1));
+        pick_item(1);
+    }
+    base("game_reels_load_pair", -1, 0, 0);
+    set_bag_kind_count(2);
+    load_pair(&last);
+    for (unsigned i = 0; i < sizeof scenes / sizeof scenes[0]; i++) {
+        base("game_scene_step", -1, 0, 0);
+        set_mode_wait(0);
+        set_scene_id(scenes[i][0]);
+        set_mode_done(scenes[i][1]);
+        set_scratch_wait(0);
+        set_scratch_first(scenes[i][2]);
+        set_btn_new(scenes[i][3]);
+        set_scratch_count(scenes[i][4]);
+        set_lap_mark(scenes[i][5]);
+        CALL0("game_scene_step");
+    }
+    base("game_sound_begin", -1, 0, 0);
+    set_docked(1);
+    sound_begin(1);
+    set_docked(0);
+    vmu_host_set_sys(VMU_SYS_MUTE);
+    sound_begin(1);
+    vmu_host_set_sys(0);
+    base("game_sprite_draw", -1, 0, 0);
+    rec_pause(1);
+    s = sprite_info(8, 4, 0);
+    rec_pause(0);
+    sprite_draw(s.x, s.y, s.width, s.height, s.bitmap, (uint8_t)(s.flags | SPRITE_MIRROR));
+    base("walk_facing", -1, 0, 0);
+    rec_pause(1);
+    for (uint8_t c = 0; c < 32; c++) {
+        uint8_t open = nibble(c) == 0xFu;
+        if (cells[open] == 0xFFu) cells[open] = c;
+    }
+    rec_pause(0);
+    for (int open = 0; open < 2; open++) {
+        base("walk_facing", -1, 0, 0);
+        set_walk_left(1);
+        set_walk_back(1);
+        set_sel_b(0);
+        set_sel_c(cells[open]);
+        facing();
+    }
+}
+
+static void bag_step(const uint8_t *s) {
+    base("game_mode_frame", -1, 0, 0);
+    fill_bag(s[0]);
+    set_mode(14);
+    CALL0("game_mode14_leave");
+    set_mode_done(s[1]);
+    set_scene_id(s[2]);
+    press(s[3]);
+    set_bag_full(s[4]);
+    set_scratch_lo(s[5]);
+    set_scratch_count(s[6]);
+    set_scratch_first(s[7]);
+    set_scratch_kinds(s[8]);
+    set_bag_kind_count(s[9]);
+    set_bag_nth_index(0);
+    CALL0R(uint32_t, "game_bag_menu_step");
+}
+
+static uint8_t walk_cell(uint8_t mask, int want_all) {
+    uint8_t (*nibble)(uint8_t) = (uint8_t (*)(uint8_t))fn("game_nibble");
+    rec_pause(1);
+    for (uint8_t c = 0; c < 32; c++) {
+        uint8_t e = nibble(c);
+        if (e != 0xFu && (want_all ? (e & mask) == mask : (e & mask) == 0u)) {
+            rec_pause(0);
+            return c;
+        }
+    }
+    fail("no cell for", "case_level5");
+    return 0;
+}
+
+static void case_level5(void) {
+    static const uint8_t steps[][10] = {
+        {3, 0, 0, BTN_UP, 0, 1, 0, 0, 1, 1}, {3, 0, 0, BTN_LEFT, 1, 1, 0, 0, 5, 2}, {3, 0, 0, BTN_RIGHT, 1, 1, 0, 2, 3, 2},
+        {3, 0, 0, 0, 1, 1, 0, 0, 1, 2}, {3, 2, 0, BTN_FIRE, 1, 2, 0, 0, 1, 1}, {1, 2, 0, BTN_FIRE, 0, 1, 0, 0, 1, 1},
+        {3, 2, 0, BTN_FIRE, 0, 1, 0, 0, 1, 1}, {4, 2, 0, BTN_FIRE, 0, 3, 2, 0, 1, 1}, {3, 1, 0, BTN_LEFT, 0, 3, 0, 0, 1, 1},
+        {3, 1, 0, BTN_RIGHT, 0, 3, 2, 0, 1, 1}};
+    static const uint8_t reveals[][3] = {{0, 3, 1}, {1, 3, 1}, {2, 1, 1}, {4, 1, 1}, {4, 3, 2}};
+    static const uint8_t pays[][3] = {{3, 40, 0}, {4, 70, 0}, {1, 0, 1}};
+    static const uint8_t backs[] = {0, 1, 2};
+    void (*dispatch)(uint16_t) = (void (*)(uint16_t))fn("game_irq_dispatch");
+    uint8_t (*byte_is)(uint8_t, uint32_t) = (uint8_t (*)(uint8_t, uint32_t))fn("game_byte_is");
+    uint8_t pet = 0, scene = 0;
+    for (unsigned i = 0; i < sizeof steps / sizeof steps[0]; i++) bag_step(steps[i]);
+    for (unsigned i = 0; i < sizeof reveals / sizeof reveals[0]; i++) {
+        base("game_bag_reveal", -1, 0, 0);
+        set_meter_shown(ram_meter());
+        set_mode_done(reveals[i][0]);
+        set_scene_id(reveals[i][1]);
+        set_mode_wait(reveals[i][2]);
+        CALL0("game_bag_reveal");
+    }
+    base("game_bag_reveal", -1, 0, 0);
+    set_meter(3);
+    set_meter_shown(2);
+    CALL0("game_bag_reveal");
+    base("game_irq_dispatch", -1, 0, 0);
+    set_irq_handler(5, 0);
+    dispatch(1u << 5);
+    base("game_menu_pick_two", -1, 0, 0);
+    fill_bag(3);
+    set_mode_done(1);
+    set_btn_new(BTN_DOWN | BTN_FIRE);
+    CALL0("game_menu_pick_two");
+    base("game_mode11_leave", -1, 0, 0);
+    set_scene_id(13);
+    CALL0("game_mode11_leave");
+    rec_pause(1);
+    for (pet = 0; pet < 8; pet++) {
+        for (scene = 0; scene < 13 && !byte_is(pet, scene); scene++) {
+        }
+        if (scene < 13) break;
+    }
+    rec_pause(0);
+    if (pet == 8) fail("no pet match for", "case_level5");
+    base("game_mode11_leave", -1, 0, 0);
+    set_pet_kind(pet);
+    set_scene_id(scene);
+    CALL0("game_mode11_leave");
+    rec_pause(1);
+    for (pet = 0; pet < 8; pet++) {
+        for (scene = 0; scene < 13 && !(byte_is(scene, pet) && !byte_is(pet, scene)); scene++) {
+        }
+        if (scene < 13) break;
+    }
+    rec_pause(0);
+    if (pet == 8) fail("no reverse pet match for", "case_level5");
+    base("game_mode11_leave", -1, 0, 0);
+    set_pet_kind(pet);
+    set_scene_id(scene);
+    CALL0("game_mode11_leave");
+    for (int i = 0; i < 4; i++) {
+        base("game_mode9_leave", -1, 0, 0);
+        set_scene_id(i < 2 ? 0 : (uint8_t)(i - 1));
+        set_meter_max(i == 0 ? 5 : 9);
+        set_meter_shown(i == 0 ? 3 : 9);
+        if (i == 2) fill_bag(3);
+        if (i == 3 && ram_strip_c_len() == 0) set_strip_c_len(4);
+        CALL0("game_mode9_leave");
+    }
+    for (int i = 0; i < 3; i++) {
+        base("game_payout", -1, 0, 0);
+        set_scratch_count(pays[i][0]);
+        set_steps(pays[i][1]);
+        if (pays[i][2]) set_points(99990u);
+        CALL0R(uint32_t, "game_payout");
+    }
+    base("game_reel_pair_spin_step", -1, 0, 0);
+    set_reel_phase(6);
+    set_reel_speed_a(0);
+    set_reel_speed_b(0x40);
+    CALL0("game_reel_pair_spin_step");
+    base("game_reel_pair_spin_step", -1, 0, 0);
+    set_reel_phase(4);
+    set_btn_new(0);
+    vmu_w16(RAM_MODE_WAIT, 1);
+    CALL0("game_reel_pair_spin_step");
+    base("game_reel_race_step", -1, 0, 0);
+    set_mode_done(5);
+    set_btn_new(BTN_FIRE);
+    CALL0("game_reel_race_step");
+    base("game_reel_spin_step", -1, 0, 0);
+    set_reel_phase(6);
+    set_btn_new(0);
+    set_mode_wait(1);
+    CALL0("game_reel_spin_step");
+    base("game_reel_spin_step", -1, 0, 0);
+    set_reel_phase(2);
+    set_btn_new(0);
+    vmu_w16(RAM_MODE_WAIT, 1);
+    CALL0("game_reel_spin_step");
+    base("game_walk_choose", -1, 0, 0);
+    set_walk_busy(0);
+    set_sel_c(walk_cell(0x5u, 0));
+    set_btn_prev(BTN_LEFT);
+    CALL0("game_walk_choose");
+    for (int i = 0; i < 3; i++) {
+        base("game_walk_choose", -1, 0, 0);
+        set_walk_busy(0);
+        set_sel_c(walk_cell(0x5u, 1));
+        set_sel_b(backs[i]);
+        set_btn_prev(BTN_LEFT);
+        CALL0("game_walk_choose");
+    }
+    base("game_walk_pending", -1, 0, 0);
+    set_meter(3);
+    set_meter_shown(2);
+    CALL0("game_walk_pending");
+    base("game_walk_pending", -1, 0, 0);
+    set_meter_shown(ram_meter());
+    set_walk_busy(0);
+    set_walk_left(0);
+    set_step_result(0);
+    CALL0("game_walk_pending");
+    base("game_walk_pending", -1, 0, 0);
+    set_meter_shown(ram_meter());
+    set_walk_busy(0);
+    set_walk_left(2);
+    set_walk_back(1);
+    set_walk_behind(ram_steps());
+    CALL0("game_walk_pending");
+}
+
+static void case_level6(void) {
+    static const uint8_t icons[][2] = {{1, 4}, {1, 3}};
+    static const uint8_t pairs[][5] = {{3, 0, 0, BTN_FIRE, 0}, {6, 13, 0, BTN_FIRE, 0}, {8, 5, 1, BTN_FIRE, 0},
+                                       {8, 13, 3, BTN_FIRE, 0}, {8, 5, 3, BTN_FIRE, 0}, {10, 5, 0, 0, 3}, {11, 5, 0, 0, 0}};
+    void (*arrows)(uint8_t) = (void (*)(uint8_t))fn("bag_arrows_draw");
+    SpriteInfo (*icon)(int16_t, int16_t, uint8_t, uint8_t) = (SpriteInfo (*)(int16_t, int16_t, uint8_t, uint8_t))fn("game_icon_draw");
+    uint32_t (*window)(int16_t, uint16_t, uint8_t, uint16_t) = (uint32_t (*)(int16_t, uint16_t, uint8_t, uint16_t))fn("game_reel_window_draw");
+    uint8_t (*next_symbol)(uint8_t, uint16_t, uint16_t) = (uint8_t (*)(uint8_t, uint16_t, uint16_t))fn("game_strip_next_symbol");
+    uint8_t symbol;
+    base("game_mode_frame", -1, 0, 0);
+    set_mode_phase(1);
+    arrows(2);
+    for (int i = 0; i < 2; i++) {
+        for (uint8_t c = 0; c < 2; c++) {
+            base("game_icon_draw", -1, 0, 0);
+            set_cycle16(c ? 8u : 0u);
+            icon(4, 4, icons[i][0], icons[i][1]);
+        }
+    }
+    base("game_reel_window_draw", -1, 0, 0);
+    window(0x16, ram_reel_pos_b(), ram_reel_len_b() ? ram_reel_len_b() : 4u, RAM_STRIP_B);
+    for (int i = 0; i < 4; i++) {
+        base("game_reel_game_step", -1, 0, 0);
+        set_mode_done(2);
+        set_reel_phase(8);
+        set_mode_wait(0);
+        if (ram_reel_len() == 0) set_reel_len(4);
+        rec_pause(1);
+        symbol = next_symbol(ram_reel_len(), ram_reel_pos_a(), RAM_STRIP_A);
+        rec_pause(0);
+        set_scratch_kinds((uint8_t)(symbol + 1u));
+        set_scratch_first(i == 0 ? symbol : (uint8_t)(symbol + 1u));
+        set_scratch_count(symbol);
+        if (i == 2) set_seed(seed_for(20, 100, -1));
+        if (i == 3) set_seed(seed_for(70, 100, 1));
+        CALL0("game_reel_game_step");
+    }
+    for (uint8_t state = 3; state < 7; state += 3) {
+        base("game_reel_game_step", -1, 0, 0);
+        set_mode_done(state);
+        set_mode_wait(0);
+        set_btn_new(BTN_FIRE);
+        CALL0("game_reel_game_step");
+    }
+    for (unsigned i = 0; i < sizeof pairs / sizeof pairs[0]; i++) {
+        base("game_reel_pair_step", -1, 0, 0);
+        set_mode_done(pairs[i][0]);
+        set_scene_id(pairs[i][1]);
+        set_meter_shown(pairs[i][2] ? pairs[i][2] : ram_meter_shown());
+        set_btn_new(pairs[i][3]);
+        set_mode_wait(pairs[i][4]);
+        CALL0("game_reel_pair_step");
+    }
+    for (int i = 0; i < 3; i++) {
+        base("game_sound_play_waiting", -1, 0, 0);
+        set_sound_req(1);
+        set_docked(i == 0);
+        vmu_host_set_sys(i == 1 ? VMU_SYS_MUTE : 0u);
+        if (i == 2) vmu_host_set_dock(1);
+        CALL0("game_sound_play_waiting");
+        vmu_host_set_sys(0);
+        vmu_host_set_dock(0);
+        setup();
+    }
+}
+
+static void case_level7(void) {
+    SpriteInfo (*count_of)(int16_t, int16_t, uint32_t, uint8_t) =
+        (SpriteInfo (*)(int16_t, int16_t, uint32_t, uint8_t))fn("game_count_of_draw");
+    for (int i = 0; i < 3; i++) {
+        base("game_board_draw", -1, 0, 0);
+        set_sel_e(0);
+        set_cell_saved(ram_sel_c());
+        if (i < 2) {
+            set_mode(11);
+            set_mode_done(i ? 10 : 9);
+            set_mode_phase(2);
+            set_scratch_lo(0xFE);
+            set_scratch_hi(3);
+            for (uint8_t k = 0; k < 4; k++) set_anim((uint8_t)(4u + k), ram_anim(k));
+        } else {
+            set_cell_type(ram_sel_c(), 0x10);
+        }
+        CALL0R(uint32_t, "game_board_draw");
+    }
+    base("game_count_of_draw", -1, 0, 0);
+    count_of(6, 0x1A, ram_bag_count(), 7);
+    for (uint8_t kinds = 1; kinds < 3; kinds++) {
+        base("game_reel_anim_screen_draw", -1, 0, 0);
+        set_bag_kind_count(kinds);
+        set_reel_phase(kinds == 1 ? 0 : 2);
+        CALL0R(uint32_t, "game_reel_anim_screen_draw");
+    }
+}
+
+static void case_level8(void) {
+    static const uint8_t bags[][3] = {{1, 8, 0}, {1, 0, 0}, {2, 0, 0}, {3, 0, 4}, {3, 0, 0}};
+    static const uint8_t scenes[][3] = {{2, 0, 0}, {2, 0, 5}, {3, 5, 5}, {3, 5, 20}};
+    for (unsigned i = 0; i < sizeof bags / sizeof bags[0]; i++) {
+        base("game_bag_screen_draw", -1, 0, 0);
+        fill_bag(3);
+        set_bag_cursor(1);
+        set_mode_done(bags[i][0]);
+        set_scene_id(bags[i][1]);
+        set_lap_points(123);
+        set_scratch_first(0);
+        set_scratch_count(0);
+        set_reel_len(bags[i][2]);
+        CALL0("game_bag_screen_draw");
+    }
+    for (int nth = 0; nth < 4; nth++) {
+        base("game_board_choice_draw", -1, 0, nth);
+        set_anim(1, 3);
+        CALL0("game_board_choice_draw");
+    }
+    base("game_reel_pair_screen", -1, 0, 0);
+    set_mode_done(10);
+    CALL0("game_reel_pair_screen");
+    base("game_reel_pair_screen", -1, 0, 0);
+    set_mode_done(8);
+    set_mode_wait(0);
+    set_scene_id(0);
+    set_btn_new(BTN_FIRE);
+    CALL0("game_reel_pair_screen");
+    base("game_reel_pair_screen", -1, 0, 0);
+    set_mode(14);
+    set_mode_done(2);
+    CALL0("game_reel_pair_screen");
+    for (unsigned i = 0; i < sizeof scenes / sizeof scenes[0]; i++) {
+        base("game_scene_screen_draw", RAM_MODE_DONE, 1, 0);
+        set_scene_id(scenes[i][0]);
+        set_scratch_count(scenes[i][2]);
+        set_scratch_wait(scenes[i][1]);
+        if (ram_reel_len() == 0) set_reel_len(4);
+        CALL0("game_scene_screen_draw");
+    }
+    bag_menu(3, 0, 0);
+    set_mode_done(2);
+    set_mode_phase(1);
+    CALL0("game_bag_menu_screen");
+    bag_menu(3, 0, 0);
+    set_mode_done(3);
+    set_scene_id(1);
+    set_scratch_wait(5);
+    CALL0("game_bag_menu_screen");
+}
+
+static void case_level9(void) {
+    base("game_mode3_frame", -1, 0, 0);
+    set_mode(5);
+    CALL0("game_mode3_frame");
+    base("game_mode3_frame", -1, 0, 0);
+    set_btn_new(BTN_FIRE);
+    set_meter_shown(ram_meter());
+    set_cell_saved((uint8_t)(ram_sel_c() ^ 1u));
+    CALL0("game_mode3_frame");
+    base("game_mode3_frame", -1, 0, 0);
+    set_btn_new(BTN_FIRE);
+    set_meter_shown(ram_meter());
+    set_cell_saved(ram_sel_c());
+    set_walk_busy(1);
+    set_walk_frame(2);
+    CALL0("game_mode3_frame");
+}
+
+static void case_level10(void) {
+    base("game_mode8_frame", -1, 0, 0);
+    set_mode(5);
+    CALL0("game_mode8_frame");
+    base("game_mode8_frame", -1, 0, 0);
+    set_mode_done(0);
+    set_walk_frame(0x40);
+    set_scene_id(3);
+    set_meter_shown(ram_meter());
+    CALL0("game_mode8_frame");
+    base("game_mode8_frame", -1, 0, 0);
+    set_mode_done(1);
+    set_scene_id(3);
+    set_meter_shown(ram_meter());
+    CALL0("game_mode8_frame");
+}
+
 int main(int argc, char **argv) {
     const char *card = 0, *entry = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
@@ -532,8 +986,8 @@ int main(int argc, char **argv) {
     vmu_host_set_frame(frame_cb);
     rec_begin(g_dir, "synthetic", 1);
     setup();
-    static void (*const cases[])(void) = {case_bag, case_modes, case_board, case_reels, case_reveal, case_quit, case_levels01, case_level2, case_level3};
-    static const char *const names[] = {"bag", "modes", "board", "reels", "reveal", "quit", "levels01", "level2", "level3"};
+    static void (*const cases[])(void) = {case_bag, case_modes, case_board, case_reels, case_reveal, case_quit, case_levels01, case_level2, case_level3, case_level4, case_level5, case_level6, case_level7, case_level8, case_level9, case_level10};
+    static const char *const names[] = {"bag", "modes", "board", "reels", "reveal", "quit", "levels01", "level2", "level3", "level4", "level5", "level6", "level7", "level8", "level9", "level10"};
     for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
         fprintf(stderr, "record_synthetic: case %s\n", names[i]);
         cases[i]();

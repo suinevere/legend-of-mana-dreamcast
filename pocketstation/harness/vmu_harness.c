@@ -209,6 +209,10 @@ static bool g_report, g_frame_open;
 static bool g_rt_code[0x10000];
 static uint64_t g_frame_busy, g_frame_rt;
 static uint32_t g_busy[MAX_FRAMES], g_rt[MAX_FRAMES], g_period[MAX_FRAMES];
+static uint8_t g_scene[MAX_FRAMES];
+static bool g_saved[MAX_FRAMES], g_frame_saved, g_mode_wram;
+static long g_mode_addr = -1;
+static uint8_t g_sp_max;
 static long g_ev_step = -1;
 static uint64_t g_ticks, g_late, g_late_max, g_due, g_idle_start;
 static long g_ev_step_at = -1;
@@ -277,10 +281,10 @@ static bool json_string_is(const char *obj, const char *key, const char *value)
 
 /*----------------------
  | load_hw
- | Description: Reads gen_ram.py's hardware placement JSON: each field's packed offset, bank 1 or WRAM address and size.
+ | Description: Reads gen_ram.py's hardware placement JSON: each field's packed offset, bank 1 or WRAM address and size, noting where the mode field sits for --report's scene.
  | Author: suinevere
  | Dependencies: json_number, json_string_is, fail
- | Globals: g_fields, g_field_count
+ | Globals: g_fields, g_field_count, g_mode_addr, g_mode_wram
  | Params: path -- the JSON file
  | Returns: N/A
  ----------------------*/
@@ -303,6 +307,10 @@ static void load_hw(const char *path)
         h->addr = (uint16_t)addr;
         h->size = (uint16_t)size;
         h->wram = json_string_is(obj, "\"space\"", "\"wram\"");
+        if (json_string_is(obj, "\"name\"", "\"mode\"")) {
+            g_mode_addr = (long)addr;
+            g_mode_wram = h->wram;
+        }
         obj = end;
     }
 }
@@ -407,14 +415,18 @@ static void load_inputs(const char *path)
  ----------------------*/
 typedef struct { char name[64]; uint16_t addr; } MapLabel;
 static MapLabel g_labels[MAX_LABELS];
+static uint16_t g_label_at[0x10000];
+static const char *g_profile;
+static uint32_t g_prof_frame[MAX_LABELS];
+static uint64_t g_prof_all[MAX_LABELS], g_prof_over[MAX_LABELS];
 static int g_label_count;
 
 /*----------------------
  | load_map
- | Description: Reads a link map (vmu_map.py), one "ADDR NAME" line per label in address order, keeps every label for --call, marks the code from each rt_ label to the next label as the runtime's, the rt_test program's labels excepted, and notes rt_idle_step's and rt_ev_step's addresses for the late-tick and count checks.
+ | Description: Reads a link map (vmu_map.py), one "ADDR NAME" line per label in address order, keeps every label for --call and --profile, marks the code from each rt_ label to the next label as the runtime's, the rt_test program's labels excepted, and notes rt_idle_step's and rt_ev_step's addresses for the late-tick and count checks.
  | Author: suinevere
  | Dependencies: fail
- | Globals: g_rt_code, g_ev_step, g_ev_step_at, g_labels, g_label_count
+ | Globals: g_rt_code, g_ev_step, g_ev_step_at, g_labels, g_label_count, g_label_at
  | Params: path -- the map
  | Returns: N/A
  ----------------------*/
@@ -440,7 +452,10 @@ static void load_map(const char *path)
     g_label_count = n;
     addr[n] = 0x10000;
     for (int i = 0; i < n; i++)
-        for (unsigned a = addr[i]; a < addr[i + 1]; a++) g_rt_code[a] = rt[i];
+        for (unsigned a = addr[i]; a < addr[i + 1]; a++) {
+            g_rt_code[a] = rt[i];
+            g_label_at[a] = (uint16_t)i;
+        }
 }
 
 /*----------------------
@@ -708,11 +723,62 @@ static void write_frame(void)
 }
 
 /*----------------------
- | present
- | Description: The frame point, as vmu_runner's frame callback: closes the --report frame the last one opened, dumps the frame, counts the sample and moves the script on.
+ | fold_profile
+ | Description: Adds the closing frame's cycles per label to --profile's totals, and to the overrun totals when the frame outlasted its tick, then clears the frame's counts.
  | Author: suinevere
- | Dependencies: write_frame, advance, fail, tick_period
- | Globals: g_dump, g_samples, g_scripted, g_script_next, g_report, g_frame_open, g_frame_busy, g_frame_rt, g_busy, g_rt, g_period, g_frames
+ | Dependencies: N/A
+ | Globals: g_prof_frame, g_prof_all, g_prof_over, g_label_count
+ | Params: over -- whether the frame overran
+ | Returns: N/A
+ ----------------------*/
+static void fold_profile(bool over)
+{
+    for (int i = 0; i < g_label_count; i++) {
+        g_prof_all[i] += g_prof_frame[i];
+        if (over) g_prof_over[i] += g_prof_frame[i];
+        g_prof_frame[i] = 0;
+    }
+}
+
+/*----------------------
+ | write_profile
+ | Description: Writes --profile: one "NAME ALL OVER" line per label whose code ran, the cycles executed from that label to the next over all closed frames and over overrun frames.
+ | Author: suinevere
+ | Dependencies: fail
+ | Globals: g_profile, g_labels, g_label_count, g_prof_all, g_prof_over
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void write_profile(void)
+{
+    FILE *f = fopen(g_profile, "w");
+    if (!f) fail("cannot write", g_profile);
+    for (int i = 0; i < g_label_count; i++)
+        if (g_prof_all[i]) fprintf(f, "%s %llu %llu\n", g_labels[i].name, (unsigned long long)g_prof_all[i], (unsigned long long)g_prof_over[i]);
+    fclose(f);
+}
+
+/*----------------------
+ | scene
+ | Description: The game's mode field, the scene id --report gives each frame, or 0 without a placement naming it.
+ | Author: suinevere
+ | Dependencies: cpu_ram, cpu_wram
+ | Globals: g_mode_addr, g_mode_wram
+ | Params: N/A
+ | Returns: the mode byte
+ ----------------------*/
+static uint8_t scene(void)
+{
+    if (g_mode_addr < 0) return 0;
+    return g_mode_wram ? cpu_wram((uint16_t)g_mode_addr) : cpu_ram(1, (uint16_t)g_mode_addr);
+}
+
+/*----------------------
+ | present
+ | Description: The frame point, as vmu_runner's frame callback: closes the --report frame the last one opened with its scene and whether it saved, dumps the frame, counts the sample and moves the script on.
+ | Author: suinevere
+ | Dependencies: write_frame, advance, fail, tick_period, scene, fold_profile
+ | Globals: g_dump, g_samples, g_scripted, g_script_next, g_report, g_frame_open, g_frame_busy, g_frame_rt, g_frame_saved, g_busy, g_rt, g_period, g_scene, g_saved, g_frames, g_profile, g_prof_frame
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -722,9 +788,14 @@ static void present(void)
         if (g_frames == MAX_FRAMES) fail("too many frames for", "--report");
         g_busy[g_frames] = (uint32_t)g_frame_busy;
         g_period[g_frames] = tick_period(cpu_ram(1, RTV_STATE));
+        g_scene[g_frames] = scene();
+        if (g_profile) fold_profile(g_period[g_frames] && g_frame_busy > g_period[g_frames]);
+        g_saved[g_frames] = g_frame_saved;
         g_rt[g_frames++] = (uint32_t)g_frame_rt;
     }
+    if (g_profile && !g_frame_open) memset(g_prof_frame, 0, sizeof g_prof_frame);
     g_frame_open = true;
+    g_frame_saved = false;
     g_frame_busy = g_frame_rt = 0;
     if (g_dump) write_frame();
     g_samples++;
@@ -751,10 +822,10 @@ static int by_value(const void *a, const void *b)
 
 /*----------------------
  | print_report
- | Description: Prints --report: the frames from one present to the next with the tick period at the last (tick_period), each frame's executed cycles (halted ones left out) as mean, p90 and max with the max's frame, the runtime code's share as mean and max, the ticks stepped with the latest, the drift of the runtime's counts from Timer 0's (check_counts), and missed ticks: frames that executed for longer than their tick period (overrun) plus ticks stepped late (check_tick_step), the latest's lateness counted from the later of its due time and its idle's start.
+ | Description: Prints --report: the frames from one present to the next with the tick period at the last (tick_period), each frame's executed cycles (halted ones left out) as mean, p90 and max with the max's frame, each overrun frame with its scene and whether the scene changed or a save wrote in it, the deepest stack pointer seen, the runtime code's share as mean and max, the ticks stepped with the latest, the drift of the runtime's counts from Timer 0's (check_counts), and missed ticks: frames that executed for longer than their tick period (overrun) plus ticks stepped late (check_tick_step), the latest's lateness counted from the later of its due time and its idle's start.
  | Author: suinevere
  | Dependencies: by_value
- | Globals: g_busy, g_rt, g_period, g_frames, g_ticks, g_late, g_late_max, g_drift_min, g_drift_max
+ | Globals: g_busy, g_rt, g_period, g_scene, g_saved, g_sp_max, g_frames, g_ticks, g_late, g_late_max, g_drift_min, g_drift_max
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -783,14 +854,20 @@ static void print_report(void)
     printf("ticks %llu late max %llu cycles\n", (unsigned long long)g_ticks, (unsigned long long)g_late_max);
     printf("counts drift min %.0f max %.0f\n", g_drift_min, g_drift_max);
     printf("missed ticks %llu (overrun %d, late %llu)\n", (unsigned long long)(overrun + g_late), overrun, (unsigned long long)g_late);
+    for (int i = 0; i < g_frames; i++) {
+        if (!g_period[i] || g_busy[i] <= g_period[i]) continue;
+        const char *why = i > 0 && g_scene[i] != g_scene[i - 1] ? "changed" : g_saved[i] ? "saved" : "-";
+        printf("overrun frame %d scene %u cycles %u period %u %s\n", i + 1, g_scene[i], g_busy[i], g_period[i], why);
+    }
+    printf("stack max 0x%02X\n", g_sp_max);
 }
 
 /*----------------------
  | finish
- | Description: Ends the run: writes --out-flash, closes the log, dump, marks and buzzer log, prints --report, then the TIMER_EX calls against the base timer 0 overflows since boot with the BIOS clock's seconds, and exits.
+ | Description: Ends the run: writes --out-flash, closes the log, dump, marks and buzzer log, prints --report, writes --profile, then the TIMER_EX calls against the base timer 0 overflows since boot with the BIOS clock's seconds, and exits.
  | Author: suinevere
- | Dependencies: fail, print_report
- | Globals: g_out_flash, g_flash, g_log, g_dump, g_marks, g_buzz, g_timer_calls, g_base_ticks, g_report
+ | Dependencies: fail, print_report, write_profile
+ | Globals: g_out_flash, g_flash, g_log, g_dump, g_marks, g_buzz, g_timer_calls, g_base_ticks, g_report, g_profile
  | Params: code -- exit status
  | Returns: does not return
  ----------------------*/
@@ -806,6 +883,7 @@ static _Noreturn void finish(int code)
     if (g_marks) fclose(g_marks);
     if (g_buzz) fclose(g_buzz);
     if (g_report) print_report();
+    if (g_profile) write_profile();
     printf("timer_ex %llu overflows %llu seconds %u\n", (unsigned long long)g_timer_calls, (unsigned long long)(g_base_ticks / 16384u),
            cpu_ram(0, 0x1C) * 60u + cpu_ram(0, 0x1D));
     fflush(stdout);
@@ -1074,7 +1152,7 @@ static void rom_return(void)
  | Description: Runs the BIOS entry execution just jumped to: a flash write, verify or read, then the BIOS's return to entry + 5 in flash, TIMER_EX returning to 0x139, the page write returning through rom_return, or the exit; any other entry stops the run.
  | Author: suinevere
  | Dependencies: fm_write, fm_verify, fm_read, fm_page, rom_return, timer_ex, finish, bank_for_ext, cpu_sfr, cpu_sfr_write, cpu_set_pc, cpu_acc
- | Globals: g_bank, g_cycles, g_steps
+ | Globals: g_bank, g_cycles, g_steps, g_frame_saved
  | Params: pc -- the ROM address entered
  | Returns: N/A
  ----------------------*/
@@ -1082,6 +1160,7 @@ static void rom_call(uint16_t pc)
 {
     uint8_t ext = cpu_sfr(SFR_EXT) ^ 0x01;
     if (pc == ROM_WRITE) {
+        g_frame_saved = true;
         cpu_sfr_write(SFR_ACC, fm_write());
     } else if (pc == ROM_VERIFY) {
         cpu_sfr_write(SFR_ACC, fm_verify());
@@ -1415,16 +1494,17 @@ static void after_step(void)
 
 /*----------------------
  | step
- | Description: Runs one instruction (or one halted cycle) through the core, ends its cycles and handles what it left pending; for --report it adds an executed instruction's cycles to the frame, and to the runtime's share when the runtime's code in flash bank 0 holds it, and checks each rt_idle_step entry for a tick and each rt_ev_step entry for the counts' drift.
+ | Description: Runs one instruction (or one halted cycle) through the core, ends its cycles and handles what it left pending; for --report it adds an executed instruction's cycles to the frame, and to the runtime's share when the runtime's code in flash bank 0 holds it, and checks each rt_idle_step entry for a tick and each rt_ev_step entry for the counts' drift; it notes the deepest stack pointer an executed instruction leaves and, for --profile, counts the cycles against the label holding the instruction.
  | Author: suinevere
- | Dependencies: execute_run, cycle_end, after_step, cpu_halted, cpu_pc, check_tick_step, track_tick, check_counts, track_counts
- | Globals: g_steps, g_frame_busy, g_frame_rt, g_rt_code, g_bank, g_report, g_ev_step, g_ev_step_at
+ | Dependencies: execute_run, cycle_end, after_step, cpu_halted, cpu_pc, cpu_sfr, check_tick_step, track_tick, check_counts, track_counts
+ | Globals: g_steps, g_frame_busy, g_frame_rt, g_rt_code, g_bank, g_report, g_ev_step, g_ev_step_at, g_sp_max, g_profile, g_prof_frame, g_label_at
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 static void step(void)
 {
-    bool halted = cpu_halted(), rt = g_bank == LC8670_BANK_FLASH_0 && g_rt_code[cpu_pc()];
+    uint16_t pc = cpu_pc();
+    bool halted = cpu_halted(), flash0 = g_bank == LC8670_BANK_FLASH_0, rt = flash0 && g_rt_code[pc];
     if (g_report && !halted && g_bank == LC8670_BANK_FLASH_0 && (long)cpu_pc() == g_ev_step) check_tick_step();
     if (g_report && !halted && g_bank == LC8670_BANK_FLASH_0 && (long)cpu_pc() == g_ev_step_at) check_counts();
     int cycles = execute_run(1);
@@ -1433,7 +1513,9 @@ static void step(void)
         track_counts(cycles);
     }
     if (!halted) {
+        if (cpu_sfr(SFR_SP) > g_sp_max) g_sp_max = cpu_sfr(SFR_SP);
         g_frame_busy += (unsigned)cycles;
+        if (g_profile && flash0) g_prof_frame[g_label_at[pc]] += (unsigned)cycles;
         if (rt) g_frame_rt += (unsigned)cycles;
     }
     g_steps++;
@@ -1494,8 +1576,8 @@ static const RtEntry RT_ENTRIES[] = {
 #define RT_COUNT ((int)(sizeof RT_ENTRIES / sizeof RT_ENTRIES[0]))
 
 /*----------------------
- | CALL_HALT_LABEL / CALL_SP / MAX_POISON / MAX_RETS / MAX_SHADOW / MAX_HW / CALL_MAX_CYCLES
- | Description: The --call image's halt stub label, the stack pointer a call starts from (the BIOS's 0x7F), and the limits on poison lines, replayed results, nested calls and logged runtime calls, and the default cycle budget.
+ | CALL_HALT_LABEL / CALL_IDLE_LABEL / MAX_IDLES / CALL_SP / MAX_POISON / MAX_RETS / MAX_SHADOW / MAX_HW / CALL_MAX_CYCLES
+ | Description: The --call image's halt stub label, the stub a handler run inside rt_idle returns to, the most idle lines a state carries, the stack pointer a call starts from (the BIOS's 0x7F), and the limits on poison lines, replayed results, nested calls and logged runtime calls, and the default cycle budget.
  | Author: suinevere
  | Dependencies: pocketstation/src/vmu_game/callbase.inc (call_return)
  | Globals: N/A
@@ -1503,6 +1585,8 @@ static const RtEntry RT_ENTRIES[] = {
  | Returns: N/A
  ----------------------*/
 #define CALL_HALT_LABEL "call_return"
+#define CALL_IDLE_LABEL "call_idle_back"
+#define MAX_IDLES 1024
 #define CALL_SP 0x7F
 #define MAX_POISON 512
 #define MAX_RETS 4096
@@ -1539,6 +1623,8 @@ static Poison g_poison[MAX_POISON];
 static int g_poison_count;
 static uint32_t g_rets[MAX_RETS];
 static int g_ret_count, g_ret_next;
+static int g_idle_runs[MAX_IDLES], g_idle_count, g_idle_next, g_idle_left;
+static long g_handler_addr = -1, g_idle_back_addr = -1;
 static Shadow g_shadow[MAX_SHADOW];
 static int g_shadow_count;
 static HwLog g_hw[MAX_HW];
@@ -1634,10 +1720,10 @@ static void hex_bytes(const char *hex, uint8_t *out, size_t n)
 
 /*----------------------
  | load_state
- | Description: Reads a --call state file and sets the machine up from it: fill XX (all of bank 1, work RAM and XRAM), ram HEX (the 0x400-byte vmu_ram image, placed through --hw), fb HEX (the 192 screen bytes), poke bank1|wram|xram ADDR HEX, reg NAME XX, poison ROUTINE LIST (what a routine's return destroys), ret HEX (each runtime call's replayed result, in order) and load HEX (the 128 bytes each successful rt_save_read copies, in order); lines starting # are skipped.
+ | Description: Reads a --call state file and sets the machine up from it: fill XX (all of bank 1, work RAM and XRAM), ram HEX (the 0x400-byte vmu_ram image, placed through --hw), fb HEX (the 192 screen bytes), poke bank1|wram|xram ADDR HEX, reg NAME XX, poison ROUTINE LIST (what a routine's return destroys), ret HEX (each runtime call's replayed result, in order), idle N (how many times each rt_idle runs the handler, in order), handler ROUTINE (the game's handler) and load HEX (the 128 bytes each successful rt_save_read copies, in order); lines starting # are skipped.
  | Author: suinevere
  | Dependencies: hex_bytes, parse_regs, label_addr, cpu_ram_write, cpu_wram_write, cpu_xram_write, cpu_sfr_write, fail
- | Globals: g_fields, g_field_count, g_poison, g_poison_count, g_rets, g_ret_count, g_loads, g_load_count
+ | Globals: g_fields, g_field_count, g_poison, g_poison_count, g_rets, g_ret_count, g_idle_runs, g_idle_count, g_handler_addr, g_loads, g_load_count
  | Params: path -- the state file
  | Returns: N/A
  ----------------------*/
@@ -1697,6 +1783,12 @@ static void load_state(const char *path)
         } else if (!strcmp(op, "ret") && n == 2) {
             if (g_ret_count == MAX_RETS) fail("too many ret lines in", path);
             g_rets[g_ret_count++] = (uint32_t)strtoul(a, NULL, 16);
+        } else if (!strcmp(op, "idle") && n == 2) {
+            if (g_idle_count == MAX_IDLES) fail("too many idle lines in", path);
+            g_idle_runs[g_idle_count++] = (int)strtol(a, NULL, 10);
+        } else if (!strcmp(op, "handler") && n == 2) {
+            g_handler_addr = label_addr(a);
+            if (g_handler_addr < 0) fail("no such handler in the map:", a);
         } else if (!strcmp(op, "load") && n == 2) {
             if (g_load_count == MAX_LOADS) fail("too many load lines in", path);
             hex_bytes(a, g_loads[g_load_count++], SAVE_BLOCK);
@@ -1764,11 +1856,32 @@ static void save_load(uint16_t dst)
 }
 
 /*----------------------
- | stand_in
- | Description: Runs a runtime routine in --call mode without its code: logs it with its argument registers, poisons what it destroys, gives it the next replayed result and returns to its caller; an rt_save_read that succeeds also copies the next load line into vmu_ram (save_load), and rt_power's exit modes end the run instead.
+ | enter_handler
+ | Description: Calls the game's handler from --call's rt_idle stand-in as a CALLF would, returning to call_idle_back, and tracks the call so its return poisons what the handler declared.
  | Author: suinevere
- | Dependencies: poison_regs, save_load, cpu_sfr, cpu_sfr_write, cpu_ram, cpu_set_pc, fail
- | Globals: g_hw, g_hw_count, g_rets, g_ret_count, g_ret_next
+ | Dependencies: poison_at, cpu_sfr, cpu_sfr_write, cpu_ram_write, cpu_set_pc, fail
+ | Globals: g_handler_addr, g_idle_back_addr, g_shadow, g_shadow_count, g_stack_max
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void enter_handler(void)
+{
+    uint8_t sp = (uint8_t)(cpu_sfr(SFR_SP) + 2);
+    cpu_ram_write(0, (uint8_t)(sp - 1), (uint8_t)g_idle_back_addr);
+    cpu_ram_write(0, sp, (uint8_t)(g_idle_back_addr >> 8));
+    cpu_sfr_write(SFR_SP, sp);
+    if (sp > g_stack_max) g_stack_max = sp;
+    if (g_shadow_count == MAX_SHADOW) fail("calls nest too deep for", "--call");
+    g_shadow[g_shadow_count++] = (Shadow){(uint16_t)g_idle_back_addr, sp, poison_at((uint16_t)g_handler_addr)};
+    cpu_set_pc((uint16_t)g_handler_addr);
+}
+
+/*----------------------
+ | stand_in
+ | Description: Runs a runtime routine in --call mode without its code: logs it with its argument registers, poisons what it destroys, gives it the next replayed result and returns to its caller; an rt_save_read that succeeds also copies the next load line into vmu_ram (save_load), an rt_idle with a nonzero idle line runs the game's handler that many times first (enter_handler), and rt_power's exit modes end the run instead.
+ | Author: suinevere
+ | Dependencies: poison_regs, save_load, enter_handler, cpu_sfr, cpu_sfr_write, cpu_ram, cpu_set_pc, fail
+ | Globals: g_hw, g_hw_count, g_rets, g_ret_count, g_ret_next, g_idle_runs, g_idle_count, g_idle_next, g_idle_left, g_handler_addr, g_idle_back_addr
  | Params: rt -- the RT_ENTRIES index
  | Returns: false when the routine never returns (rt_power exiting)
  ----------------------*/
@@ -1783,6 +1896,11 @@ static bool stand_in(int rt)
     if (!strcmp(e->rt, "rt_power") && (acc == 2 || acc == 3)) return false;
     if (!strcmp(e->rt, "rt_save_read") && ret == 0) save_load((uint16_t)(cpu_sfr(SFR_TRH) << 8 | cpu_sfr(SFR_TRL)));
     poison_regs(e->poison);
+    if (!strcmp(e->rt, "rt_idle") && g_idle_next < g_idle_count && (g_idle_left = g_idle_runs[g_idle_next++]) > 0) {
+        if (g_handler_addr < 0 || g_idle_back_addr < 0) fail("an idle line needs a handler line and", CALL_IDLE_LABEL);
+        enter_handler();
+        return true;
+    }
     if (e->result == RES_ACC) cpu_sfr_write(SFR_ACC, (uint8_t)ret);
     if (e->result == RES_TR) {
         cpu_sfr_write(SFR_TRL, (uint8_t)ret);
@@ -1872,7 +1990,7 @@ static void write_out(const char *path, const char *status, uint64_t cycles)
 
 /*----------------------
  | call_mode
- | Description: --call: boots, poisons the registers (ENTRY_POISON), loads the state, whose reg lines set the arguments, notes the entry registers, masks interrupts, pushes the halt stub's address as the return and runs the routine until it gets back there. Runtime routines are stood in for (stand_in); every other call is tracked so its return poisons what its routine declared, the routine under test's own list included. Interrupts stay masked, so --schedule changes nothing here.
+ | Description: --call: boots, poisons the registers (ENTRY_POISON), loads the state, whose reg lines set the arguments, notes the entry registers, masks interrupts, pushes the halt stub's address as the return and runs the routine until it gets back there. Runtime routines are stood in for (stand_in), rt_idle running the game's handler the times the idle lines give and returning when the last run gets back to call_idle_back; every other call is tracked so its return poisons what its routine declared, the routine under test's own list included. Interrupts stay masked, so --schedule changes nothing here.
  | Author: suinevere
  | Dependencies: boot, load_state, label_addr, poison_at, rt_at, stand_in, step, close_returns, write_out, fail
  | Globals: g_rt_addr, g_shadow, g_shadow_count, g_stack_max, g_entry_regs, g_cycles, g_bank
@@ -1887,6 +2005,7 @@ static _Noreturn void call_mode(const char *routine, const char *state, const ch
     if (entry < 0) fail("no such routine in the map:", routine);
     if (halt < 0) fail("no halt stub in the map:", CALL_HALT_LABEL);
     for (int i = 0; i < RT_COUNT; i++) g_rt_addr[i] = label_addr(RT_ENTRIES[i].rt);
+    g_idle_back_addr = label_addr(CALL_IDLE_LABEL);
     boot();
     poison_regs(ENTRY_POISON);
     load_state(state);
@@ -1908,6 +2027,18 @@ static _Noreturn void call_mode(const char *routine, const char *state, const ch
         if (g_bank == LC8670_BANK_FLASH_0 && pc == (uint16_t)halt) {
             status = g_shadow_count ? "unbalanced" : "returned";
             break;
+        }
+        if (g_bank == LC8670_BANK_FLASH_0 && g_idle_left > 0 && pc == (uint16_t)g_idle_back_addr) {
+            if (--g_idle_left > 0) {
+                enter_handler();
+                continue;
+            }
+            uint8_t sp = cpu_sfr(SFR_SP);
+            cpu_set_pc((uint16_t)((cpu_ram(0, sp) << 8) | cpu_ram(0, (uint8_t)(sp - 1))));
+            cpu_sfr_write(SFR_SP, (uint8_t)(sp - 2));
+            poison_regs(RT_IDLE_POISON);
+            close_returns();
+            continue;
         }
         if (rt >= 0) {
             if (!stand_in(rt)) {
@@ -1944,7 +2075,7 @@ static _Noreturn void call_mode(const char *routine, const char *state, const ch
  | Author: suinevere
  | Dependencies: load_flash, load_hw, load_map, load_script, load_inputs, boot, advance, after_step, step, idle_skip, apply_event, event_due, begin_idle, finish, call_mode
  | Globals: g_log, g_dump, g_marks, g_buzz, g_out_flash, g_cycles, g_steps, g_idle_index, g_idle_marks, g_in_halt, g_woke, g_scripted, g_report
- | Params: argc, argv -- --flash IMG or --game FILE, [--script S.pks] [--inputs EVENTS] [--scenario S.bin] [--schedule idle|real] [--dump OUT --hw HW.json] [--log OUT] [--marks OUT] [--buzz OUT] [--out-flash OUT] [--report --map GAME.map] [--max-cycles N]; or --flash IMG --map MAP --hw HW.json --call ROUTINE --state IN --out OUT [--schedule idle|real] [--max-cycles N] (call_mode)
+ | Params: argc, argv -- --flash IMG or --game FILE, [--script S.pks] [--inputs EVENTS] [--scenario S.bin] [--schedule idle|real] [--dump OUT --hw HW.json] [--log OUT] [--marks OUT] [--buzz OUT] [--out-flash OUT] [--report --map GAME.map [--profile OUT]] [--max-cycles N]; or --flash IMG --map MAP --hw HW.json --call ROUTINE --state IN --out OUT [--schedule idle|real] [--max-cycles N] (call_mode)
  | Returns: 0 on exit, script end, a final halt or a --call run, 1 on the cycle limit, 2 on a usage error, 3 on an unmodelled ROM entry or return or a buzzer setting no tone has
  ----------------------*/
 int main(int argc, char **argv)
@@ -1978,10 +2109,11 @@ int main(int argc, char **argv)
         else if (strcmp(a, "--call") == 0) call = v;
         else if (strcmp(a, "--state") == 0) state = v;
         else if (strcmp(a, "--out") == 0) out = v;
+        else if (strcmp(a, "--profile") == 0) g_profile = v;
         else fail("bad option", a);
     }
     if (call) {
-        if (!image || !map || !hw || !state || !out || script || inputs || dump || g_report) {
+        if (!image || !map || !hw || !state || !out || script || inputs || dump || g_report || g_profile) {
             fprintf(stderr, "usage: vmu_harness --flash IMG --map MAP --hw HW.json --call ROUTINE --state IN --out OUT [--schedule idle|real] "
                             "[--max-cycles N]\n");
             return 2;
@@ -1992,10 +2124,10 @@ int main(int argc, char **argv)
         (void)idle;
         call_mode(call, state, out, max_cycles);
     }
-    if (!image || (script && scenario) || (dump && !hw) || (g_report && !map)) {
+    if (!image || (script && scenario) || (dump && !hw) || (g_report && !map) || (g_profile && !g_report)) {
         fprintf(stderr, "usage: vmu_harness --flash IMG [--script S.pks | --scenario S.bin] [--inputs EVENTS] [--schedule idle|real] "
                         "[--dump OUT.state --hw HW.json] [--log OUT.log] [--marks OUT] [--buzz OUT] [--out-flash OUT.bin] "
-                        "[--report --map GAME.map] [--max-cycles N]\n");
+                        "[--report --map GAME.map [--profile OUT]] [--max-cycles N]\n");
         return 2;
     }
     (void)scenario;

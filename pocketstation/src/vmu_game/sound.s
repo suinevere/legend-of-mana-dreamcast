@@ -72,7 +72,7 @@ ROM_SOUNDS	EQU	$A7C8
 ; | g_sound_load
 ; | Description: Sets snd_start to sound id's file offset and snd_len to its length in samples, from ROM_SOUNDS read with LDC from app_tables.
 ; | Author: suinevere
-; | Dependencies: app_tables, ROM_SOUNDS, rrl_ram.inc (HW_SND_START, HW_SND_LEN)
+; | Dependencies: app_tables, ROM_SOUNDS, rrl_ram.inc (HW_SND_START, HW_SND_LEN), g_tr_x4
 ; | Globals: snd_start, snd_len
 ; | Params: ACC -- id
 ; | Returns: N/A. Destroys ACC, C, TRH, TRL, PSW.
@@ -80,18 +80,7 @@ ROM_SOUNDS	EQU	$A7C8
 g_sound_load:
 	ST TRL
 	MOV #$00, TRH
-	LD TRL
-	ADD TRL
-	ST TRL
-	LD TRH
-	ADDC TRH
-	ST TRH
-	LD TRL
-	ADD TRL
-	ST TRL
-	LD TRH
-	ADDC TRH
-	ST TRH
+	CALLF g_tr_x4
 	LD TRL
 	ADD #<(app_tables+ROM_SOUNDS)
 	ST TRL
@@ -235,3 +224,75 @@ g_sound_start_new:
 	CALLF g_sound_len_less
 	POP C
 	JMPF rt_sound_play
+
+;----------------------
+; | g_sound_begin
+; | Description: game_sound_begin: stops the sound when docked or muted, the system flags read only when undocked; otherwise starts sound id at the slow rate.
+; | Author: suinevere
+; | Dependencies: rt_sys_flags, g_sound_stop, g_sound_start, rrl_ram.inc (HW_DOCKED)
+; | Globals: docked and what g_sound_stop and g_sound_start write
+; | Params: ACC -- id
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, R1, PSW.
+;----------------------
+g_sound_begin:
+	PUSH ACC
+	LD HW_DOCKED
+	BNZ g_sound_begin_stop
+	CALLF rt_sys_flags
+	AND #$01
+	BNZ g_sound_begin_stop
+	POP ACC
+	MOV #<500, TRL
+	MOV #>500, TRH
+	JMPF g_sound_start
+g_sound_begin_stop:
+	POP ACC
+	JMPF g_sound_stop
+
+;----------------------
+; | g_sound_play_waiting
+; | Description: game_sound_play_waiting: plays the requested sound at the fast rate and idles until it ends or the VMU docks, unless docked or muted; restores frame ticks when it ends.
+; | Author: suinevere
+; | Dependencies: rt_sys_flags, g_sound_stop, rt_tick_mode, g_sound_start, rt_idle, rrl_ram.inc (HW_SOUND_REQ, HW_DOCKED, HW_SND_PLAYING)
+; | Globals: sound_req, docked, snd_playing and what the callees and the handler write
+; | Params: N/A
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, FPR, PSW; one byte of stack on top of its callees'.
+;----------------------
+g_sound_play_waiting:
+	LD HW_SOUND_REQ
+	MOV #$FF, HW_SOUND_REQ
+	BNE #$FF, g_sound_play_waiting_req
+	RET
+g_sound_play_waiting_req:
+	PUSH ACC
+	LD HW_DOCKED
+	BNZ g_sound_play_waiting_off
+	CALLF rt_sys_flags
+	AND #$01
+	BZ g_sound_play_waiting_play
+g_sound_play_waiting_off:
+	POP ACC
+	JMPF g_sound_stop
+g_sound_play_waiting_play:
+	LD HW_SND_PLAYING
+	BE #$FF, g_sound_play_waiting_fast
+	CALLF g_sound_stop
+g_sound_play_waiting_fast:
+	MOV #$02, ACC
+	CALLF rt_tick_mode
+	POP ACC
+	MOV #71, TRL
+	MOV #$00, TRH
+	CALLF g_sound_start
+g_sound_play_waiting_wait:
+	LD HW_DOCKED
+	BNZ g_sound_play_waiting_docked
+	LD HW_SND_PLAYING
+	BNE #$FF, g_sound_play_waiting_idle
+	MOV #$01, ACC
+	JMPF rt_tick_mode
+g_sound_play_waiting_idle:
+	CALLF rt_idle
+	BR g_sound_play_waiting_wait
+g_sound_play_waiting_docked:
+	JMPF g_sound_stop

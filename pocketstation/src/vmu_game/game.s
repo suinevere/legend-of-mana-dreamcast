@@ -1,6 +1,6 @@
 ;----------------------
 ; | game.s
-; | Description: Ring Ring Land's GAME: the runtime, a VMS header with R2's short description, the game's name and one blank icon, and the tables the GAME keeps from RES1506.BIN (tables.s). App_main leaves through rt_power when the pet save lacks the rest of the tables (g_tb_check), else idles until the real game loop is written.
+; | Description: Ring Ring Land's GAME: the runtime, a VMS header with R2's short description, the game's name and one blank icon, and the tables the GAME keeps from RES1506.BIN (tables.s). App_main leaves through rt_power without a pet save (g_pet_check), else runs the game through g_entry.
 ; | Author: suinevere
 ; | Dependencies: pocketstation/src/vmu_rt/{sfr.inc,rt.inc,rt_vectors.s,rt_ram.s,rt_events.s,rt_input.s,rt_lcd.s,rt_file.s,rt_sound.s,rt_power.s}, pocketstation/build/vmu_game/{rrl_ram.inc,tables.s}, pocketstation/src/vmu_game/{game.inc,routines.inc,Makefile}
 ; | Globals: N/A
@@ -42,21 +42,20 @@ rrl_header:
 
 ;----------------------
 ; | app_main
-; | Description: The GAME's entry, called once RAM is cleared and the scheduler is running: idles forever on rt_idle. A later task replaces this with the real game loop as it ports the game's routines.
+; | Description: The GAME's entry, called once RAM is cleared and the scheduler is running: leaves through rt_power without a pet save, else runs Ring Ring Land, which never returns.
 ; | Author: suinevere
-; | Dependencies: pocketstation/src/vmu_rt/rt_events.s (rt_idle)
+; | Dependencies: g_pet_check, g_entry, rt_power
 ; | Globals: N/A
 ; | Params: N/A
-; | Returns: N/A
+; | Returns: never
 ;----------------------
 app_main:
 	CALLF g_pet_check
-	BZ app_main_loop
+	BNZ app_main_none
+	JMPF g_entry
+app_main_none:
 	MOV #RT_POWER_EXIT, ACC
-	CALLF rt_power
-app_main_loop:
-	CALLF rt_idle
-	BR app_main_loop
+	JMPF rt_power
 
 	.cnop 0, $04
 	.include "../../build/vmu_game/tables.s"

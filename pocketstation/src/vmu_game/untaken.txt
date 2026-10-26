@@ -15,3 +15,19 @@ game_strip_pick_three 8 false As probe 5: the bit stops at 32 only in the search
 game_bag_kinds 0 false Every item table entry's kind, its low byte at 0x8094, is 0-3, so no bag item has a kind of 32 or more.
 plot_rows 5 false With height at most 32 and y negative, height + y is always below 32; the 32 cap is defensive.
 game_dock_check 0 true With the dock line raised the C runs game_dock_quit, which leaves through vmu_power and never returns to be recorded; g_dock_quit is checked by reading.
+game_reel_pair_spin_step 17 taken The phase runs 0-7 and moves on at 7, so the switch's default case is defensive.
+game_reel_pair_spin_step 30 false Reel B gets a speed only from phase 2, so it never moves with the phase below 2.
+game_walk_pending 7 true After game_walk_step a walk still busy never has frame 0: kinds 0-1 count up from 1 and clear busy at 16, kind 2 stops at 12, kinds 3 and up clear busy when they reach 0.
+game_dock_screen 0 false Docked, the C goes on to game_dock_quit, which leaves through vmu_power and never returns to be recorded.
+game_dock_screen 1 false With the dock line raised the C goes on to game_dock_quit, which never returns to be recorded.
+game_quit_dialog 0 true A system quit request runs game_quit, which leaves through vmu_power and never returns to be recorded.
+game_quit_dialog 2 true Choosing yes runs game_quit, which never returns to be recorded.
+game_reel_window_draw 1 false Every caller's y is at most 22, so the edge row y is always a frame buffer row below 32.
+game_reel_window_draw 2 false As probe 1: the edge row never reaches the blit rows.
+game_reel_window_draw 2 true As probe 1: the edge row never reaches the blit rows.
+game_reel_window_draw 13 false With y at most 22 the window's rows end by 43, so none reaches blit_b's rows from 64.
+game_reel_window_draw 7 false As probe 13: clearing the window, no row reaches blit_b's rows from 64.
+game_reel_window_draw 11 false As probe 13: inverting the window, no row reaches blit_b's rows from 64.
+game_bag_screen_draw 7 false The panel lowers over rows walk_frame / 2, and walk_frame stops at 0x40, so every cleared row is a frame buffer row below 32.
+game_bag_screen_draw 8 true As probe 7: no cleared row reaches blit_a's rows 32-63.
+game_bag_screen_draw 8 false As probe 7: no cleared row reaches blit_b's rows from 64.

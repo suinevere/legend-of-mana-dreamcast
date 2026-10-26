@@ -31,5 +31,6 @@
 - [セーブファイルの形式](technical/reference/save-file.md) - メモリーカードのセーブの中身と、チェックサムの直し方。
 - [リング・りんぐ・ランドのRAM](technical/reference/ring-ring-land-ram.md) - ポケットステーションのゲームが使うRAMの全バイトを、元のアドレス、VMUのオフセット、VMU本体での置き場所で示します。
 - [VMUランタイム](technical/reference/vmu-runtime.md) - リング・りんぐ・ランドのVMU版がランタイムを呼ぶ方法、ランタイムの状態の置き場所、イベントの順番の決め方、テスト用ハーネスが模すBIOSの範囲。
+- [VMUのゲーム](technical/reference/vmu-game.md) - リング・りんぐ・ランドのLC86Kアセンブリの構成、すべてのC関数を管理するマニフェスト、1つのルーチンを記録したCの呼び出しと照合する方法、ゲーム全体の検査。
 - [テキストテーブル](technical/reference/text-tables.md) - メニューのテキストの格納場所と、北米版のテキストの文字コード。
 - [英語ドキュメント一覧](../en/README.md) - その他の技術解説とリファレンス。

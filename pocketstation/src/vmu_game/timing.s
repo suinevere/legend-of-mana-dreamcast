@@ -66,3 +66,67 @@ g_ticks_start:
 	CALLF g_timer_irq
 	POP ACC
 	JMPF rt_tick_mode
+
+;----------------------
+; | g_wait_ticks
+; | Description: game_wait_ticks: presents, then idles until tick counter which has moved n past the count it last saw, and saves the new count.
+; | Author: suinevere
+; | Dependencies: rt_present, rt_idle, game.inc (ARG_BLOCK), rrl_ram.inc (HWW_TICKS)
+; | Globals: ticks and what the handler writes
+; | Params: ACC -- which, 0-1; ARG_BLOCK+0..3 -- n
+; | Returns: ACC -- the count. Destroys B, C, TRH, TRL, R0-R3, VRMAD, FPR, PSW; leaves VSEL bit 4 clear; two bytes of stack on top of rt_idle's.
+;----------------------
+g_wait_ticks:
+	ROL
+	AND #$FE
+	PUSH ACC
+	CALLF rt_present
+	POP ACC
+	PUSH ACC
+	INC ACC
+	ADD #<HWW_TICKS
+	ST VRMAD1
+	MOV #>HWW_TICKS, VRMAD2
+	CLR1 VSEL, 4
+	LD VTRBF
+	PUSH ACC
+g_wait_ticks_look:
+	POP B
+	POP C
+	PUSH C
+	PUSH B
+	CLR1 VSEL, 4
+	LD C
+	ADD #<HWW_TICKS
+	ST VRMAD1
+	MOV #>HWW_TICKS, VRMAD2
+	LD VTRBF
+	ST TRL
+	SUB B
+	ST TRH
+	MOV #<(ARG_BLOCK+1), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	LD VTRBF
+	INC VRMAD1
+	OR VTRBF
+	INC VRMAD1
+	OR VTRBF
+	BNZ g_wait_ticks_idle
+	MOV #<ARG_BLOCK, VRMAD1
+	LD TRH
+	SUB VTRBF
+	BN PSW, 7, g_wait_ticks_done
+g_wait_ticks_idle:
+	CALLF rt_idle
+	BR g_wait_ticks_look
+g_wait_ticks_done:
+	POP B
+	POP C
+	LD C
+	INC ACC
+	ADD #<HWW_TICKS
+	ST VRMAD1
+	MOV #>HWW_TICKS, VRMAD2
+	LD TRL
+	ST VTRBF
+	RET

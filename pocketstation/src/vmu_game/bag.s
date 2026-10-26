@@ -444,3 +444,334 @@ g_bag_kinds_found:
 	LD B
 	ST HW_SCRATCH_FIRST
 	RET
+
+;----------------------
+; | g_bag_reveal
+; | Description: game_bag_reveal: steps a lagging meter, scrolls in phase 3, else counts the scene down, cycling the pet's phase; at zero loads strip 3 in phase 2 or reveals the next item.
+; | Author: suinevere
+; | Dependencies: g_meter_update, g_bag_reveal_scroll, g_reels_load_strip3, g_bag_reveal_next, rrl_ram.inc (HW_METER_SHOWN, HW_METER, HW_MODE_DONE, HW_SCENE_ID, HW_WALK_FRAME, HW_MODE_WAIT, HW_MODE_PHASE, HWW_ANIM)
+; | Globals: the fields above, anim and what the callees write
+; | Params: N/A
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, FPR, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_bag_reveal:
+	LD HW_METER_SHOWN
+	BE HW_METER, g_bag_reveal_phase
+	JMPF g_meter_update
+g_bag_reveal_phase:
+	LD HW_MODE_DONE
+	BNE #$03, g_bag_reveal_move
+	JMPF g_bag_reveal_scroll
+g_bag_reveal_move:
+	MOV #$00, B
+	BE #$01, g_bag_reveal_wait
+	BE #$02, g_bag_reveal_wait
+	MOV #$01, B
+	LD HW_WALK_FRAME
+	BE #$40, g_bag_reveal_wait
+	INC HW_WALK_FRAME
+g_bag_reveal_wait:
+	LD HW_SCENE_ID
+	DEC ACC
+	BZ g_bag_reveal_zero
+	ST HW_SCENE_ID
+	LD B
+	BZ g_bag_reveal_ret
+	LD HW_MODE_WAIT
+	DEC ACC
+	BNZ g_bag_reveal_store
+	LD HW_MODE_PHASE
+	INC ACC
+	BNE #$04, g_bag_reveal_cycle
+	MOV #$00, ACC
+g_bag_reveal_cycle:
+	ST HW_MODE_PHASE
+	MOV #$05, ACC
+g_bag_reveal_store:
+	ST HW_MODE_WAIT
+g_bag_reveal_ret:
+	RET
+g_bag_reveal_zero:
+	LD HW_MODE_DONE
+	BNE #$02, g_bag_reveal_next_item
+	CLR1 VSEL, 4
+	MOV #<(HWW_ANIM+1), VRMAD1
+	MOV #>(HWW_ANIM+1), VRMAD2
+	MOV #$00, VTRBF
+	CALLF g_reels_load_strip3
+	INC HW_MODE_DONE
+	RET
+g_bag_reveal_next_item:
+	BE #$01, g_bag_reveal_go
+	MOV #$01, HW_MODE_DONE
+	MOV #$01, HW_SCENE_ID
+g_bag_reveal_go:
+	JMPF g_bag_reveal_next
+
+;----------------------
+; | g_bag_menu_step
+; | Description: game_bag_menu_step: one frame of the bag menu's four states (item cursor, use row, toss row, kind browser); fire acts on the state and returns kind + 0x100 after a use that leaves items.
+; | Author: suinevere
+; | Dependencies: g_sound_begin, g_menu_restart, g_menu_row, g_menu_moved, g_menu_blink, g_bag_find_nth, g_bag_count_first, g_bag_remove, g_save, g_bag_kinds, g_bms_out, rrl_ram.inc (HW_MODE_DONE, HW_BTN_NEW, HW_BTN_PRESS, HW_SCRATCH_LO, HW_SCRATCH_COUNT, HW_SCRATCH_WAIT, HW_SCRATCH_FIRST, HW_SCRATCH_KINDS, HW_BAG_FULL, HW_BAG_KIND_COUNT, HW_BAG_NTH_INDEX, HW_MODE, HW_SCENE_ID, HWW_BAG_COUNT)
+; | Globals: the fields above and what the callees write
+; | Params: N/A
+; | Returns: ARG_BLOCK+0..3 -- kept, little-endian. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, FPR, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_bag_menu_step:
+	LD HW_MODE_DONE
+	BNE #$01, g_bag_menu_step_2
+	LD HW_BTN_NEW
+	AND #$18
+	BZ g_bag_menu_step_1lr
+	MOV #$00, HW_MODE_DONE
+	MOV #$03, ACC
+	CALLF g_sound_begin
+	JMPF g_bag_menu_step_restart
+g_bag_menu_step_1lr:
+	LD HW_SCRATCH_LO
+	BE #$01, g_bag_menu_step_s1
+	LD HW_SCRATCH_COUNT
+	ST C
+	LD HW_BTN_PRESS
+	AND #$04
+	BZ g_bag_menu_step_1r
+	LD C
+	BNZ g_bag_menu_step_1l
+	LD HW_SCRATCH_LO
+g_bag_menu_step_1l:
+	DEC ACC
+	ST HW_SCRATCH_COUNT
+	BR g_bag_menu_step_1find
+g_bag_menu_step_1r:
+	LD HW_BTN_PRESS
+	AND #$02
+	BZ g_bag_menu_step_s1
+	LD C
+	INC ACC
+	BNE HW_SCRATCH_LO, g_bag_menu_step_1st
+	MOV #$00, ACC
+g_bag_menu_step_1st:
+	ST HW_SCRATCH_COUNT
+g_bag_menu_step_1find:
+	CALLF g_bag_find_nth
+	JMPF g_bag_menu_step_moved
+g_bag_menu_step_s1:
+	JMPF g_bag_menu_step_still
+g_bag_menu_step_2:
+	BNE #$02, g_bag_menu_step_3
+	LD HW_BTN_PRESS
+	CALLF g_menu_row
+	BZ g_bag_menu_step_s1
+	JMPF g_bag_menu_step_moved
+g_bag_menu_step_3:
+	BNE #$03, g_bag_menu_step_0
+	LD HW_BTN_PRESS
+	CALLF g_menu_row
+	BZ g_bag_menu_step_3w
+	MOV #20, HW_SCRATCH_WAIT
+	JMPF g_bag_menu_step_moved
+g_bag_menu_step_3w:
+	LD HW_SCRATCH_WAIT
+	DEC ACC
+	BNZ g_bag_menu_step_3s
+	MOV #20, ACC
+g_bag_menu_step_3s:
+	ST HW_SCRATCH_WAIT
+	JMPF g_bag_menu_step_still
+g_bag_menu_step_0:
+	LD HW_BAG_FULL
+	BNZ g_bag_menu_step_0k
+	LD HW_BTN_NEW
+	AND #$18
+	BZ g_bag_menu_step_0k
+	MOV #$01, HW_MODE
+	MOV #$03, ACC
+	CALLF g_sound_begin
+	JMPF g_bag_menu_step_zero
+g_bag_menu_step_0k:
+	LD HW_BAG_KIND_COUNT
+	BE #$01, g_bag_menu_step_still
+	LD HW_BTN_PRESS
+	AND #$06
+	BZ g_bag_menu_step_still
+	LD HW_SCRATCH_FIRST
+	ST C
+g_bag_menu_step_kind:
+	LD HW_BTN_PRESS
+	AND #$04
+	BZ g_bag_menu_step_0r
+	LD C
+	BNZ g_bag_menu_step_0d
+	MOV #$04, ACC
+g_bag_menu_step_0d:
+	DEC ACC
+	ST C
+	BR g_bag_menu_step_0t
+g_bag_menu_step_0r:
+	INC C
+	LD C
+	BNE #$04, g_bag_menu_step_0t
+	MOV #$00, C
+g_bag_menu_step_0t:
+	LD HW_SCRATCH_KINDS
+	ST TRL
+	LD C
+	BZ g_bag_menu_step_0b
+	ST B
+g_bag_menu_step_0s:
+	LD TRL
+	ROR
+	ST TRL
+	DBNZ B, g_bag_menu_step_0s
+g_bag_menu_step_0b:
+	LD TRL
+	AND #$01
+	BZ g_bag_menu_step_kind
+	LD C
+	ST HW_SCRATCH_FIRST
+	CALLF g_bag_count_first
+g_bag_menu_step_moved:
+	CALLF g_menu_moved
+	BR g_bag_menu_step_fire
+g_bag_menu_step_still:
+	CALLF g_menu_blink
+g_bag_menu_step_fire:
+	LD HW_BTN_NEW
+	AND #$01
+	BNZ g_bag_menu_step_go
+	JMPF g_bag_menu_step_zero
+g_bag_menu_step_go:
+	MOV #$03, ACC
+	CALLF g_sound_begin
+	LD HW_MODE_DONE
+	BNE #$01, g_bag_menu_step_f2
+	MOV #$02, HW_MODE_DONE
+	MOV #$01, HW_SCENE_ID
+	JMPF g_bag_menu_step_restart
+g_bag_menu_step_f2:
+	BE #$02, g_bag_menu_step_use
+	JMPF g_bag_menu_step_f3
+g_bag_menu_step_use:
+	LD HW_SCENE_ID
+	BZ g_bag_menu_step_remove
+	MOV #$01, HW_MODE_DONE
+	JMPF g_bag_menu_step_restart
+g_bag_menu_step_remove:
+	LD HW_BAG_FULL
+	ST B
+	LD HW_BAG_NTH_INDEX
+	CALLF g_bag_remove
+	LD HW_BAG_FULL
+	BNE #$01, g_bag_menu_step_save
+	MOV #$03, HW_MODE
+	JMPF g_bag_menu_step_zero
+g_bag_menu_step_save:
+	CALLF g_save
+	CLR1 VSEL, 4
+	MOV #<HWW_BAG_COUNT, VRMAD1
+	MOV #>HWW_BAG_COUNT, VRMAD2
+	LD VTRBF
+	INC VRMAD1
+	OR VTRBF
+	INC VRMAD1
+	OR VTRBF
+	INC VRMAD1
+	OR VTRBF
+	BNZ g_bag_menu_step_left
+	MOV #$01, HW_MODE
+	JMPF g_bag_menu_step_zero
+g_bag_menu_step_left:
+	LD HW_SCRATCH_FIRST
+	PUSH ACC
+	CALLF g_bag_kinds
+	LD HW_SCRATCH_LO
+	BNE #$01, g_bag_menu_step_count
+	MOV #$00, HW_MODE_DONE
+	CALLF g_menu_restart
+	POP ACC
+	JMPF g_bag_menu_step_kept
+g_bag_menu_step_count:
+	BZ g_bag_menu_step_wrap
+	DEC ACC
+	BNE HW_SCRATCH_COUNT, g_bag_menu_step_lo
+	PUSH ACC
+	DEC ACC
+	ST HW_SCRATCH_COUNT
+	POP ACC
+	BR g_bag_menu_step_lo
+g_bag_menu_step_wrap:
+	MOV #$FF, ACC
+g_bag_menu_step_lo:
+	ST HW_SCRATCH_LO
+	POP ACC
+	PUSH ACC
+	ST HW_SCRATCH_FIRST
+	CALLF g_bag_find_nth
+	MOV #$01, HW_MODE_DONE
+	CALLF g_menu_restart
+	POP ACC
+	JMPF g_bag_menu_step_kept
+g_bag_menu_step_f3:
+	BNE #$03, g_bag_menu_step_f0
+	LD HW_SCENE_ID
+	BNZ g_bag_menu_step_toss
+	MOV #$00, HW_MODE_DONE
+	JMPF g_bag_menu_step_restart
+g_bag_menu_step_toss:
+	CLR1 VSEL, 4
+	MOV #<HWW_BAG_COUNT, VRMAD1
+	MOV #>HWW_BAG_COUNT, VRMAD2
+	LD VTRBF
+	SUB #$01
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	SUBC #$00
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	SUBC #$00
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	SUBC #$00
+	ST VTRBF
+	MOV #$03, HW_MODE
+	JMPF g_bag_menu_step_zero
+g_bag_menu_step_f0:
+	MOV #$01, HW_MODE_DONE
+	MOV #$00, HW_SCRATCH_COUNT
+	CALLF g_bag_count_first
+	CALLF g_bag_find_nth
+g_bag_menu_step_restart:
+	CALLF g_menu_restart
+g_bag_menu_step_zero:
+	MOV #$00, ACC
+	MOV #$00, B
+	JMPF g_bms_out
+g_bag_menu_step_kept:
+	MOV #$01, B
+	JMPF g_bms_out
+
+;----------------------
+; | g_bms_out
+; | Description: Writes g_bag_menu_step's result, ACC + 256 * B, to ARG_BLOCK+0..3.
+; | Author: suinevere
+; | Dependencies: game.inc (ARG_BLOCK)
+; | Globals: N/A
+; | Params: ACC -- the low byte; B -- the second byte
+; | Returns: ARG_BLOCK+0..3 -- the result. Destroys VRMAD; leaves VSEL bit 4 clear.
+;----------------------
+g_bms_out:
+	CLR1 VSEL, 4
+	MOV #<ARG_BLOCK, VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	ST VTRBF
+	INC VRMAD1
+	LD B
+	ST VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	RET

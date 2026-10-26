@@ -62,3 +62,15 @@ app_main:
 ;----------------------
 call_return:
 	BR call_return
+
+;----------------------
+; | call_idle_back
+; | Description: Where a game handler run by --call's rt_idle stand-in returns to; the harness runs the handler again or returns from rt_idle when the PC reaches it.
+; | Author: suinevere
+; | Dependencies: pocketstation/harness/vmu_harness.c (CALL_IDLE_LABEL)
+; | Globals: N/A
+; | Params: N/A
+; | Returns: N/A
+;----------------------
+call_idle_back:
+	BR call_idle_back

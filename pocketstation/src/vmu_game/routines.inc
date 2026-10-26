@@ -13,6 +13,7 @@
 	.include "../../src/vmu_game/beep.s"
 	.include "../../src/vmu_game/board.s"
 	.include "../../src/vmu_game/fb.s"
+	.include "../../src/vmu_game/hud.s"
 	.include "../../src/vmu_game/hw.s"
 	.include "../../src/vmu_game/input.s"
 	.include "../../src/vmu_game/menu.s"
@@ -25,3 +26,4 @@
 	.include "../../src/vmu_game/sprite.s"
 	.include "../../src/vmu_game/system.s"
 	.include "../../src/vmu_game/timing.s"
+	.include "../../src/vmu_game/frame.s"

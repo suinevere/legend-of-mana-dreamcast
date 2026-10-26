@@ -44,6 +44,9 @@ ownership, timing, and known limitations. Source links accompany the details.
 - [VMU runtime](technical/reference/vmu-runtime.md) - how Ring Ring Land's VMU port calls
   its runtime, where the runtime keeps its state, how it orders events, and what the test
   harness models of the BIOS.
+- [VMU game](technical/reference/vmu-game.md) - how Ring Ring Land's LC86K assembly is laid
+  out, the manifest that tracks every C function, how one routine is checked against its
+  recorded C calls, and the whole-game checks.
 - [Text tables](technical/reference/text-tables.md) - where menu text lives and how the US
   text is encoded.
 - [Overlay ID prefix](technical/reference/overlay-id-prefix.md) - overlay identification and

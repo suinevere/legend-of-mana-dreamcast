@@ -219,3 +219,225 @@ g_anims_tick_empty:
 	DBNZ C, g_anims_tick_loop
 	CLR1 VSEL, 4
 	RET
+
+;----------------------
+; | g_marker_start
+; | Description: game_marker_start: fills marker slot with type, frame 0, dx, and the first frame's hold count from bitmap bits 16-23.
+; | Author: suinevere
+; | Dependencies: g_frame_info, rrl_ram.inc (HWW_MARKER)
+; | Globals: marker
+; | Params: ACC -- slot, 0-3; B -- type; C -- dx
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_marker_start:
+	CLR1 VSEL, 4
+	ROL
+	ROL
+	ADD #<HWW_MARKER
+	ST VRMAD1
+	MOV #>HWW_MARKER, VRMAD2
+	LD B
+	ST VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	INC VRMAD1
+	INC VRMAD1
+	LD C
+	ST VTRBF
+	DEC VRMAD1
+	LD B
+	MOV #$00, B
+	CALLF g_frame_info
+	LD $02
+	ST VTRBF
+	RET
+
+;----------------------
+; | g_marker_frame
+; | Description: game_marker_frame: steps marker slot's hold count, moving to the next frame when it runs out and ending the slot on frame word 0x80. Returns the frame's SpriteInfo, bitmap advanced to its sub-image.
+; | Author: suinevere
+; | Dependencies: g_frame_info, g_sprite_info, game.inc (ARG_BLOCK), rrl_ram.inc (HWW_MARKER)
+; | Globals: marker
+; | Params: ACC -- slot, 0-3
+; | Returns: ARG_BLOCK+0..11 -- the SpriteInfo, all zero when the slot ends. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_marker_frame:
+	CLR1 VSEL, 4
+	ROL
+	ROL
+	ADD #<HWW_MARKER
+	ST VRMAD1
+	MOV #>HWW_MARKER, VRMAD2
+	INC VRMAD1
+	LD VTRBF
+	ST B
+	DEC VRMAD1
+	LD VTRBF
+	CALLF g_frame_info
+	PUSH ACC
+	INC VRMAD1
+	INC VRMAD1
+	LD VTRBF
+	BNZ g_marker_frame_left
+	POP ACC
+	DEC VRMAD1
+	LD VTRBF
+	ADD $00
+	ST VTRBF
+	ST B
+	DEC VRMAD1
+	LD VTRBF
+	CALLF g_frame_info
+	PUSH ACC
+	LD $00
+	BNE #$80, g_marker_frame_next
+	LD $01
+	OR $02
+	OR $03
+	BNZ g_marker_frame_next
+	POP ACC
+	MOV #$FF, VTRBF
+	MOV #<ARG_BLOCK, VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	SET1 VSEL, 4
+	MOV #12, B
+g_marker_frame_zero:
+	MOV #$00, VTRBF
+	DBNZ B, g_marker_frame_zero
+	CLR1 VSEL, 4
+	RET
+g_marker_frame_next:
+	INC VRMAD1
+	INC VRMAD1
+	LD $02
+g_marker_frame_left:
+	DEC ACC
+	ST VTRBF
+	POP $02
+	INC VRMAD1
+	LD VTRBF
+	ST TRL
+	MOV #$00, TRH
+	BN ACC, 7, g_marker_frame_xs
+	MOV #$FF, TRH
+g_marker_frame_xs:
+	LD B
+	ADD TRL
+	ST TRL
+	MOV #$00, ACC
+	BN B, 7, g_marker_frame_xb
+	MOV #$FF, ACC
+g_marker_frame_xb:
+	ADDC TRH
+	ST TRH
+	DEC VRMAD1
+	DEC VRMAD1
+	DEC VRMAD1
+	LD VTRBF
+	SUB $02
+	ST B
+	MOV #<ARG_BLOCK, VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	LD C
+	ST VTRBF
+	INC VRMAD1
+	MOV #$00, ACC
+	BN C, 7, g_marker_frame_ys
+	MOV #$FF, ACC
+g_marker_frame_ys:
+	ST VTRBF
+	INC VRMAD1
+	LD B
+	ST VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	PUSH $01
+	PUSH $03
+	CALLF g_sprite_info
+	POP $03
+	POP $01
+	MOV #<(ARG_BLOCK+6), VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	BN $03, 7, g_marker_frame_flags
+	LD VTRBF
+	ADD #$04
+	ST VTRBF
+g_marker_frame_flags:
+	LD $01
+	BNE #$FF, g_marker_frame_size
+	MOV #<(ARG_BLOCK+8), VRMAD1
+	SET1 VSEL, 4
+	MOV #$04, B
+g_marker_frame_none:
+	MOV #$00, VTRBF
+	DBNZ B, g_marker_frame_none
+	CLR1 VSEL, 4
+	RET
+g_marker_frame_size:
+	LD VTRBF
+	ST $02
+	DEC VRMAD1
+	LD VTRBF
+	ST B
+	DEC VRMAD1
+	LD VTRBF
+	ST C
+	MOV #$00, ACC
+	MUL
+	ST TRH
+	LD C
+	ADD #31
+	ST C
+	LD TRH
+	ADDC #$00
+	ST TRH
+	MOV #$03, B
+g_marker_frame_div:
+	CLR1 PSW, 7
+	LD TRH
+	RORC
+	ST TRH
+	LD C
+	RORC
+	ST C
+	DBNZ B, g_marker_frame_div
+	LD C
+	AND #$FC
+	ST C
+	LD $01
+	ST B
+	LD TRH
+	MUL
+	ST TRH
+	MOV #$00, $00
+	BN $02, 0, g_marker_frame_add
+	LD C
+	ADD C
+	ST C
+	LD TRH
+	ADDC TRH
+	ST TRH
+	LD B
+	ADDC B
+	ST B
+	LD $00
+	ADDC $00
+	ST $00
+g_marker_frame_add:
+	MOV #<(ARG_BLOCK+8), VRMAD1
+	LD VTRBF
+	ADD C
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	ADDC TRH
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	ADDC B
+	ST VTRBF
+	INC VRMAD1
+	LD VTRBF
+	ADDC $00
+	ST VTRBF
+	RET

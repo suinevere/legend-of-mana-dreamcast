@@ -133,3 +133,62 @@ g_menu_pick_row_first:
 g_menu_pick_row_set:
 	ST HW_MODE_DONE
 	BR g_picked
+
+;----------------------
+; | g_menu_pick_two
+; | Description: game_menu_pick_two: up and down move between the two rows or blink; fire picks mode 2 for row 0, or mode 14 with the bag not full when it holds items, with sound 3.
+; | Author: suinevere
+; | Dependencies: g_picked, g_blink, g_sound_begin, rrl_ram.inc (HW_BTN_NEW, HW_MODE_DONE, HW_MODE, HW_BAG_FULL, HWW_BAG_COUNT)
+; | Globals: btn_new, mode_done, mode, bag_count, bag_full and what the callees write
+; | Params: N/A
+; | Returns: N/A. Destroys ACC, B, C, TRH, TRL, R1, VRMAD, PSW; leaves VSEL bit 4 clear.
+;----------------------
+g_menu_pick_two:
+	LD HW_BTN_NEW
+	AND #$10
+	BZ g_menu_pick_two_down
+	LD HW_MODE_DONE
+	BZ g_menu_pick_two_down
+	DEC ACC
+	ST HW_MODE_DONE
+	CALLF g_picked
+	BR g_menu_pick_two_fire
+g_menu_pick_two_down:
+	LD HW_BTN_NEW
+	AND #$08
+	BZ g_menu_pick_two_blink
+	LD HW_MODE_DONE
+	BE #$01, g_menu_pick_two_blink
+	INC ACC
+	ST HW_MODE_DONE
+	CALLF g_picked
+	BR g_menu_pick_two_fire
+g_menu_pick_two_blink:
+	CALLF g_blink
+g_menu_pick_two_fire:
+	LD HW_BTN_NEW
+	AND #$01
+	BNZ g_menu_pick_two_pick
+	RET
+g_menu_pick_two_pick:
+	LD HW_MODE_DONE
+	BNZ g_menu_pick_two_bag
+	MOV #$02, HW_MODE
+	BR g_menu_pick_two_sound
+g_menu_pick_two_bag:
+	CLR1 VSEL, 4
+	MOV #<HWW_BAG_COUNT, VRMAD1
+	MOV #>HWW_BAG_COUNT, VRMAD2
+	LD VTRBF
+	INC VRMAD1
+	OR VTRBF
+	INC VRMAD1
+	OR VTRBF
+	INC VRMAD1
+	OR VTRBF
+	BZ g_menu_pick_two_sound
+	MOV #$00, HW_BAG_FULL
+	MOV #14, HW_MODE
+g_menu_pick_two_sound:
+	MOV #$03, ACC
+	JMPF g_sound_begin

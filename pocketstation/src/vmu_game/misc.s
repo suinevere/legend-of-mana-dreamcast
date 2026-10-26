@@ -75,7 +75,7 @@ g_save_try:
 
 ;----------------------
 ; | g_digits_x
-; | Description: game_digits_x: where a five-digit number right-aligned from x starts, x for 10000 or more, then 4 pixels further in for each digit fewer, down to x + 16 for one digit.
+; | Description: game_digits_x: where a five-digit number right-aligned from x starts, x for 10000 or more, then 4 pixels further in for each digit fewer, down to x + 16 for one digit. g_digits_x_vr reads n at ARG_BLOCK page offset VRMAD1 instead.
 ; | Author: suinevere
 ; | Dependencies: game.inc (ARG_BLOCK)
 ; | Globals: N/A
@@ -83,9 +83,10 @@ g_save_try:
 ; | Returns: TRH:TRL -- the x. Destroys ACC, B, C, VRMAD, PSW; leaves VSEL bit 4 (work RAM auto-increment) clear.
 ;----------------------
 g_digits_x:
+	MOV #<ARG_BLOCK, VRMAD1
+g_digits_x_vr:
 	SET1 VSEL, 4
 	MOV #>ARG_BLOCK, VRMAD2
-	MOV #<ARG_BLOCK, VRMAD1
 	LD VTRBF
 	ST C
 	LD VTRBF
@@ -305,3 +306,63 @@ g_standby:
 	CALLF rt_irq_enable
 	MOV #RT_TICK_FRAME, ACC
 	JMPF rt_tick_mode
+
+;----------------------
+; | g_n_arg
+; | Description: Puts the byte ACC in ARG_BLOCK+0..3 as a 32-bit argument.
+; | Author: suinevere
+; | Dependencies: game.inc (ARG_BLOCK)
+; | Globals: N/A
+; | Params: ACC -- the value
+; | Returns: N/A. Destroys VRMAD; leaves VSEL bit 4 clear.
+;----------------------
+g_n_arg:
+	CLR1 VSEL, 4
+	MOV #<ARG_BLOCK, VRMAD1
+	MOV #>ARG_BLOCK, VRMAD2
+	ST VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	INC VRMAD1
+	MOV #$00, VTRBF
+	RET
+
+;----------------------
+; | g_dock_screen
+; | Description: game_dock_screen: undocked with the dock line down it returns; otherwise it silences the sound, blanks the screen, waits in standby ticks and quits for the dock.
+; | Author: suinevere
+; | Dependencies: rt_irq_levels, rt_sound_stop, g_timer_irq, g_sound_off, g_fb_clear, g_fb_present, g_ticks_start, g_n_arg, g_wait_ticks, g_dock_quit, rrl_ram.inc (HW_DOCKED)
+; | Globals: docked and what the callees write
+; | Params: N/A
+; | Returns: N/A, and only when undocked with the dock line down. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, FPR, PSW.
+;----------------------
+g_dock_screen:
+	LD HW_DOCKED
+	BNZ g_dock_screen_blank
+	CALLF rt_irq_levels
+	LD TRH
+	AND #$04
+	BNZ g_dock_screen_stop
+	RET
+g_dock_screen_stop:
+	CALLF rt_sound_stop
+	MOV #$02, B
+	MOV #$00, ACC
+	CALLF g_timer_irq
+	CALLF g_sound_off
+g_dock_screen_blank:
+	CALLF g_fb_clear
+	CALLF g_fb_present
+	MOV #$03, ACC
+	CALLF g_ticks_start
+	MOV #$00, ACC
+	CALLF g_n_arg
+	MOV #$01, ACC
+	CALLF g_wait_ticks
+	MOV #$5A, ACC
+	CALLF g_n_arg
+	MOV #$01, ACC
+	CALLF g_wait_ticks
+	JMPF g_dock_quit
