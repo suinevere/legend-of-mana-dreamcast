@@ -3,7 +3,7 @@
  | Description: Keeps each PS1 card file as one LZSS-compressed VMS package on a VMU through KallistiOS vmufs: slot n is the nth VMU found, a file's VMU name comes from vmu_name_for_ps1 and its long description holds the full PS1 name; the pet transfer also puts Ring Ring Land's VMU GAME at block 0.
  | Author: suinevere
  | Dependencies: kos.h, dc/vmufs.h, dc/vmu_pkg.h, dc/maple/vmu.h, card_store_kos.h, card_vmu.c, vmu_format.h, vmu_game.h, save_pack.h
- | Globals: s_lcd, s_job, s_job_state, s_game, s_game_size, s_replace_ok, s_root, s_fat, s_dir, s_dirents, s_dirent_count, s_pet_present
+ | Globals: s_job, s_job_state, s_game, s_game_size, s_replace_ok, s_root, s_fat, s_dir, s_dirents, s_dirent_count, s_pet_present
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -16,6 +16,7 @@
 #include "card_store_kos.h"
 #include "vmu_format.h"
 #include "vmu_game.h"
+#include "vmu_screen.h"
 #include "save_pack.h"
 
 /*----------------------
@@ -60,15 +61,16 @@
 #define KOS_VMU_RETRY_MS 10
 
 /*----------------------
- | s_lcd
- | Description: The 48x32 wordmark sent to every VMU screen; vmu_draw_lcd_rotated needs it 4-byte aligned.
+ | lom_vmu_pet_screens / lom_vmu_pet_screen_count
+ | Description: The pet and egg portraits as VMU screens, which the pre-build step generates from the user's disc.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: gen/vmu_pet_screens.c (port/tools/vmu_portraits.py)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static unsigned char s_lcd[192] __attribute__((aligned(4)));
+extern const unsigned char lom_vmu_pet_screens[][VMU_SCREEN_BYTES];
+extern const unsigned int lom_vmu_pet_screen_count;
 
 /*----------------------
  | slot_device
@@ -789,23 +791,67 @@ static int kos_free_blocks(int slot)
 const card_store_ops card_store_kos = {kos_present, kos_list, kos_read, kos_write, kos_remove, kos_free_blocks, kos_write_start, kos_job_poll, NULL, kos_game_state, kos_game_allow_replace};
 
 /*----------------------
- | card_store_kos_init
- | Description: Installs the VMU store behind the card calls and puts the Mana wordmark on every VMU screen found at boot.
+ | kos_lcd_draw
+ | Description: vmu_screen's draw hook: puts a screen on every VMU, or reports busy while the background thread writes a file, so the LCD command never shares the bus with a transfer, and when a VMU refuses the frame (its maple frame still taken), so the next VSync tries again.
  | Author: suinevere
- | Dependencies: card_vmu_set_store, vmu_lcd_wordmark, maple_enum_type, vmu_draw_lcd_rotated
- | Globals: s_lcd
+ | Dependencies: maple_enum_type, vmu_draw_lcd_rotated
+ | Globals: s_job_state
+ | Params: lcd -- 192 bytes, 4-byte aligned
+ | Returns: 0 once drawn on every VMU, 1 when busy
+ ----------------------*/
+static int kos_lcd_draw(const unsigned char *lcd)
+{
+    maple_device_t *dev;
+    int i;
+    int busy = 0;
+
+    if (s_job_state == JOB_BUSY)
+    {
+        return 1;
+    }
+    for (i = 0; (dev = maple_enum_type(i, MAPLE_FUNC_LCD)) != NULL; i++)
+    {
+        if (vmu_draw_lcd_rotated(dev, (void *)lcd) < 0)
+        {
+            busy = 1;
+        }
+    }
+    return busy;
+}
+
+/*----------------------
+ | card_store_kos_lcds
+ | Description: How many VMU screens maple finds now, so vmu_screen redraws for one plugged in later.
+ | Author: suinevere
+ | Dependencies: maple_enum_type
+ | Globals: N/A
+ | Params: N/A
+ | Returns: the count
+ ----------------------*/
+int card_store_kos_lcds(void)
+{
+    int i = 0;
+
+    while (maple_enum_type(i, MAPLE_FUNC_LCD) != NULL)
+    {
+        i++;
+    }
+    return i;
+}
+
+/*----------------------
+ | card_store_kos_init
+ | Description: Installs the VMU store behind the card calls, gives vmu_screen the pet screens and the draw hook, and puts the first choice (the wordmark until a pet is known) on every VMU found at boot.
+ | Author: suinevere
+ | Dependencies: card_vmu_set_store, vmu_screen_set_screens, vmu_screen_set_draw, vmu_screen_update, kos_lcd_draw, card_store_kos_lcds
+ | Globals: lom_vmu_pet_screens, lom_vmu_pet_screen_count
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 void card_store_kos_init(void)
 {
-    maple_device_t *dev;
-    int i;
-
     card_vmu_set_store(&card_store_kos);
-    vmu_lcd_wordmark(s_lcd);
-    for (i = 0; (dev = maple_enum_type(i, MAPLE_FUNC_LCD)) != NULL; i++)
-    {
-        vmu_draw_lcd_rotated(dev, s_lcd);
-    }
+    vmu_screen_set_screens(lom_vmu_pet_screens, lom_vmu_pet_screen_count);
+    vmu_screen_set_draw(kos_lcd_draw);
+    vmu_screen_update(NULL, card_store_kos_lcds());
 }

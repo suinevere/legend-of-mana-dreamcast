@@ -22,6 +22,7 @@ game_dock_screen 0 false Docked, the C goes on to game_dock_quit, which leaves t
 game_dock_screen 1 false With the dock line raised the C goes on to game_dock_quit, which never returns to be recorded.
 game_quit_dialog 0 true A system quit request runs game_quit, which leaves through vmu_power and never returns to be recorded.
 game_quit_dialog 2 true Choosing yes runs game_quit, which never returns to be recorded.
+game_quit_dialog 4 true Choosing yes where it may quit runs game_quit, which never returns to be recorded.
 game_reel_window_draw 1 false Every caller's y is at most 22, so the edge row y is always a frame buffer row below 32.
 game_reel_window_draw 2 false As probe 1: the edge row never reaches the blit rows.
 game_reel_window_draw 2 true As probe 1: the edge row never reaches the blit rows.

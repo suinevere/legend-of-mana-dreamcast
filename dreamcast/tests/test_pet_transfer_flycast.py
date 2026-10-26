@@ -2,7 +2,7 @@
 # | test_pet_transfer_flycast.py
 # | Description: Flycast checks of R2's pet transfer: CARDA mode 2 writes Ring Ring Land with the fixture pet to the VMU as the JP game fills it,
 # |              CARDA mode 3 brings the pet and its rewards back and erases the file, and the ranch's ring menu offers Ring Ring Land and opens CARDA;
-# |              a send also installs Ring Ring Land's VMU GAME from block 0, rewriting an older one and replacing another minigame after Yes, and changes nothing when declined or full.
+# |              a send also installs Ring Ring Land's VMU GAME from block 0, rewriting an older one and replacing another minigame after Yes, and changes nothing when declined or full; the VMU screen shows the sent pet, then the wordmark once it is home.
 # | Author: suinevere
 # | Dependencies: tools/flycast_run.py, tools/vmu_image.py, stale_image.py, pocketstation/tools/psk_file.py, pocketstation/build/vmu_game/rrl.vms, lom_pet_send_test.cdi, lom_pet_send_decline_test.cdi, lom_pet_return_test.cdi, lom_pet_ranch_test.cdi
 # | Globals: N/A
@@ -82,6 +82,20 @@ def transfer_line(lines):
     return int(words[at + 1]), int(words[at + 3], 16), int(words[at + 4], 16), (int(words[at + 6]), int(words[at + 7]))
 
 
+#----------------------
+# | vmu_screen_before
+# | Description: The last "vmu screen" choice field_watch_unit.c logged before a capture: a pet or egg screen, or -1 for the wordmark.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: lines -- log lines; capture -- the capture's name
+# | Returns: the screen number
+#----------------------
+def vmu_screen_before(lines, capture):
+    end = next(i for i, line in enumerate(lines) if "capture " + capture in line)
+    return int([line for line in lines[:end] if "vmu screen" in line][-1].split()[-1])
+
+
 @pytest.fixture(scope="module")
 def send_run(tmp_path_factory):
     return run("lom_pet_send_test.cdi", vmu_image.blank(), "LOM: capture send-done", 1200, tmp_path_factory, "send")
@@ -123,6 +137,11 @@ def test_send_empties_the_ranch_slot(send_run):
     assert name0 == 0
 
 
+def test_the_vmu_screen_shows_the_pet_sent_to_ring_ring_land(send_run):
+    _, lines, _, _ = send_run
+    assert vmu_screen_before(lines, "send-done") == PET[0x15]
+
+
 def test_return_brings_the_pet_and_its_rewards_home_and_erases_the_file(return_run):
     code, lines, img, _ = return_run
     assert code == 0, lines[-20:]
@@ -130,6 +149,7 @@ def test_return_brings_the_pet_and_its_rewards_home_and_erases_the_file(return_r
     assert name0 == PET[0] and unique_id == struct.unpack_from("<I", PET, 0x5C)[0]
     assert counts == (1, 1)
     assert vmu_image.ps1_file(img, RRL_NAME) is None
+    assert vmu_screen_before(lines, "return-done") == -1
 
 
 #----------------------

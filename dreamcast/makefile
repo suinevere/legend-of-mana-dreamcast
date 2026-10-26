@@ -309,7 +309,7 @@ DECOMP_WMAP = ../src/overlays/wmap/overlay_header.c ../src/overlays/wmap/effects
 #----------------------
 DECOMP_OBJ = $(patsubst ../src/%.c,build/decomp/%.o,$(1))
 MAIN_OBJS = $(patsubst src/%.c,$(OBJDIR)/%.o,$(SOURCES)) $(patsubst ../port/%.c,$(OBJDIR)/port/%.o,$(PORT_SOURCES)) $(call DECOMP_OBJ,$(DECOMP_MAIN)) $(call DECOMP_OBJ,$(DECOMP_AUDIO)) \
-	$(OBJDIR)/gen/akao_data.o $(OBJDIR)/gen/main_data.o
+	$(OBJDIR)/gen/akao_data.o $(OBJDIR)/gen/main_data.o $(OBJDIR)/gen/vmu_pet_screens.o
 OBJS = $(MAIN_OBJS) $(OBJDIR)/gen/dc_pending.o
 CHECKPS_OBJS = build/ovl/checkps_vectors.o $(call DECOMP_OBJ,$(DECOMP_CHECKPS)) build/overlays/checkps_init_unit.o
 TITLE_OBJS = build/ovl/title_vectors.o $(call DECOMP_OBJ,$(DECOMP_TITLE)) $(OBJDIR)/overlays/title_debug_entry.o
@@ -536,15 +536,15 @@ $(call DECOMP_OBJ,$(DECOMP_AUDIO)): DECOMP_STD += -DSetRCnt=lom_SetRCnt -DStartR
 $(OBJDIR)/cd/cdrom_dc.o: DECOMP_STD += -std=c11
 
 #----------------------
-# | build/card/card_vmu.o / build/card/card_store_kos.o
+# | build/card/card_vmu.o / build/card/card_store_kos.o / build/card/vmu_screen.o / build/card/vmu_screen_party.o
 # | Description: Strict C11 for the card backend's <string.h>, for the same bcopy clash as cdrom_dc.o.
 # | Author: suinevere
-# | Dependencies: src/card/card_vmu.c, src/card/card_store_kos.c, ../port/psyq/lom_prefix.h
+# | Dependencies: src/card/card_vmu.c, src/card/card_store_kos.c, src/card/vmu_screen.c, src/card/vmu_screen_party.c, ../port/psyq/lom_prefix.h
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-$(OBJDIR)/card/card_vmu.o $(OBJDIR)/card/card_store_kos.o: DECOMP_STD += -std=c11
+$(OBJDIR)/card/card_vmu.o $(OBJDIR)/card/card_store_kos.o $(OBJDIR)/card/vmu_screen.o $(OBJDIR)/card/vmu_screen_party.o: DECOMP_STD += -std=c11
 
 #----------------------
 # | build-test/system/scene_sweep_kos.o
@@ -736,6 +736,21 @@ $(OBJDIR)/gen/akao_data.o: gen/akao_data.c
 	kos-cc $(CFLAGS) -MMD -MP -c $< -o $@
 
 gen/akao_data.c: | $(PRE_BUILD_STAMP)
+
+#----------------------
+# | build/gen/vmu_pet_screens.o
+# | Description: The pet and egg portraits as 48x32 VMU screens, generated from the user's disc by the pre-build step; vmu_screen.c draws them.
+# | Author: suinevere
+# | Dependencies: gen/vmu_pet_screens.c, ../port/tools/vmu_portraits.py
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/gen/vmu_pet_screens.o: gen/vmu_pet_screens.c
+	@mkdir -p $(dir $@)
+	kos-cc $(CFLAGS) -MMD -MP -c $< -o $@
+
+gen/vmu_pet_screens.c: | $(PRE_BUILD_STAMP)
 
 #----------------------
 # | build/gen/main_data.o

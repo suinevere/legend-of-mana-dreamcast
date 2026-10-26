@@ -274,6 +274,21 @@ an ordinary two-block game save.
 Sources: [transfer flow and item handling](../../../../src/overlays/carda/carda_save.c),
 [transfer I/O](../../../../src/overlays/carda/carda_card.c).
 
+### The Dreamcast's VMU art
+
+On the Dreamcast the ranch ring menu's Ring Ring Land option shows a VMU instead
+of the PocketStation: the converter draws our own 32x32 VMU over that icon's cell
+of ring sheet 0xBEE, in the cell's own grey palette
+([vmu_art.py](../../../../port/tools/vmu_art.py)). Every VMU's screen shows the
+pet in the party, else the pet last read from or written to Ring Ring Land's
+file, else the Mana wordmark
+([vmu_screen.c](../../../../dreamcast/src/card/vmu_screen.c)). The pictures are
+GOSUB's pet and egg portraits, turned into outlined one-bit 48x32 screens from
+the user's disc at pre-build
+([vmu_portraits.py](../../../../port/tools/vmu_portraits.py)); nothing taken from
+the disc is committed. The screens are redrawn only when the choice or the number
+of VMUs changes, and never while a file is being written in the background.
+
 ## Looking at the data
 
 The overlay's data after the code is kept in one `carda_data` blob in each

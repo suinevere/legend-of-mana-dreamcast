@@ -141,7 +141,7 @@ game_marker_start slots.c 4 g_marker_start slot=ACC,type=B,dx=C - ACC,B,C,TRH,TR
 game_mode14_leave mode.c 4 g_mode14_leave - - ACC,B,C,TRH,TRL,R0,R1,R2,R3,VRMAD,PSW synthetic
 game_mode3_leave mode.c 4 g_mode3_leave - - ACC,B,C,TRH,TRL,R0,R1,R2,R3,VRMAD,FPR,PSW verified
 game_pick_item rng.c 4 g_pick_item how=ACC TR ACC,B,C,R0,R1,R2,R3,VRMAD,PSW verified
-game_quit_dialog app.c 4 g_quit_dialog - - ACC,B,C,TRH,TRL,R0,R1,R2,R3,VRMAD,FPR,PSW synthetic
+game_quit_dialog app.c 4 g_quit_dialog can_quit=ACC - ACC,B,C,TRH,TRL,R0,R1,R2,R3,VRMAD,FPR,PSW synthetic
 game_reels_load reel.c 4 g_reels_load - - ACC,B,C,TRH,TRL,R0,R1,R2,R3,VRMAD,FPR,PSW verified
 game_reels_load_pair reel.c 4 g_reels_load_pair last_roll=mem:LAST_ROLL TR ACC,B,C,R0,R1,R2,R3,VRMAD,FPR,PSW verified
 game_reels_load_pick reel.c 4 g_reels_load_pick drawn=mem:DRAWN ACC B,C,TRH,TRL,R0,R1,R2,R3,VRMAD,FPR,PSW verified

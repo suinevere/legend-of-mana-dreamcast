@@ -107,6 +107,7 @@ NAME FILE LEVEL ROUTINE|inlined:CALLER ARGS RESULT DESTROYS STATUS
 
 そこでメインループは、1フレームおきにだけ描きます。
 `draw_skip`（バンク1の `0xFC`）は、フレームの消去の前に `cycle16` の次の値の偶奇から設定し、`game_mode_frame` の後で0に戻します。
+新しい押下（`btn_new`）が届いたフレームは必ず描くので、カーソルはすぐに動きます。
 設定中は何も画面に届かず、最後に描き終えた絵が残ります。
 Cでは `set_fb_row` が分岐を使わずにマスクで書き込みを止めます。
 アセンブリでは `g_fb_clear`、`g_fb_put_rows`、`g_plot_core` がすぐ戻り、`g_run_fill` と `g_run_xor` は画面の行だけを飛ばします。
@@ -127,7 +128,7 @@ Cでは `set_fb_row` が分岐を使わずにマスクで書き込みを止め�
   `race` と `save` は、参照用のペットに入っているのと同じ値を書きます。
 - `test_race_and_menu_frames_fit`：`race`、`menu`、`buttons` で、ティックの間に収まらなかったフレームを、フレーム番号、場面（`mode` フィールド）、理由とともに `pocketstation/build/vmu_game/overruns.txt` に書き出します。
   `changed`（場面が変わった）や `saved`（フラッシュに書き込んだ）の理由があるフレームは認めます。
-  理由のないものが、race 167、menu 0、buttons 318（R3b-3の終了時に認めた320と588を、1フレームおきの描画で下げた数）を超えるか、盤面の場面3、4、6、7以外で起きると不合格です。
+  理由のないものが、race 167、menu 0、buttons 368（R3b-3の終了時に認めた320と588を1フレームおきの描画で下げ、新しい押下のあるフレームを描くようにした数）を超えるか、盤面の場面3、4、6、7以外で起きると不合格です。
 - `test_stack_fits`：一番深いスタックポインターが0xF0以下であることを確かめます。
   race、buttons、laps、saveで0xE1です。
   本物のVMUではBIOSの時計の処理がさらに15〜20バイトほど使いますが、ハーネスはそこを実行しません。

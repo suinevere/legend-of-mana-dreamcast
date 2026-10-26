@@ -42,7 +42,7 @@ def test_field_watch_unit_host_compiles():
     obj = os.path.join(out_dir, "field_watch_unit.o")
     subprocess.run([cc, "-std=gnu11", "-fno-builtin", "-Wno-builtin-declaration-mismatch", "-w",
                     "-DLOM_PAD_SCRIPT",
-                    "-I", os.path.join(DC, "src", "system"),
+                    "-I", os.path.join(DC, "src", "system"), "-I", os.path.join(DC, "src", "card"),
                     "-I", os.path.join(REPO, "include"), "-I", os.path.join(REPO, "include", "sdk"),
                     "-I", os.path.join(REPO, "src"),
                     "-c", "-o", obj,

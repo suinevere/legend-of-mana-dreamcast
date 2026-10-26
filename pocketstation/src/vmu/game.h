@@ -438,7 +438,7 @@ void game_mode11_frame(void);
 void game_mode13_frame(void);
 void game_mode14_frame(void);
 void game_mode_frame(void);
-void game_quit_dialog(void);
+void game_quit_dialog(uint8_t can_quit);
 void game_main_loop(void);
 void game_entry(void);
 void game_dock_irq(void);

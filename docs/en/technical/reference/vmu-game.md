@@ -123,7 +123,8 @@ byte, and bank 0 holds the BIOS's variables and the stack.
 
 So the main loop draws only every other frame. `draw_skip` (bank 1 `0xFC`) is
 set from the parity of `cycle16`'s next value before the frame's clear and
-cleared after `game_mode_frame`. While it is set nothing reaches the screen,
+cleared after `game_mode_frame`; a frame that a fresh press (`btn_new`) reaches
+always draws, so a cursor answers at once. While it is set nothing reaches the screen,
 and the last finished picture stays up. In the C, `set_fb_row` masks its write,
 without a branch. In the assembly, `g_fb_clear`, `g_fb_put_rows` and
 `g_plot_core` return at once, and `g_run_fill` and `g_run_xor` skip only their
@@ -152,8 +153,10 @@ VMU-shaped C with the original.
   that outlast their tick are listed in `pocketstation/build/vmu_game/overruns.txt`
   with frame, scene (the `mode` field) and why. A frame excused as `changed`
   (its scene changed) or `saved` (a flash write ran) is allowed. The test fails
-  if the unexcused ones grow past race 167, menu 0 and buttons 318 (R3b-3's
-  close accepted 320 and 588; drawing every other frame lowered them) or fall outside the board scenes 3, 4, 6 and 7.
+  if the unexcused ones grow past race 167, menu 0 and buttons 368 (R3b-3's
+  close accepted 320 and 588; drawing every other frame lowered them, and
+  drawing each frame a fresh press reaches raised buttons, which presses
+  constantly) or fall outside the board scenes 3, 4, 6 and 7.
 - `test_stack_fits`: the deepest stack pointer seen is at most 0xF0. It is 0xE1
   on race, buttons, laps and save. The BIOS clock path adds about 15-20 bytes
   on hardware, which the harness does not run, so the stack reaches about 0xF5

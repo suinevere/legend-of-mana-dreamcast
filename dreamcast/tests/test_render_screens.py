@@ -1,6 +1,6 @@
 #----------------------
 # | test_render_screens.py
-# | Description: Runs the scripted test image once in Flycast and diffs each captured screen against its DuckStation reference.
+# | Description: Runs the scripted test image once in Flycast and diffs each captured screen against its DuckStation reference, except the shaded world-map screens, which are only checked for being reached.
 # | Author: suinevere
 # | Dependencies: tools/flycast_run.py, tools/frame_diff.py, stale_image.py, lom_test.cdi, reference/ps1
 # | Globals: N/A
@@ -39,6 +39,13 @@ SCREENS = {"title": "01-title",
            "wmap-board-home": "16-wmap-board-home"}
 
 
+# The world map's shadow meshes are one multiply pass on the Dreamcast
+# (9ba347a0, approved on hardware), which shades the board lighter than the
+# PS1's subtraction, so these screens no longer match the DuckStation shots.
+SHADED = {"wmap-mailbox", "wmap-mailbox-carried", "wmap-place-mailbox-prompt", "wmap-land-flash",
+          "wmap-home-rising", "wmap-home-dark", "wmap-board-home"}
+
+
 @pytest.fixture(scope="module")
 def captures():
     if flycast_run.find_flycast() is None:
@@ -51,9 +58,15 @@ def captures():
     return out, lines
 
 
-@pytest.mark.parametrize("name", list(SCREENS))
+@pytest.mark.parametrize("name", [n for n in SCREENS if n not in SHADED])
 def test_screen_matches_reference(captures, name):
     out, lines = captures
     result = frame_diff.compare(frame_diff.load_capture(os.path.join(out, name + ".png")),
                                 frame_diff.load_reference(SCREENS[name]))
     assert frame_diff.matches(result), (name, result, [l for l in lines if "probe" in l or "census" in l][-6:])
+
+
+@pytest.mark.parametrize("name", sorted(SHADED))
+def test_shaded_screen_is_reached(captures, name):
+    out, lines = captures
+    assert os.path.getsize(os.path.join(out, name + ".png")) > 0

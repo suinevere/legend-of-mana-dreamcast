@@ -37,7 +37,7 @@ RTI_F_LCD	EQU	3
 
 ;----------------------
 ; | rt_input_init
-; | Description: Sets BTCR to 0x41 (base timer running, interrupt 0 every half second, interrupt 1 off): the BIOS clock needs that tick, and Sleep's wake needs its poll to see Sleep released. Marks the LCD on, takes the buttons and dock as they are (levels only, no line enabled yet) and enables the port 3 interrupt.
+; | Description: Sets BTCR to 0x41 (base timer running, interrupt 0 every half second, interrupt 1 off): the BIOS clock needs that tick, and Sleep's wake needs its poll to see Sleep released. Marks the LCD on, takes the buttons and dock as they are (levels only, no line enabled yet) and enables the port 3 interrupt unless a button is already held.
 ; | Author: suinevere
 ; | Dependencies: rt_in_poll_full, rt_in_dock
 ; | Globals: rt_input, RTV_LEVELS, BTCR
@@ -47,8 +47,9 @@ RTI_F_LCD	EQU	3
 rt_input_init:
 	MOV #$41, BTCR
 	MOV #$08, RTI_FLAGS
+	MOV #$FF, P3
+	MOV #$04, P3INT
 	CALLF rt_in_poll_full
-	MOV #$05, P3INT
 	JMPF rt_in_dock
 
 ;----------------------
@@ -108,7 +109,7 @@ rt_in_poll:
 
 ;----------------------
 ; | rt_in_poll_full
-; | Description: Reads port 3 into vmu_host_set_buttons' model: Mode raises the quit request, button levels follow the held lines and latch enabled lines on a press, Sleep toggles sleep, and the wake reads every held line as released until let go. Arms the released lines.
+; | Description: Reads port 3 into vmu_host_set_buttons' model: Mode raises the quit request, button levels follow the held lines and latch enabled lines on a press, Sleep toggles sleep, and the wake reads every held line as released until let go. Turns the port 3 interrupt off while any line is held and back on once all are released; P3 itself stays 0xFF, as a 0 latch bit turns that line's pull-up off and a released button then reads held.
 ; | Author: suinevere
 ; | Dependencies: N/A
 ; | Globals: rt_input, RTV_LEVELS, RTV_MASK, RTV_LATCH
@@ -178,8 +179,14 @@ rt_in_poll_map:
 	SET1 RTI_FLAGS, RTI_F_SLEEP
 rt_in_poll_arm:
 	LD RTI_HELD
-	XOR #$FF
-	ST P3
+	BNZ rt_in_poll_disarm
+	BP P3INT, 0, rt_in_poll_armed
+	CLR1 P3INT, 1
+	SET1 P3INT, 0
+rt_in_poll_armed:
+	RET
+rt_in_poll_disarm:
+	CLR1 P3INT, 0
 	RET
 
 ;----------------------
@@ -249,7 +256,7 @@ rt_in_sleep_halt:
 
 ;----------------------
 ; | rt_p3_isr
-; | Description: Port 3 interrupt, raised while an armed line is held: clears its flag and polls the buttons, which disarms the held lines.
+; | Description: Port 3 interrupt, raised by a press: clears its flag and polls the buttons, which turns the interrupt off until every line is released.
 ; | Author: suinevere
 ; | Dependencies: rt_in_poll, rt_isr_out
 ; | Globals: rt_input, RTV_SCRATCH (its return address)

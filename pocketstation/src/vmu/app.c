@@ -49,14 +49,14 @@ static uint8_t quit_requested(void) {
 
 /*----------------------
  | game_quit_dialog
- | Description: Silences the sound and asks YES or NO with its two rows of text, the choice inverted; up or down toggles it with a beep, a press beeps and quits on YES or reads the buttons again on NO. A kernel quit request quits at once; the original jumps there without popping its return, which only the terminating kernel call makes harmless. Converted from the listing and unverified: no script holds fire long enough.
+ | Description: Silences the sound and asks YES or NO with its two rows of text, the choice inverted; up or down toggles it with a beep, a press beeps and quits on YES when can_quit is set, else reads the buttons again, as NO does; after game over YES only goes on, Mode being the way out. A kernel quit request quits at once; the original jumps there without popping its return, which only the terminating kernel call makes harmless. Converted from the listing and unverified: no script holds fire long enough.
  | Author: suinevere
  | Dependencies: game_sound_stop, game_quit_sound, game_wait_ticks, game_read_buttons, quit_requested, game_quit, game_fb_clear, game_dock_screen, game_fb_put_rows, game_fb_present
  | Globals: btn_press
- | Params: N/A
+ | Params: can_quit -- nonzero when YES quits
  | Returns: N/A
  ----------------------*/
-void game_quit_dialog(void) {
+void game_quit_dialog(uint8_t can_quit) {
     uint8_t yes = 0;
     game_sound_stop();
     game_quit_sound();
@@ -76,7 +76,7 @@ void game_quit_dialog(void) {
         game_read_buttons(0);
         if (ram_btn_press() & BTN_FIRE) {
             game_quit_sound();
-            if (yes) {
+            if (yes && can_quit) {
                 game_quit();
             } else {
                 game_read_buttons(0);
@@ -92,10 +92,10 @@ void game_quit_dialog(void) {
 
 /*----------------------
  | game_main_loop
- | Description: Sets up the frame buffer, the frame ticks, the sound and the state block, then runs a frame per tick: the current mode's handler (drawn only on even cycle16 frames, through draw_skip), a seed stir, the present and the buttons, with a long fire hold opening the quit dialog, 0xF00 idle frames sending the app to standby and mode 0xFF restarting the game through the dialog. It ends only when the kernel asks for a quit. Never returns in the original, so only the drive and host runs check it.
+ | Description: Sets up the frame buffer, the frame ticks, the sound and the state block, then runs a frame per tick: the current mode's handler (drawn on even cycle16 frames and on any frame a fresh press reaches, through draw_skip), a seed stir, the present and the buttons, with a long fire hold opening the quit dialog, 0xF00 idle frames sending the app to standby and mode 0xFF restarting the game through the dialog. It ends only when the kernel asks for a quit. Never returns in the original, so only the drive and host runs check it.
  | Author: suinevere
  | Dependencies: game_dock_check, game_fb_clear, game_fb_present, game_ticks_start, game_sound_init, game_state_reset, game_mode0_leave, game_buttons_init, game_lcd_mode, game_wait_ticks, game_read_buttons, quit_requested, game_quit, game_dock_screen, game_sound_play_waiting, game_mode_frame, game_random, game_quit_dialog, game_standby, set_idle
- | Globals: seed, cycle16, draw_skip, mode, btn_prev, idle_lo, repeat_up
+ | Globals: seed, cycle16, draw_skip, btn_new, mode, btn_prev, idle_lo, repeat_up
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -125,7 +125,7 @@ void game_main_loop(void) {
                 return;
             }
             cycle = (uint8_t)(ram_cycle16() - 1u);
-            set_draw_skip((uint8_t)(cycle & 1u));
+            set_draw_skip((uint8_t)((cycle & 1u) & (ram_btn_new() == 0u)));
             game_fb_clear();
             game_dock_screen();
             game_sound_play_waiting();
@@ -136,7 +136,7 @@ void game_main_loop(void) {
             game_wait_ticks(1u, 1u);
             game_fb_present();
             if (game_read_buttons(1u)) {
-                game_quit_dialog();
+                game_quit_dialog(1u);
             }
             if (ram_btn_prev() & 0x1Fu) {
                 idle = IDLE_FRAMES;
@@ -153,7 +153,7 @@ void game_main_loop(void) {
             if (ram_mode() == 0xFFu) {
                 set_mode(0);
                 game_mode0_leave();
-                game_quit_dialog();
+                game_quit_dialog(0);
             }
         }
     }

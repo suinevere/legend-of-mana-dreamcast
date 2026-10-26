@@ -2,7 +2,7 @@
 # | test_card_vmu_host.py
 # | Description: Builds and runs the host C test for the Dreamcast's VMU memory-card backend over an in-memory store.
 # | Author: suinevere
-# | Dependencies: tests/host/test_card_vmu.c, src/card/card_vmu.c, src/card/vmu_format.c, include/sdk
+# | Dependencies: tests/host/test_card_vmu.c, src/card/card_vmu.c, src/card/vmu_format.c, src/card/vmu_screen.c, include/sdk
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -29,7 +29,8 @@ def test_card_vmu_host():
                     "-o", exe,
                     os.path.join(DC, "tests", "host", "test_card_vmu.c"),
                     os.path.join(DC, "src", "card", "card_vmu.c"),
-                    os.path.join(DC, "src", "card", "vmu_format.c")], check=True)
+                    os.path.join(DC, "src", "card", "vmu_format.c"),
+                    os.path.join(DC, "src", "card", "vmu_screen.c")], check=True)
     result = subprocess.run([exe], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout
     assert "OK" in result.stdout

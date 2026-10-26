@@ -130,7 +130,7 @@ FPR	EQU	$154
 
 ;----------------------
 ; | P3 / P3INT
-; | Description: Port 3, the buttons (active-low; written bits arm lines for the interrupt), and its interrupt control: bit 2 detects held armed lines, bit 1 is the request flag, bit 0 enables the interrupt.
+; | Description: Port 3, the buttons (active-low; a 1 latch bit keeps the line's pull-up on, so it stays 0xFF), and its interrupt control: bit 2 detects held lines, bit 1 is the request flag, bit 0 enables the interrupt.
 ; | Author: suinevere
 ; | Dependencies: N/A
 ; | Globals: N/A

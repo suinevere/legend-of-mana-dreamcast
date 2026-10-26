@@ -152,15 +152,22 @@ The order is computed in software, never taken from a hardware timer:
 ## Buttons, Sleep and Mode
 
 - The buttons are polled at every `rt_idle` wake, by the base timer interrupt
-  twice a second, and by the port 3 interrupt when an armed line goes down. A
-  poll returns at once when port 3 has not changed.
+  twice a second, and by the port 3 interrupt on a press. A poll returns at
+  once when port 3 has not changed.
+- Port 3's latch stays `0xFF`, as the BIOS leaves it: a 0 latch bit turns that
+  line's pull-up off, and on a real VMU the released button then reads held, so
+  later presses were lost and the quit's wait for every button to be let go
+  never ended. While any line is held the port 3 interrupt is off instead, and
+  the poll that sees all of them released turns it back on.
 - Sleep is invisible to the game. `rt_idle` stops Timer 0 with the counts run so
   far kept, blanks the LCD and halts until Sleep is pressed again; then it
   restores the LCD and restarts the schedule where it stopped. Buttons held at
   the wake read as released until they are let go, so the game sees them only
   after a new press.
 - Mode does not leave the game. It sets `VMU_SYS_QUIT`, which the next
-  `rt_sys_flags` read returns once and clears, and the game decides what to do.
+  `rt_sys_flags` read returns once and clears, and the game decides what to do;
+  Ring Ring Land leaves through `rt_power`, which puts OCR back to the launch
+  value `0xA3` before the BIOS exit.
 - The dock line follows port 7 through INT0.
 
 ## BIOS calls and the pet save

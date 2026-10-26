@@ -62,7 +62,7 @@
 #define ROM_EXIT 0x01F0
 
 /*----------------------
- | SFR_ACC / SFR_PSW / SFR_B / SFR_TRL / SFR_TRH / SFR_SP / SFR_IE / SFR_EXT / SFR_OCR / SFR_T1CNT / SFR_T1LC / SFR_T1LR / SFR_VCCR / SFR_P1 / SFR_P1DDR / SFR_P1FCR / SFR_FPR / SFR_RT_IDLE_MARK / SFR_RT_LOG / SFR_RT_PRESENT
+ | SFR_ACC / SFR_PSW / SFR_B / SFR_TRL / SFR_TRH / SFR_SP / SFR_IE / SFR_EXT / SFR_OCR / SFR_T1CNT / SFR_T1LC / SFR_T1LR / SFR_VCCR / SFR_P1 / SFR_P1DDR / SFR_P1FCR / SFR_P3 / SFR_FPR / SFR_RT_IDLE_MARK / SFR_RT_LOG / SFR_RT_PRESENT
  | Description: SFR offsets the harness writes when booting and in modelled BIOS calls, the Timer 1, port 1 and LCD registers it reads for the buzzer and LCD log, and the three unused SFRs it treats as RT_IDLE_MARK (0x16D), RT_LOG (0x16E) and RT_PRESENT (0x16F).
  | Author: suinevere
  | Dependencies: N/A
@@ -86,6 +86,7 @@
 #define SFR_P1 0x44
 #define SFR_P1DDR 0x45
 #define SFR_P1FCR 0x46
+#define SFR_P3 0x4C
 #define SFR_FPR 0x54
 #define SFR_BTCR 0x7F
 #define SFR_RT_IDLE_MARK 0x6D
@@ -1278,7 +1279,7 @@ static uint8_t game_blocks_less_one(void)
 
 /*----------------------
  | boot
- | Description: Resets the core and starts the GAME in flash bank 0 the way the BIOS does: its block count at bank 0 0x6D, OCR 0xA3, SP 0x7F, RAM bank 1, EXT on flash.
+ | Description: Resets the core and starts the GAME in flash bank 0 the way the BIOS does: its block count at bank 0 0x6D, OCR 0xA3, SP 0x7F, RAM bank 1, EXT on flash, and port 3's latch 0xFF (HardwareInit's pull-ups).
  | Author: suinevere
  | Dependencies: device_reset, device_start, cpu_sfr_write, cpu_ram_write, game_blocks_less_one
  | Globals: g_bank, g_booted, g_next_base, g_time, g_base_period, g_idle_index, g_idle_marks, g_in_halt, g_base_ticks
@@ -1295,6 +1296,7 @@ static void boot(void)
     cpu_sfr_write(SFR_SP, 0x7F);
     cpu_sfr_write(SFR_PSW, 0x02);
     cpu_sfr_write(SFR_EXT, 0x09);
+    cpu_sfr_write(SFR_P3, 0xFF);
     g_bank = LC8670_BANK_FLASH_0;
     g_booted = true;
     g_next_base = g_time + g_base_period;
@@ -1306,7 +1308,7 @@ static void boot(void)
 
 /*----------------------
  | ext_io_r
- | Description: Port reads: port 3 is the script's or the inputs' buttons (active-low), port 7 bit 0 the dock line with bit 1 high (battery good), port 1 idle-high.
+ | Description: Port reads: port 3 is the script's or the inputs' buttons (active-low; the core reads a line whose latch bit is 0 as held, its pull-up being off), port 7 bit 0 the dock line with bit 1 high (battery good), port 1 idle-high.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: g_p3, g_p7

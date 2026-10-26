@@ -2,7 +2,7 @@
  | card_vmu.c
  | Description: Memory-card BIOS, libcard and libmcx calls answered as a PS1 memory card whose files live in a card_store (VMUs on the Dreamcast); with no store or no card a slot answers as empty.
  | Author: suinevere
- | Dependencies: libapi.h, libmcx.h, card_store.h, vmu_format.h, vmu_game.h, stdlib.h, string.h
+ | Dependencies: libapi.h, libmcx.h, card_store.h, vmu_format.h, vmu_game.h, vmu_screen.h, stdlib.h, string.h
  | Globals: s_store, s_event_descs, s_event_specs, s_event_count, s_posted, s_mcx_pending, s_mcx_result, s_files, s_handles, s_dir, s_dir_count, s_dir_valid, s_unreadable, s_search, s_search_count, s_search_pos, s_search_pattern, s_pending
  | Params: N/A
  | Returns: N/A
@@ -14,6 +14,7 @@
 #include "card_store.h"
 #include "vmu_format.h"
 #include "vmu_game.h"
+#include "vmu_screen.h"
 
 /*----------------------
  | CARD_EVENT_MAX / CARD_EVENT_HANDLE_BASE
@@ -581,10 +582,39 @@ static card_ram_file *new_ram(int slot, const char *name, unsigned int size)
 }
 
 /*----------------------
+ | RRL_FILE / RRL_PET_OFFSET
+ | Description: Ring Ring Land's PS1 file name and where its pet's PetRecord sits in it (the transfer block at 0x300, the record 0x58 in).
+ | Author: suinevere
+ | Dependencies: pocketstation/tools/psk_file.py (TRANSFER_OFFSET)
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define RRL_FILE "BASLUSP01013"
+#define RRL_PET_OFFSET 0x358
+
+/*----------------------
+ | note_rrl
+ | Description: Tells vmu_screen which pet Ring Ring Land's file holds, when the RAM file is that one.
+ | Author: suinevere
+ | Dependencies: vmu_screen_note_rrl
+ | Globals: N/A
+ | Params: file -- RAM file just read or written
+ | Returns: N/A
+ ----------------------*/
+static void note_rrl(const card_ram_file *file)
+{
+    if (strcmp(file->name, RRL_FILE) == 0)
+    {
+        vmu_screen_note_rrl(file->size >= RRL_PET_OFFSET + VMU_SCREEN_PET_BYTES ? file->data + RRL_PET_OFFSET : NULL);
+    }
+}
+
+/*----------------------
  | load_ram
  | Description: The RAM copy of a file, read from the store when it is not already in RAM; a failed read marks the name unreadable.
  | Author: suinevere
- | Dependencies: find_ram, find_dir, new_ram, free_ram, mark_unreadable
+ | Dependencies: find_ram, find_dir, new_ram, free_ram, mark_unreadable, note_rrl
  | Globals: s_store, s_dir_valid
  | Params: slot -- 0 or 1, name -- PS1 file name
  | Returns: RAM file, or NULL when the file is absent or unreadable
@@ -611,6 +641,7 @@ static card_ram_file *load_ram(int slot, const char *name)
         return NULL;
     }
     file->stored = 1;
+    note_rrl(file);
     return file;
 }
 
@@ -618,7 +649,7 @@ static card_ram_file *load_ram(int slot, const char *name)
  | store_ram
  | Description: Writes a RAM file to the store under its current name, clearing any unreadable mark it had.
  | Author: suinevere
- | Dependencies: slot_present, clear_unreadable
+ | Dependencies: slot_present, clear_unreadable, note_rrl
  | Globals: s_store, s_dir_valid
  | Params: file -- RAM file
  | Returns: 0 on success, -1 on failure
@@ -633,6 +664,7 @@ static int store_ram(card_ram_file *file)
     file->dirty = 0;
     clear_unreadable(file->slot, file->name);
     s_dir_valid[file->slot] = 0;
+    note_rrl(file);
     return 0;
 }
 
@@ -640,7 +672,7 @@ static int store_ram(card_ram_file *file)
  | finish_pending
  | Description: Settles the background write: on success the file counts as stored and clean; either way its SwCARD outcome is posted.
  | Author: suinevere
- | Dependencies: clear_unreadable, post
+ | Dependencies: clear_unreadable, note_rrl, post
  | Globals: s_pending, s_dir_valid
  | Params: result -- job_poll's final answer, 0 or -1
  | Returns: N/A
@@ -659,6 +691,7 @@ static void finish_pending(int result)
     file->dirty = 0;
     clear_unreadable(file->slot, file->name);
     s_dir_valid[file->slot] = 0;
+    note_rrl(file);
     post(CARD_CLASS_SW, EvSpIOE);
 }
 
@@ -1337,7 +1370,7 @@ long lom_card_rename(char *from, char *to)
  | erase
  | Description: Deletes a card file from RAM and from the store, including one marked unreadable.
  | Author: suinevere
- | Dependencies: settle_store, path_slot, slot_present, find_ram, find_dir, free_ram, is_unreadable, clear_unreadable
+ | Dependencies: settle_store, path_slot, slot_present, find_ram, find_dir, free_ram, is_unreadable, clear_unreadable, vmu_screen_note_rrl
  | Globals: s_store, s_dir_valid
  | Params: path -- card file path
  | Returns: 1 when a file was deleted, else 0
@@ -1365,6 +1398,10 @@ long erase(char *path)
         s_dir_valid[slot] = 0;
     }
     clear_unreadable(slot, path + 5);
+    if (erased && strcmp(path + 5, RRL_FILE) == 0)
+    {
+        vmu_screen_note_rrl(NULL);
+    }
     return erased;
 }
 

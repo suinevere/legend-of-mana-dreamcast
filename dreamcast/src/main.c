@@ -16,6 +16,7 @@
 #include "libgpu_dc.h"
 #include "state_report_dc.h"
 #include "card_store_kos.h"
+#include "vmu_screen.h"
 #include "akao_tick_dc.h"
 #include "cd_stream.h"
 #include "disc_fs_kos.h"
@@ -67,9 +68,9 @@ void (*g_dc_wmap_landfx)(int land) = NULL;
 
 /*----------------------
  | vsync_hook
- | Description: Runs once per VSync: tells the hang check the game is alive when a scene that drew something closed since the last call, then polls the state report.
+ | Description: Runs once per VSync: tells the hang check the game is alive when a scene that drew something closed since the last call, polls the state report and keeps the VMU screens on the party pet.
  | Author: suinevere
- | Dependencies: frame_probe_drawn_total, hang_watch_feed, state_report_poll
+ | Dependencies: frame_probe_drawn_total, hang_watch_feed, state_report_poll, vmu_screen_update, vmu_screen_party, card_store_kos_lcds
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -85,6 +86,7 @@ static void vsync_hook(void)
         hang_watch_feed();
     }
     state_report_poll();
+    vmu_screen_update(vmu_screen_party(), card_store_kos_lcds());
 }
 
 /*----------------------

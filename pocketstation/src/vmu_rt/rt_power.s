@@ -9,11 +9,22 @@
 ;----------------------
 
 ;----------------------
+; | RT_OCR_LAUNCH
+; | Description: OCR as the BIOS launches a GAME (the value vmu_harness models at launch), running on the 32 kHz quartz.
+; | Author: suinevere
+; | Dependencies: N/A
+; | Globals: N/A
+; | Params: N/A
+; | Returns: N/A
+;----------------------
+RT_OCR_LAUNCH	EQU	$A3
+
+;----------------------
 ; | rt_power
-; | Description: vmu_power. Standby is rt_idle with no handler, taking events, Timer 0 pacing them, until an enabled button or RTC line is latched, which stays latched for the next rt_idle; it writes RT_IDLE_MARK, so the harness counts it as an idle. Any other mode masks interrupts, stops both timers and the buzzer, and leaves to the BIOS through EXIT_EX.
+; | Description: vmu_power. Standby is rt_idle with no handler, taking events, Timer 0 pacing them, until an enabled button or RTC line is latched, which stays latched for the next rt_idle; it writes RT_IDLE_MARK, so the harness counts it as an idle. Any other mode masks interrupts, stops both timers and the buzzer, puts the clock back on the 32 kHz quartz the BIOS launched the GAME on (rt_reset leaves the CF oscillator running, which the BIOS's mode menu does not expect), and leaves to the BIOS through EXIT_EX.
 ; | Author: suinevere
 ; | Dependencies: rt_idle, rt_bios_exit
-; | Globals: rt_reserved (RTV_STATE), T0CNT, T1CNT, P1FCR
+; | Globals: rt_reserved (RTV_STATE), T0CNT, T1CNT, P1FCR, OCR
 ; | Params: ACC -- RT_POWER_STANDBY, RT_POWER_EXIT or RT_POWER_EXIT_DOCKED
 ; | Returns: N/A for standby (destroys what rt_idle does); the exits never return, ACC holding the mode for the harness, which the BIOS ignores.
 ;----------------------
@@ -26,4 +37,5 @@ rt_power_leave:
 	MOV #$00, T0CNT
 	MOV #$00, T1CNT
 	MOV #$00, P1FCR
+	MOV #RT_OCR_LAUNCH, OCR
 	JMPF rt_bios_exit

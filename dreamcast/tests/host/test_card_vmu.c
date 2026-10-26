@@ -9,6 +9,7 @@
 #include <libmcx.h>
 #include "card_store.h"
 #include "vmu_game.h"
+#include "vmu_screen.h"
 
 int printf(const char *format, ...);
 int puts(const char *text);
@@ -415,15 +416,22 @@ int main(void)
         unsigned char head[0x400];
         long ioe = OpenEvent(SwCARD, EvSpIOE, EvMdNOINTR, 0);
 
+        static const unsigned char screens[VMU_SCREEN_PETS + VMU_SCREEN_EGGS][VMU_SCREEN_BYTES];
+
         for (i = 0; i < (int)sizeof rrl; i++)
         {
             rrl[i] = (unsigned char)(i * 7 + (i >> 8));
         }
+        rrl[0x358] = 'P';
+        rrl[0x358 + 0x15] = 9;
+        rrl[0x358 + 0x47] = 0;
+        vmu_screen_set_screens(screens, VMU_SCREEN_PETS + VMU_SCREEN_EGGS);
+        CHECK(vmu_screen_choice(NULL) == VMU_SCREEN_WORDMARK);
         fd = lom_card_open("bu00:BASLUSP01013", F_CREAT | F_BLOCKS(6));
         CHECK(fd >= 0 && lom_card_close(fd) == 0);
         fd = lom_card_open("bu00:BASLUSP01013", F_ASYNC | F_WRITE);
         CHECK(fd >= 0 && lom_card_write(fd, rrl, sizeof rrl) == (long)sizeof rrl && TestEvent(ioe) == 1);
-        CHECK(lom_card_close(fd) == 0);
+        CHECK(lom_card_close(fd) == 0 && vmu_screen_choice(NULL) == 9);
         i = fake_find(0, "BASLUSP01013");
         CHECK(i >= 0 && s_files[i].size == sizeof rrl && memcmp(s_files[i].bytes, rrl, sizeof rrl) == 0);
         CHECK(firstfile("bu00:BASLUSP01013*", &entry) == &entry && strcmp(entry.name, "BASLUSP01013") == 0 && entry.size == (long)sizeof rrl);
@@ -431,6 +439,7 @@ int main(void)
         CHECK(fd >= 0 && lom_card_read(fd, head, sizeof head) == (long)sizeof head && lom_card_close(fd) == 0);
         CHECK(memcmp(head, rrl, sizeof head) == 0);
         CHECK(erase("bu00:BASLUSP01013") == 1 && fake_find(0, "BASLUSP01013") < 0);
+        CHECK(vmu_screen_choice(NULL) == VMU_SCREEN_WORDMARK);
     }
     {
         long ioe = OpenEvent(SwCARD, EvSpIOE, EvMdNOINTR, 0);

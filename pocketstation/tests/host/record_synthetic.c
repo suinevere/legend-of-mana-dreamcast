@@ -255,6 +255,7 @@ static void case_reveal(void) {
 
 static void case_quit(void) {
     static const uint8_t dialog[] = {0, 0, BTN_UP, 0, BTN_DOWN, 0, BTN_FIRE, 0};
+    static const uint8_t goes_on[] = {0, 0, BTN_UP, 0, BTN_FIRE, 0};
     void (*rows)(uint8_t, uint8_t, uint32_t, uint8_t) = (void (*)(uint8_t, uint8_t, uint32_t, uint8_t))fn("game_fb_put_rows");
     base("game_mode_frame", -1, 0, 0);
     rows(8, 7, 0x020064B0u, 1u);
@@ -277,7 +278,9 @@ static void case_quit(void) {
     base("game_mode_frame", -1, 0, 0);
     set_docked(0);
     queue(dialog, (int)sizeof dialog);
-    CALL0("game_quit_dialog");
+    ((void (*)(uint8_t))fn("game_quit_dialog"))(1u);
+    queue(goes_on, (int)sizeof goes_on);
+    ((void (*)(uint8_t))fn("game_quit_dialog"))(0);
     queue(0, 0);
     vmu_host_set_buttons(0);
     base("game_mode_frame", -1, 0, 0);

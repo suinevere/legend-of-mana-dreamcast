@@ -903,7 +903,7 @@ static uint8_t mem_io_regs_r(uint32_t offset)
 		case 0x44:
 			return (REG_P1 & REG_P1DDR) | (ext_io_r(LC8670_PORT1) & (REG_P1DDR ^ 0xff));
 		case 0x4c:
-			return (REG_P3 & REG_P3DDR) | (ext_io_r(LC8670_PORT3) & (REG_P3DDR ^ 0xff));
+			return (REG_P3 & REG_P3DDR) | (ext_io_r(LC8670_PORT3) & REG_P3 & (REG_P3DDR ^ 0xff));
 		case 0x5c:
 			return ext_io_r(LC8670_PORT7) | 0xf0;    // 4-bit read-only port
 		case 0x66:

@@ -14,6 +14,7 @@
 #include "overlays/field/internal/field_scene_internal.h"
 #include "overlays/movie/movie_state.h"
 #include "overlays/shop/shop.h"
+#include "vmu_screen.h"
 
 /*----------------------
  | g_field_map_id
@@ -528,10 +529,31 @@ static void field_sweep_poll(void)
 }
 
 /*----------------------
+ | field_log_vmu_screen
+ | Description: Logs "vmu screen N" whenever the VMU screens' choice changes, N being the pet or egg screen or -1 for the wordmark.
+ | Author: suinevere
+ | Dependencies: vmu_screen_choice, vmu_screen_party, dc_log
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void field_log_vmu_screen(void)
+{
+    static int shown = -2;
+    int now = vmu_screen_choice(vmu_screen_party());
+
+    if (now != shown)
+    {
+        shown = now;
+        dc_log("vmu screen %d", now);
+    }
+}
+
+/*----------------------
  | field_watch_poll
  | Description: Refreshes the shadow copies from live FIELD state and runs one watch_poll pass.
  | Author: suinevere
- | Dependencies: watch_poll, field_movie_watch, field_run_open_request, field_log_transfer
+ | Dependencies: watch_poll, field_movie_watch, field_run_open_request, field_log_transfer, field_log_vmu_screen
  | Globals: s_scene_id, s_map_id, s_dialog0, s_battle, g_field_scene_id, g_field_map_id, g_field_text_window0_flags, g_field_runtime
  | Params: N/A
  | Returns: N/A
@@ -550,6 +572,7 @@ static void field_watch_poll(void)
     watch_poll();
     field_run_open_request();
     field_log_transfer();
+    field_log_vmu_screen();
     field_sweep_poll();
 }
 

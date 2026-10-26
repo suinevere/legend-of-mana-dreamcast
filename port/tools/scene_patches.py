@@ -1,8 +1,8 @@
 #----------------------
 # | scene_patches.py
-# | Description: Dreamcast-only edits to raw scene resources: the ranch (MHM_ALC2.IMG) gets back its Ring Ring Land option and the four lines its transfer menu shows.
+# | Description: Dreamcast-only edits to raw scene resources: the ranch (MHM_ALC2.IMG) gets back its Ring Ring Land option and the four lines its transfer menu shows, and its ring menu's icon sheet shows a VMU for that option.
 # | Author: suinevere
-# | Dependencies: overlay_text.py, struct
+# | Dependencies: overlay_text.py, vmu_art.py, struct
 # | Globals: RANCH_RESOURCE, RANCH_RING_MENUS, RANCH_RING_RING_LAND_OPTION, SCENE_STRINGS_WORD, SCENE_HEADER_WORDS, PATCHES
 # | Params: N/A
 # | Returns: N/A
@@ -10,6 +10,7 @@
 import struct
 
 import overlay_text
+import vmu_art
 
 #----------------------
 # | RANCH_RESOURCE
@@ -100,12 +101,12 @@ def patch_ranch(data):
 # | PATCHES
 # | Description: Resource index to the Dreamcast patch applied to its raw bytes.
 # | Author: suinevere
-# | Dependencies: patch_ranch
+# | Dependencies: patch_ranch, vmu_art.patch_ring_sheet
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PATCHES = {RANCH_RESOURCE: patch_ranch}
+PATCHES = {RANCH_RESOURCE: patch_ranch, vmu_art.RING_SHEET_RESOURCE: vmu_art.patch_ring_sheet}
 
 
 #----------------------

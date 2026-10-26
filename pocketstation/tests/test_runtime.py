@@ -1,6 +1,6 @@
 """----------------------
  | test_runtime.py
- | Description: Tests the VMU runtime against vmu_host: each shared scenario runs as scenario_host on vmu_host.c and as the rt_test GAME under the harness, and the two event logs must match line for line; the sleep scenario's idle marks show the schedule stopped while asleep, every base timer interrupt reaches the BIOS clock, the frame buffer reaches XRAM, pet save writes land only on their pages and the package CRC, which stays valid, also on R2's slim pet, and the buzzer and LCD calls match the host's log, and on the real schedule a frame loop's runtime cost stays under a tenth of the frame, frames that outlast the tick are reported as missed ticks, and the runtime's counts stay within a period of Timer 0's, also with an overflow pending at a sync.
+ | Description: Tests the VMU runtime against vmu_host: each shared scenario runs as scenario_host on vmu_host.c and as the rt_test GAME under the harness, and the two event logs must match line for line; the sleep scenario's idle marks show the schedule stopped while asleep until the base timer's poll sees the wake (held Up keeps the port 3 interrupt off), every base timer interrupt reaches the BIOS clock, the frame buffer reaches XRAM, pet save writes land only on their pages and the package CRC, which stays valid, also on R2's slim pet, and the buzzer and LCD calls match the host's log, and on the real schedule a frame loop's runtime cost stays under a tenth of the frame, frames that outlast the tick are reported as missed ticks, and the runtime's counts stay within a period of Timer 0's, also with an overflow pending at a sync.
  | Author: suinevere
  | Dependencies: pocketstation/tools/scenario.py, pocketstation/tools/psk_file.py, RES1506.BIN, pocketstation/tests/host/scenario_host.c, pocketstation/src/vmu_rt/*, pocketstation/harness/*, pocketstation/tools/vmu_flash.py, lom-pocket image
  | Globals: N/A
@@ -198,7 +198,7 @@ def test_runtime_forwards_every_base_timer_interrupt_to_the_bios_clock(tools, na
     assert seconds == calls // 2
     if name == "sleep":
         marks = runtime_marks(name)
-        assert marks[3] < 500000 and marks[4] > 500000 * overflows
+        assert marks[3] < 500000 and 500000 * (overflows - 1) < marks[4] < 500000 * overflows
 
 
 def frames(name):

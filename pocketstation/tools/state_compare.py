@@ -171,7 +171,7 @@ def compare_frame(fields: list, ps: bytes, vmu: bytes, pixels: bool = True):
 
 """----------------------
  | compare
- | Description: Compares two state dumps frame by frame, leaving out the pixels of the frames the VMU does not draw: those where its cycle16 has just stepped to an odd value, as the main loop then keeps the last picture.
+ | Description: Compares two state dumps frame by frame, leaving out the pixels of the frames the VMU does not draw: those where its cycle16 has just stepped to an odd value and no fresh press (btn_new) reached, as the main loop then keeps the last picture.
  | Author: suinevere
  | Dependencies: compare_frame
  | Globals: N/A
@@ -181,9 +181,11 @@ def compare_frame(fields: list, ps: bytes, vmu: bytes, pixels: bool = True):
 def compare(fields: list, ps: bytes, vmu: bytes):
     n, m = len(ps) // PS_FRAME, len(vmu) // VMU_FRAME
     cycle = next((f["vmu"] for f in fields if f["name"] == "cycle16"), None)
+    fresh = next((f["vmu"] for f in fields if f["name"] == "btn_new"), None)
     for k in range(min(n, m)):
         frame = vmu[k * VMU_FRAME:(k + 1) * VMU_FRAME]
-        skipped = cycle is not None and k > 0 and frame[cycle] & 1 and frame[cycle] != vmu[(k - 1) * VMU_FRAME + cycle]
+        skipped = (cycle is not None and k > 0 and frame[cycle] & 1 and frame[cycle] != vmu[(k - 1) * VMU_FRAME + cycle]
+                   and (fresh is None or not frame[fresh]))
         d = compare_frame(fields, ps[k * PS_FRAME:(k + 1) * PS_FRAME], frame, not skipped)
         if d:
             return "frame %d %s" % (k, d), False

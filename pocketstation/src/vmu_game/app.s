@@ -62,12 +62,12 @@ g_pet_check_none:
 
 ;----------------------
 ; | g_quit_dialog
-; | Description: game_quit_dialog: shows the yes/no quit box until fire, up and down flipping the choice with a beep; yes quits, as does a system quit request. Keeps ARG_BLOCK.
+; | Description: game_quit_dialog: shows the yes/no quit box until fire, up and down flipping the choice with a beep; yes quits when can_quit is set, else goes on as no does, and a system quit request quits. Keeps ARG_BLOCK.
 ; | Author: suinevere
 ; | Dependencies: g_sound_stop, g_quit_sound, g_n_arg, g_wait_ticks, g_read_buttons, g_quit_requested, g_quit, g_fb_clear, g_dock_screen, g_qd_rows, g_fb_present, game.inc (ARG_BLOCK), rrl_ram.inc (HW_BTN_PRESS)
 ; | Globals: btn_press and what the callees write
-; | Params: N/A
-; | Returns: N/A, and only for no. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, FPR, PSW; leaves VSEL bit 4 clear; five bytes of stack on top of its callees'.
+; | Params: ACC -- can_quit, nonzero when yes quits
+; | Returns: N/A, and only when it goes on. Destroys ACC, B, C, TRH, TRL, R0-R3, VRMAD, FPR, PSW; leaves VSEL bit 4 clear; six bytes of stack on top of its callees'.
 ;----------------------
 g_quit_dialog:
 	SET1 VSEL, 4
@@ -78,6 +78,7 @@ g_quit_dialog:
 	PUSH VTRBF
 	PUSH VTRBF
 	CLR1 VSEL, 4
+	PUSH ACC
 	MOV #$00, ACC
 	PUSH ACC
 	CALLF g_sound_stop
@@ -111,8 +112,12 @@ g_quit_dialog_show:
 	CALLF g_quit_sound
 	POP ACC
 	BZ g_quit_dialog_no
+	POP ACC
+	BZ g_quit_dialog_on
 	JMPF g_quit
 g_quit_dialog_no:
+	POP ACC
+g_quit_dialog_on:
 	MOV #$00, ACC
 	CALLF g_read_buttons
 	MOV #<(ARG_BLOCK+3), VRMAD1
@@ -229,10 +234,10 @@ g_entry:
 
 ;----------------------
 ; | g_main_loop
-; | Description: game_main_loop: sets up the screen, tick, sound and state block, then runs a frame per tick (mode frame, drawn only on even cycle16 frames through draw_skip, seed stir, present, buttons), opening the quit dialog on a long fire hold or mode 0xFF and standing by after 0xF00 idle frames. It never returns, so it is checked by the whole-game run.
+; | Description: game_main_loop: sets up the screen, tick, sound and state block, then runs a frame per tick (mode frame, drawn on even cycle16 frames and on any frame a fresh press reaches, through draw_skip, seed stir, present, buttons), opening the quit dialog on a long fire hold or mode 0xFF and standing by after 0xF00 idle frames. It never returns, so it is checked by the whole-game run.
 ; | Author: suinevere
-; | Dependencies: g_dock_check, g_fb_clear, g_fb_present, g_ticks_start, g_sound_init, g_state_reset, g_mode0_leave, g_set_idle, g_buttons_init, g_lcd_mode, g_n_arg, g_wait_ticks, g_read_buttons, g_quit_requested, g_quit, g_dock_screen, g_sound_play_waiting, g_mode_frame, g_random, g_quit_dialog, g_standby, rrl_ram.inc (HW_SEED, HW_CYCLE16, HW_DRAW_SKIP, HW_BTN_PREV, HW_IDLE_LO, HW_REPEAT_UP, HW_MODE)
-; | Globals: seed, cycle16, draw_skip, mode, btn_prev, idle_lo, repeat_up and what the callees write
+; | Dependencies: g_dock_check, g_fb_clear, g_fb_present, g_ticks_start, g_sound_init, g_state_reset, g_mode0_leave, g_set_idle, g_buttons_init, g_lcd_mode, g_n_arg, g_wait_ticks, g_read_buttons, g_quit_requested, g_quit, g_dock_screen, g_sound_play_waiting, g_mode_frame, g_random, g_quit_dialog, g_standby, rrl_ram.inc (HW_SEED, HW_CYCLE16, HW_DRAW_SKIP, HW_BTN_NEW, HW_BTN_PREV, HW_IDLE_LO, HW_REPEAT_UP, HW_MODE)
+; | Globals: seed, cycle16, draw_skip, btn_new, mode, btn_prev, idle_lo, repeat_up and what the callees write
 ; | Params: N/A
 ; | Returns: never
 ;----------------------
@@ -276,6 +281,10 @@ g_main_loop_run:
 	DEC ACC
 	AND #$01
 	ST HW_DRAW_SKIP
+	LD HW_BTN_NEW
+	BZ g_main_loop_skip
+	MOV #$00, HW_DRAW_SKIP
+g_main_loop_skip:
 	CALLF g_fb_clear
 	CALLF g_dock_screen
 	CALLF g_sound_play_waiting
@@ -297,6 +306,7 @@ g_main_loop_cycled:
 	MOV #$01, ACC
 	CALLF g_read_buttons
 	BZ g_main_loop_held
+	MOV #$01, ACC
 	CALLF g_quit_dialog
 g_main_loop_held:
 	MOV #<G_IDLE_FRAMES, TRL
@@ -320,8 +330,11 @@ g_main_loop_set:
 	CALLF g_set_idle
 	LD HW_MODE
 	XOR #$FF
-	BNZ g_main_loop_frame
+	BZ g_main_loop_over
+	JMPF g_main_loop_frame
+g_main_loop_over:
 	MOV #$00, HW_MODE
 	CALLF g_mode0_leave
+	MOV #$00, ACC
 	CALLF g_quit_dialog
 	JMPF g_main_loop_frame
