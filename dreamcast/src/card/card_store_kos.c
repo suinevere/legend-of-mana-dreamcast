@@ -220,9 +220,9 @@ static int kos_list(int slot, card_store_entry *out, int max)
 
 /*----------------------
  | kos_read
- | Description: Reads a PS1 file's bytes out of its VMS package, decompressing them.
+ | Description: Reads a PS1 file's bytes out of its VMS package, decompressing them; a kept prefix (Ring Ring Land) comes back zero-filled to the file's size.
  | Author: suinevere
- | Dependencies: slot_device, vmu_name_for_ps1, read_package, save_unpack
+ | Dependencies: slot_device, vmu_name_for_ps1, read_package, vmu_kept_bytes, save_unpack
  | Globals: N/A
  | Params: slot -- 0 or 1, ps1_name -- PS1 file name, buf -- destination, max -- capacity of buf
  | Returns: bytes copied, or -1 when missing or corrupt
@@ -236,6 +236,7 @@ static int kos_read(int slot, const char *ps1_name, unsigned char *buf, unsigned
     unsigned char *file;
     unsigned int raw_len;
     unsigned int count;
+    unsigned int kept;
     int result;
 
     if (dev == NULL)
@@ -254,9 +255,16 @@ static int kos_read(int slot, const char *ps1_name, unsigned char *buf, unsigned
         free(raw);
         return -1;
     }
+    kept = vmu_kept_bytes(ps1_name, raw_len);
     if ((unsigned int)pkg.data_len == raw_len)
     {
         memcpy(file, pkg.data, raw_len);
+        result = 0;
+    }
+    else if (kept != 0 && (unsigned int)pkg.data_len == kept)
+    {
+        memcpy(file, pkg.data, kept);
+        memset(file + kept, 0, raw_len - kept);
         result = 0;
     }
     else
@@ -276,9 +284,9 @@ static int kos_read(int slot, const char *ps1_name, unsigned char *buf, unsigned
 /*----------------------
  | build_package
  | Description: Builds the VMS package a PS1 file is stored as: the PS1 icon converted, the full PS1 name in the long description, the data LZSS-compressed unless that saves nothing,
- |              and the uncompressed size in the header's reserved word under a refreshed CRC.
+ |              and the uncompressed size in the header's reserved word under a refreshed CRC. Ring Ring Land keeps only its uncompressed prefix, which the VMU game patches in place.
  | Author: suinevere
- | Dependencies: vmu_icon_from_ps1, save_pack_bound, save_pack, vmu_pkg_build, vmu_pkg_crc
+ | Dependencies: vmu_icon_from_ps1, vmu_kept_bytes, save_pack_bound, save_pack, vmu_pkg_build, vmu_pkg_crc
  | Globals: N/A
  | Params: ps1_name -- PS1 file name, buf -- file bytes, size -- byte count, out -- the package, malloc'd, out_size -- its bytes
  | Returns: 0 on success, -1 on failure
@@ -290,6 +298,7 @@ static int build_package(const char *ps1_name, const unsigned char *buf, unsigne
     unsigned char *packed = malloc(save_pack_bound(size));
     int packed_size;
     unsigned short crc;
+    unsigned int kept;
     int result;
 
     *out = NULL;
@@ -297,7 +306,8 @@ static int build_package(const char *ps1_name, const unsigned char *buf, unsigne
     {
         return -1;
     }
-    packed_size = save_pack(buf, size, packed, save_pack_bound(size));
+    kept = vmu_kept_bytes(ps1_name, size);
+    packed_size = kept != 0 ? -1 : save_pack(buf, size, packed, save_pack_bound(size));
     memset(&pkg, 0, sizeof pkg);
     strcpy(pkg.desc_short, KOS_VMU_SHORT_DESC);
     strncpy(pkg.desc_long, ps1_name, sizeof pkg.desc_long - 1);
@@ -310,9 +320,9 @@ static int build_package(const char *ps1_name, const unsigned char *buf, unsigne
     }
     pkg.icon_anim_speed = 8;
     pkg.eyecatch_type = VMUPKG_EC_NONE;
-    pkg.data_len = packed_size >= 0 && (unsigned int)packed_size < size ? packed_size : (int)size;
+    pkg.data_len = kept != 0 ? (int)kept : packed_size >= 0 && (unsigned int)packed_size < size ? packed_size : (int)size;
     pkg.icon_data = frames;
-    pkg.data = pkg.data_len == (int)size ? buf : packed;
+    pkg.data = kept != 0 || pkg.data_len == (int)size ? buf : packed;
     result = vmu_pkg_build(&pkg, out, out_size) < 0 ? -1 : 0;
     free(packed);
     if (result == 0)

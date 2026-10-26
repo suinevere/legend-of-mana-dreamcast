@@ -191,6 +191,42 @@ int vmu_icon_from_ps1(const unsigned char *ps1_file, unsigned short palette[16],
 }
 
 /*----------------------
+ | PET_PS1_NAME / PET_KEPT_BYTES
+ | Description: Ring Ring Land's PS1 file, and the prefix of it the card keeps: CARDA reads only its first 0x400 bytes and the VMU game changes only 0x300-0x3B8.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PET_PS1_NAME "BASLUSP01013"
+#define PET_KEPT_BYTES 0x400u
+
+/*----------------------
+ | vmu_kept_bytes
+ | Description: How many leading bytes of a PS1 file the card stores uncompressed in place of the whole file: PET_KEPT_BYTES for Ring Ring Land, so the VMU game can patch it, else 0.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: ps1_name -- PS1 file name, size -- the file's byte count
+ | Returns: bytes kept, or 0 to store the file whole
+ ----------------------*/
+unsigned int vmu_kept_bytes(const char *ps1_name, unsigned int size)
+{
+    const char *want = PET_PS1_NAME;
+    int i;
+
+    for (i = 0; want[i] != '\0'; i++)
+    {
+        if (ps1_name[i] != want[i])
+        {
+            return 0;
+        }
+    }
+    return size > PET_KEPT_BYTES ? PET_KEPT_BYTES : 0;
+}
+
+/*----------------------
  | vmu_blocks_for_file
  | Description: VMU blocks a VMS package of the given data size and icon frame count occupies.
  | Author: suinevere

@@ -54,8 +54,8 @@ to 2,250 cycles a frame.
   icons.
 - Define `app_main`, which the reset calls once RAM is cleared and the
   scheduler is running. If it returns, the VMU halts for good.
-- Define `app_tables`, the start of its table bytes in flash bank 0, which
-  `rt_rom8` reads.
+- Supply `app_tables`, the label `rt_rom8` adds a PocketStation-file offset to
+  (see [Tables](#tables)).
 
 The handler installed with `rt_set_handler` runs with interrupts masked. Timer
 0 keeps only one pending overflow, so a handler, or any masked section, that
@@ -70,7 +70,7 @@ the scheduler falls behind real time.
 | Bank 1 `0x20`-`0xF8` | 217 | the game's busiest fields, directly addressed |
 | Bank 1 `0xF9`-`0xFF` | 7 | `rt_input`: buttons held, buttons read as released until let go, and the Sleep, quit and LCD flags (3 bytes used) |
 | WRAM `0x000`-`0x1E7` | 488 | the game's other fields, read and written through `rt_r8` and `rt_w8` |
-| WRAM `0x1E8`-`0x1FF` | 24 | `rt_save`: the pet save's sector count, its first page and its flash blocks, found once at reset |
+| WRAM `0x1E8`-`0x1FF` | 24 | `rt_save`: the pet save's sector count, sector 0's package page and every fourth of the first 88 blocks of its chain, found once at reset |
 | Bank 0 from `0x80` | | the stack |
 | XRAM | 192 | the screen, which the game draws into directly |
 
@@ -85,7 +85,8 @@ The VMU has no separate copy of `vmu_ram`'s 32-byte stack reserve.
 |---|---|---|---|---|
 | `rt_r8` | `vmu_r8` | TRH:TRL offset `0x020`-`0x2FF` | ACC byte | R0, VRMAD |
 | `rt_w8` | `vmu_w8` | TRH:TRL offset, ACC value | - | R0, VRMAD |
-| `rt_rom8` | `vmu_rom8` | TRH:TRL offset into `app_tables` | ACC byte | - |
+| `rt_rom8` | `vmu_rom8` | TRH:TRL offset into the PocketStation file | ACC byte, read with LDC at `app_tables` + offset | - |
+| `rt_fl_block` | - | ACC block k of the pet save's chain | ACC its flash block | TRL, TRH, FPR, VRMAD |
 | `rt_tick_mode` | `vmu_tick_mode` | ACC `RT_TICK_*` (0 off, 1 frame, 2 fast, 3 standby) | - | B, C, TRL, TRH, R1 |
 | `rt_sound_play` | `vmu_sound_play` | TRH:TRL:B samples (24-bit), C rate (0 slow) | - | B, C, TRL, TRH, R1 |
 | `rt_sound_stop` | `vmu_sound_stop` | - | - | B, C, TRL, TRH, R1 |
@@ -169,26 +170,54 @@ The runtime calls the BIOS through stubs at fixed addresses in the GAME's first
 |---|---|---|
 | `0x0100` | FM_WRT_EX (ROM `0x0100`) | (not used; its RET at `0x0105` is where the page write comes back) |
 | `0x0110` | FM_VRF_EX (ROM `0x0110`) | checking a written save page |
-| `0x0120` | FM_PRD_EX (ROM `0x0120`) | reading the directory, the save and the package for its CRC |
+| `0x0120` | FM_PRD_EX (ROM `0x0120`) | reading the directory, the save and the header page that holds its CRC |
 | `0x0130` | TIMER_EX (ROM `0x0130`) | the BIOS clock, on every base timer interrupt |
 | `0x0150` | the page write at ROM `0xE024` | writing a save page |
 | `0x01F0` | the mode change (ROM `0x01F0`) | leaving the game |
 
 The pet save is `BASLUSP01013`, the file the Dreamcast port writes when it sends
-a pet. It must stay a valid package for the port to read it back, so the runtime
-writes it through
+a pet. The port keeps only the PS1 file's first `0x400` bytes, uncompressed,
+since CARDA reads nothing past them and the game's pet sector is sector 6; it
+reads the rest back as zeros. Every other save is compressed. The pet save must
+stay a valid package for the port to read it back, so the runtime writes it
+through
 the BIOS's own page write, the one the Maple block-write command uses. FM_WRT_EX
 refuses flash bank 1, where data files live; the page write at `0xE024` takes
 either bank. The stub pushes ROM `0x0103` as the return address, so the page
 write's RET runs FM_WRT_EX's tail back to the GAME at `0x0105`. Each sector
-write is checked with FM_VRF_EX. The runtime then recomputes the package CRC
+write is checked with FM_VRF_EX. The runtime then updates the package CRC
 (XMODEM, as `vmu_image.vms_crc` does) and writes the header page holding it the
 same way.
 
-A save keeps interrupts masked for about 0.3 s on hardware: about 184,000 cycles
-for the CRC pass in the harness, plus the BIOS calls, which the harness does not
-count. Timer 0 overflows beyond the first are lost during that time, so the
-schedule's pacing lags by that much; the order of events is unaffected.
+The CRC covers the whole package: five blocks for the slim pet. The runtime
+caps the sector count at the first 22 blocks of the chain and patches the
+stored CRC instead of recomputing it. XMODEM from 0 is linear:
+
+1. Before the page write, while the page buffer holds the new page, the runtime
+   reads the old page with LDF and takes the CRC of old XOR new.
+2. It multiplies that by x^(1024 N) modulo the polynomial, where N is the number
+   of package pages after the written one. The factors come from a 16-entry
+   table, `rt_crc_pow`, one for each bit of N.
+3. It XORs the result into the CRC the header already holds.
+
+A package whose stored CRC was already wrong stays wrong. LDF from a GAME has
+not yet been checked on hardware; R3b-4 is the first hardware run.
+
+A save keeps interrupts masked for about 9,900 harness cycles (10 ms at 1 MHz). The harness does not count the BIOS calls on top of that: two
+page writes, two FM_VRF_EX and two FM_PRD_EX. Timer 0 overflows beyond the first
+are lost during that time, so the schedule's pacing lags by that much; the order
+of events is unaffected.
+
+## Tables
+
+Ring Ring Land's tables are the 96 pages `0x4A00`-`0xA9FF` of the PocketStation
+file, carried in the GAME's own flash as `app_tb_pages` and built from
+`RES1506.BIN` at build time. `app_tables` is `app_tb_pages - 0x4A00`, so
+`rt_rom8` reads file offset `off` with LDC at `app_tables + off`. Each page `PP`
+also has an equate `app_tb_PP`, so `app_tb_PP + off` reads any offset of the
+run, and `app_hi` is `app_tb_9D`. `app_tb_map` gives each page's place in the
+GAME for code that forms an offset from a pointer (`g_tb_find`). With no pet
+save the GAME leaves through `rt_power` before drawing anything.
 
 ## Debug ports
 

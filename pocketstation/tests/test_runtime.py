@@ -1,8 +1,8 @@
 """----------------------
  | test_runtime.py
- | Description: Tests the VMU runtime against vmu_host: each shared scenario runs as scenario_host on vmu_host.c and as the rt_test GAME under the harness, and the two event logs must match line for line; the sleep scenario's idle marks show the schedule stopped while asleep, every base timer interrupt reaches the BIOS clock, the frame buffer reaches XRAM, pet save writes land only on their pages and the package CRC, which stays valid, and the buzzer and LCD calls match the host's log, and on the real schedule a frame loop's runtime cost stays under a tenth of the frame, frames that outlast the tick are reported as missed ticks, and the runtime's counts stay within a period of Timer 0's, also with an overflow pending at a sync.
+ | Description: Tests the VMU runtime against vmu_host: each shared scenario runs as scenario_host on vmu_host.c and as the rt_test GAME under the harness, and the two event logs must match line for line; the sleep scenario's idle marks show the schedule stopped while asleep, every base timer interrupt reaches the BIOS clock, the frame buffer reaches XRAM, pet save writes land only on their pages and the package CRC, which stays valid, also on R2's slim pet, and the buzzer and LCD calls match the host's log, and on the real schedule a frame loop's runtime cost stays under a tenth of the frame, frames that outlast the tick are reported as missed ticks, and the runtime's counts stay within a period of Timer 0's, also with an overflow pending at a sync.
  | Author: suinevere
- | Dependencies: pocketstation/tools/scenario.py, pocketstation/tests/host/scenario_host.c, pocketstation/src/vmu_rt/*, pocketstation/harness/*, pocketstation/tools/vmu_flash.py, lom-pocket image
+ | Dependencies: pocketstation/tools/scenario.py, pocketstation/tools/psk_file.py, RES1506.BIN, pocketstation/tests/host/scenario_host.c, pocketstation/src/vmu_rt/*, pocketstation/harness/*, pocketstation/tools/vmu_flash.py, lom-pocket image
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -22,7 +22,9 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 BUILD = os.path.join(REPO, "pocketstation", "build", "vmu_rt")
 sys.path.insert(0, os.path.join(REPO, "pocketstation", "tools"))
 
+import psk_file  # noqa: E402
 import scenario  # noqa: E402
+import vmu_flash  # noqa: E402
 
 sys.path.insert(0, os.path.join(REPO, "dreamcast", "tools"))
 import vmu_image  # noqa: E402
@@ -56,11 +58,13 @@ def host_log(name, files=False, code=0):
 RUNS = {}
 
 
-def runtime_log(name, *extra, pet=False, stop="halted"):
+def runtime_log(name, *extra, pet=False, stop="halted", payload=None):
     r = docker("make", "-C", "pocketstation/src/vmu_rt", "SCN=%s" % name)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
     flash = os.path.join(BUILD, "%s.flash" % name)
     more = ["--pet", os.path.join(BUILD, "pet.bin"), "--scatter"] if pet else []
+    if payload is not None:
+        more = ["--pet", payload]
     r = subprocess.run([sys.executable, os.path.join(REPO, "pocketstation", "tools", "vmu_flash.py"), flash,
                         os.path.join(BUILD, "%s.vms" % name), *more], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -252,13 +256,57 @@ def test_runtime_files_match_host(tools):
     package = bytearray(b"".join(want[b * vmu_image.BLOCK:(b + 1) * vmu_image.BLOCK] for b in chain))
     package[0x46:0x48] = b"\0\0"
     head = chain[0] * vmu_image.BLOCK + 0x46
-    want[head:head + 2] = struct.pack("<H", vmu_image.vms_crc(bytes(package[:128 + 512 * 2 + len(payload)])))
+    want[head:head + 2] = struct.pack("<H", vmu_image.vms_crc(bytes(package[:128 + 512 * 2 + vmu_image.PET_KEPT_BYTES])))
     assert want[head:head + 2] != before[head:head + 2]
     assert after == bytes(want)
-    assert vmu_image.ps1_file(after, "BASLUSP01013") == bytes(payload)
+    assert vmu_image.ps1_file(after, "BASLUSP01013") == bytes(payload[:vmu_image.PET_KEPT_BYTES]) + bytes(len(payload) - vmu_image.PET_KEPT_BYTES)
     stored, = struct.unpack_from("<H", after, head)
     package[0x46:0x48] = b"\0\0"
-    assert stored == vmu_image.vms_crc(bytes(package[:128 + 512 * 2 + len(payload)]))
+    assert stored == vmu_image.vms_crc(bytes(package[:128 + 512 * 2 + vmu_image.PET_KEPT_BYTES]))
+
+
+def r2_pet():
+    with open(os.path.join(REPO, psk_file.RES_PATH), "rb") as f:
+        res = f.read()
+    pet = psk_file.REFERENCE_PET
+    data = psk_file.pet_transfer(res, pet[0x16], pet[0x18], pet, psk_file.REFERENCE_LANDS)
+    return data + bytes(0xC000 - len(data))
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(REPO, psk_file.RES_PATH)), reason="RES1506.BIN not extracted")
+def test_save_write_keeps_the_slim_package_valid(tools):
+    payload = r2_pet()
+    path = os.path.join(BUILD, "pet_full.bin")
+    os.makedirs(BUILD, exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(payload)
+    rel = "pocketstation/build/vmu_rt/pet_save"
+    got = runtime_log("pet_save", "--out-flash", rel + ".out", payload=path)
+    assert [line for line in got if line[0] in "vw"] == ["v 0006 00", "w 0006 00"]
+    before = open(os.path.join(BUILD, "pet_save.flash"), "rb").read()
+    after = open(os.path.join(BUILD, "pet_save.out"), "rb").read()
+    name = vmu_image.vmu_name_for_ps1("BASLUSP01013")
+    chain = vmu_image.chain(before, name)
+    assert len(chain) == 5 and vmu_image.chain(after, name) == chain
+    want = bytearray(payload)
+    assert (want[0x358], want[0x370]) != (0x6B, 0x2A)
+    want[0x358], want[0x370] = 0x6B, 0x2A
+    package = vmu_flash.package("BASLUSP01013", bytes(want))
+    assert len(package) == 128 + 512 * 2 + vmu_image.PET_KEPT_BYTES and package[0x40] == 2
+    image = bytearray(before)
+    for i, block in enumerate(chain):
+        chunk = package[i * vmu_image.BLOCK:(i + 1) * vmu_image.BLOCK]
+        image[block * vmu_image.BLOCK:block * vmu_image.BLOCK + len(chunk)] = chunk
+    head = chain[0] * vmu_image.BLOCK
+    fields = {sector_page(before, 6) + 0x58, sector_page(before, 6) + 0x70}
+    changed = {i for i in range(len(before)) if after[i] != before[i]}
+    assert fields <= changed <= fields | {head + 0x46, head + 0x47}
+    assert after == bytes(image)
+    stored = bytearray(b"".join(after[b * vmu_image.BLOCK:(b + 1) * vmu_image.BLOCK] for b in chain))
+    crc, = struct.unpack_from("<H", stored, 0x46)
+    stored[0x46:0x48] = bytes(2)
+    assert crc == vmu_image.vms_crc(bytes(stored[:0x80 + 0x200 * 2 + vmu_image.PET_KEPT_BYTES]))
+    assert vmu_image.ps1_file(after, "BASLUSP01013") == bytes(want[:vmu_image.PET_KEPT_BYTES]) + bytes(len(want) - vmu_image.PET_KEPT_BYTES)
 
 
 def test_runtime_power_matches_host(tools):

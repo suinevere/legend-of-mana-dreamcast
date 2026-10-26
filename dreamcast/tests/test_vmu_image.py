@@ -65,8 +65,24 @@ def test_ps1_file_finds_a_package_by_its_ps1_name_and_returns_the_payload():
     assert name.startswith("LOMX") and len(name) == 12
     assert vmu_image.vmu_name_for_ps1("BASLUS-01013LOM00") == "LOMLOM00"
     img = vmu_image.add(vmu_image.blank(), name, vmu_image.build_package("BASLUSP01013", payload, b"\x01" * 1024))
-    assert vmu_image.ps1_file(img, "BASLUSP01013") == payload
+    assert vmu_image.ps1_file(img, "BASLUSP01013") == payload[:0x400] + bytes(0xC000 - 0x400)
     assert vmu_image.ps1_file(img, "BASLUS-01013LOM00") is None
+
+
+def test_the_pet_save_keeps_only_its_prefix_uncompressed():
+    payload = bytes((i * 7) & 0xFF for i in range(0xC000))
+    package = vmu_image.build_package("BASLUSP01013", payload, b"\x01" * 1024)
+    data_len, raw_len = struct.unpack_from("<II", package, 0x48)
+    assert (data_len, raw_len) == (0x400, 0xC000)
+    assert package[128 + 1024:128 + 1024 + 0x400] == payload[:0x400]
+    assert (len(package) + 511) // 512 <= 5
+    name = vmu_image.vmu_name_for_ps1("BASLUSP01013")
+    img = vmu_image.add(vmu_image.blank(), name, package)
+    changed = bytearray(payload)
+    changed[0x300:0x3B8] = bytes(0xB8)
+    out = vmu_image.set_ps1_file(img, "BASLUSP01013", bytes(changed))
+    assert vmu_image.ps1_file(out, "BASLUSP01013")[:0x400] == bytes(changed[:0x400])
+    assert vmu_image.free_blocks(out) == vmu_image.free_blocks(img)
 
 
 def test_build_package_compresses_and_keeps_incompressible_data_raw():
@@ -98,18 +114,18 @@ def test_vms_crc_is_crc16_xmodem():
 
 def test_set_ps1_file_recompresses_into_a_resized_chain_with_a_fresh_crc():
     payload = bytes(0x4000)
-    name = vmu_image.vmu_name_for_ps1("BASLUSP01013")
-    img = vmu_image.add(vmu_image.blank(), name, vmu_image.build_package("BASLUSP01013", payload))
+    name = vmu_image.vmu_name_for_ps1("BASLUS-01013LOM00")
+    img = vmu_image.add(vmu_image.blank(), name, vmu_image.build_package("BASLUS-01013LOM00", payload))
     new = random.Random(9).randbytes(0x4000)
-    out = vmu_image.set_ps1_file(img, "BASLUSP01013", new)
-    assert vmu_image.ps1_file(out, "BASLUSP01013") == new
+    out = vmu_image.set_ps1_file(img, "BASLUS-01013LOM00", new)
+    assert vmu_image.ps1_file(out, "BASLUS-01013LOM00") == new
     data = dict(vmu_image.files(out))[name]
     icons, _, _, crc, data_len = struct.unpack_from("<HHHHI", data, 0x40)
     size = 128 + 512 * icons + data_len
     assert crc == vmu_image.vms_crc(data[:0x46] + b"\0\0" + data[0x48:size])
     assert vmu_image.free_blocks(out) == vmu_image.free_blocks(img) - (len(vmu_image.chain(out, name)) - len(vmu_image.chain(img, name)))
-    back = vmu_image.set_ps1_file(out, "BASLUSP01013", payload)
-    assert vmu_image.ps1_file(back, "BASLUSP01013") == payload
+    back = vmu_image.set_ps1_file(out, "BASLUS-01013LOM00", payload)
+    assert vmu_image.ps1_file(back, "BASLUS-01013LOM00") == payload
     assert vmu_image.free_blocks(back) == vmu_image.free_blocks(img)
 
 

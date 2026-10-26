@@ -28,6 +28,7 @@
 void vmu_name_for_ps1(const char *ps1_name, char out[VMU_NAME_LEN + 1]);
 void vmu_ps1_name_from_desc(const char *desc, int desc_bytes, char out[21]);
 int vmu_icon_from_ps1(const unsigned char *ps1_file, unsigned short palette[16], unsigned char frames[3 * 512]);
+unsigned int vmu_kept_bytes(const char *ps1_name, unsigned int size);
 unsigned int vmu_blocks_for_file(unsigned int data_bytes, int icon_frames);
 unsigned short vmu_pkg_crc(const unsigned char *buf, int size);
 int ps1_blocks_free(int vmu_free_blocks, int ps1_used_blocks);

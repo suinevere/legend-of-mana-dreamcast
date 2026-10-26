@@ -1,8 +1,8 @@
 /*----------------------
  | vmu_runner.c
- | Description: Runs the VMU-shaped Ring Ring Land on vmu_host.c under the same scripts and entry states as game_host, writing per-frame state dumps, the pet save at the end and, in counting builds, RAM access counts.
+ | Description: Runs the VMU-shaped Ring Ring Land on vmu_host.c under the same scripts and entry states as game_host, writing per-frame state dumps, the pet save at the end and, in counting builds, RAM access counts; in recording builds, sampled calls of every game function.
  | Author: suinevere
- | Dependencies: vmu_host.h, vmu_hw.h, game.h
+ | Dependencies: vmu_host.h, vmu_hw.h, game.h, vmu_record.h (VMU_RECORD builds)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -14,6 +14,9 @@
 
 #include "game.h"
 #include "vmu_host.h"
+#ifdef VMU_RECORD
+#include "vmu_record.h"
+#endif
 
 /*----------------------
  | MAX_STEPS / MAX_BOOTS / FILE_MAX
@@ -262,6 +265,9 @@ static void frame(void) {
         fail("cannot write the state", "");
     }
     g_samples++;
+#ifdef VMU_RECORD
+    rec_set_frame(g_samples);
+#endif
     g_next++;
     advance();
 }
@@ -277,6 +283,9 @@ static void frame(void) {
  ----------------------*/
 static void boot(int k) {
     if (k >= g_boots) fail("no entry state for a reboot", "");
+#ifdef VMU_RECORD
+    rec_reset();
+#endif
     vmu_host_init(g_file, g_file_len, g_save, g_file_len);
     vmu_host_set_entry(g_entries[k].words, g_entries[k].n);
     vmu_host_set_sys(sys_flags(g_entries[k].wram));
@@ -301,9 +310,28 @@ static void save(const char *path, const void *p, size_t n) {
     fclose(f);
 }
 
+#ifdef VMU_RECORD
+/*----------------------
+ | script_name
+ | Description: A script path's base name without its .pks, the name records carry.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: path -- script path; out -- buffer; size -- its size
+ | Returns: N/A
+ ----------------------*/
+static void script_name(const char *path, char *out, size_t size) {
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    snprintf(out, size, "%s", base);
+    char *dot = strrchr(out, '.');
+    if (dot) *dot = 0;
+}
+#endif
+
 /*----------------------
  | main
- | Description: vmu_runner --card C --script S --entry E [--state OUT.state] [--file-out F] [--counts F].
+ | Description: vmu_runner --card C --script S --entry E [--state OUT.state] [--file-out F] [--counts F] [--record DIR].
  | Author: suinevere
  | Dependencies: N/A
  | Globals: g_top, g_file, g_save
@@ -311,7 +339,7 @@ static void save(const char *path, const void *p, size_t n) {
  | Returns: 0, or 2 on a usage or input error
  ----------------------*/
 int main(int argc, char **argv) {
-    const char *card = 0, *script = 0, *entry = 0, *state = 0, *file_out = 0, *counts = 0;
+    const char *card = 0, *script = 0, *entry = 0, *state = 0, *file_out = 0, *counts = 0, *record = 0;
     volatile int k = 0;
     for (int i = 1; i + 1 < argc; i += 2) {
         if (!strcmp(argv[i], "--card")) card = argv[i + 1];
@@ -320,14 +348,24 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--state")) state = argv[i + 1];
         else if (!strcmp(argv[i], "--file-out")) file_out = argv[i + 1];
         else if (!strcmp(argv[i], "--counts")) counts = argv[i + 1];
+        else if (!strcmp(argv[i], "--record")) record = argv[i + 1];
         else fail("unknown option", argv[i]);
     }
-    if (!card || !script || !entry) fail("usage:", "vmu_runner --card C --script S --entry E [--state F] [--file-out F] [--counts F]");
+    if (!card || !script || !entry) fail("usage:", "vmu_runner --card C --script S --entry E [--state F] [--file-out F] [--counts F] [--record DIR]");
     load_file(card);
     memcpy(g_save, g_file, g_file_len);
     if (state && !(g_state = fopen(state, "wb"))) fail("cannot write", state);
     load_script(script);
     load_entries(entry);
+#ifdef VMU_RECORD
+    if (record) {
+        char name[64];
+        script_name(script, name, sizeof name);
+        rec_begin(record, name, 0);
+    }
+#else
+    if (record) fail("--record needs a VMU_RECORD build", "");
+#endif
     int how = setjmp(g_top);
     if (how == 2) {
         k++;
@@ -341,6 +379,9 @@ int main(int argc, char **argv) {
     if (counts) save(counts, vmu_host_counts(), 0x400u * sizeof(uint32_t));
 #else
     if (counts) fail("--counts needs a VMU_COUNT_ACCESS build", "");
+#endif
+#ifdef VMU_RECORD
+    rec_finish();
 #endif
     printf("vmu_runner: samples %u boots %d\n", g_samples, k + 1);
     return 0;

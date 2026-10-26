@@ -1,12 +1,13 @@
 /*----------------------
  | vmu_harness.c
- | Description: Test machine around the vendored LC86K core: boots a GAME from a 128 KB flash image, models the BIOS flash, page write and exit entries, runs .pks scripts and input events, logs RT_LOG bytes, RT_IDLE_MARK cycles and the buzzer and LCD, dumps frames at RT_PRESENT, runs on an idle or real schedule and reports the cycles each frame and the runtime in it cost.
+ | Description: Test machine around the vendored LC86K core: boots a GAME from a 128 KB flash image, models the BIOS flash, page write and exit entries, runs .pks scripts and input events, logs RT_LOG bytes, RT_IDLE_MARK cycles and the buzzer and LCD, dumps frames at RT_PRESENT, runs on an idle or real schedule and reports the cycles each frame and the runtime in it cost; or, with --call, runs one routine from a recorded state and writes what it leaves.
  | Author: suinevere
  | Dependencies: lc86k/cpu.h, lc86k/cpu.c (patched copy under build/harness/lc86k/)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -396,11 +397,24 @@ static void load_inputs(const char *path)
 }
 
 /*----------------------
+ | MapLabel
+ | Description: One link map label: its name and code address.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct { char name[64]; uint16_t addr; } MapLabel;
+static MapLabel g_labels[MAX_LABELS];
+static int g_label_count;
+
+/*----------------------
  | load_map
- | Description: Reads a link map (vmu_map.py), one "ADDR NAME" line per label in address order, and marks the code from each rt_ label to the next label as the runtime's, the rt_test program's labels excepted, and notes rt_idle_step's and rt_ev_step's addresses for the late-tick and count checks.
+ | Description: Reads a link map (vmu_map.py), one "ADDR NAME" line per label in address order, keeps every label for --call, marks the code from each rt_ label to the next label as the runtime's, the rt_test program's labels excepted, and notes rt_idle_step's and rt_ev_step's addresses for the late-tick and count checks.
  | Author: suinevere
  | Dependencies: fail
- | Globals: g_rt_code, g_ev_step, g_ev_step_at
+ | Globals: g_rt_code, g_ev_step, g_ev_step_at, g_labels, g_label_count
  | Params: path -- the map
  | Returns: N/A
  ----------------------*/
@@ -413,17 +427,43 @@ static void load_map(const char *path)
     FILE *f = fopen(path, "r");
     if (!f) fail("cannot open", path);
     while (n < MAX_LABELS && fscanf(f, "%x %127s", &addr[n], name) == 2) {
-        if (addr[n] > 0xFFFF || (n && addr[n] < addr[n - 1])) fail("bad map", path);
+        if (addr[n] > 0xFFFF || (n && addr[n] < addr[n - 1]) || strlen(name) >= sizeof g_labels[0].name) fail("bad map", path);
         rt[n] = strncmp(name, "rt_", 3) == 0 && strncmp(name, "rt_test", 7) != 0;
         if (strcmp(name, "rt_idle_step") == 0) g_ev_step = (long)addr[n];
         if (strcmp(name, "rt_ev_step") == 0) g_ev_step_at = (long)addr[n];
+        strcpy(g_labels[n].name, name);
+        g_labels[n].addr = (uint16_t)addr[n];
         n++;
     }
     if (!feof(f) || !n) fail("bad map", path);
     fclose(f);
+    g_label_count = n;
     addr[n] = 0x10000;
     for (int i = 0; i < n; i++)
         for (unsigned a = addr[i]; a < addr[i + 1]; a++) g_rt_code[a] = rt[i];
+}
+
+/*----------------------
+ | same_name / label_addr
+ | Description: Whether two names match ignoring case, as Waterbear's do, and the address of a map label by name.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_labels, g_label_count
+ | Params: a, b -- names; name -- a label
+ | Returns: same_name: true on a match; label_addr: the address, or -1 when the map has no such label
+ ----------------------*/
+static bool same_name(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++)
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return false;
+    return *a == *b;
+}
+
+static long label_addr(const char *name)
+{
+    for (int i = 0; i < g_label_count; i++)
+        if (same_name(g_labels[i].name, name)) return g_labels[i].addr;
+    return -1;
 }
 
 /*----------------------
@@ -1402,18 +1442,515 @@ static void step(void)
 }
 
 /*----------------------
+ | REG_ACC .. REG_FPR / SFR_VRMAD1 / SFR_VRMAD2 / PSW_KEEP
+ | Description: Register bits of a --call poison list, the work RAM address SFRs, and the PSW bits poisoning keeps (the indirect register bank and RAM bank), only the flags taking POISON.
+ | Author: suinevere
+ | Dependencies: pocketstation/src/vmu_rt/sfr.inc
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+enum {
+    REG_ACC = 1 << 0, REG_B = 1 << 1, REG_C = 1 << 2, REG_TRL = 1 << 3, REG_TRH = 1 << 4, REG_PSW = 1 << 5,
+    REG_R0 = 1 << 6, REG_R1 = 1 << 7, REG_R2 = 1 << 8, REG_R3 = 1 << 9, REG_VRMAD = 1 << 10, REG_FPR = 1 << 11
+};
+#define SFR_VRMAD1 0x64
+#define SFR_VRMAD2 0x65
+#define PSW_KEEP 0x1A
+
+/*----------------------
+ | RES_NONE / RES_ACC / RES_TR / RtEntry / RT_IDLE_POISON / RT_ENTRIES / RT_COUNT
+ | Description: The runtime routines --call stands in for, as the runtime doc's table has them: the vmu_hw.h call each is, where its result goes, and what it destroys, PSW's flags included for all; rt_r8, rt_w8, rt_rom8 and rt_fb_row are memory, not hardware calls, and run as they are.
+ | Author: suinevere
+ | Dependencies: docs/en/technical/reference/vmu-runtime.md (Routines), pocketstation/tools/call_compare.py (RT_ARGS)
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+enum { RES_NONE, RES_ACC, RES_TR };
+typedef struct { const char *rt, *vmu; int result; unsigned poison; } RtEntry;
+#define RT_IDLE_POISON (REG_ACC | REG_B | REG_C | REG_TRL | REG_TRH | REG_R1 | REG_PSW)
+static const RtEntry RT_ENTRIES[] = {
+    {"rt_present", "vmu_present", RES_NONE, REG_PSW},
+    {"rt_idle", "vmu_idle", RES_NONE, RT_IDLE_POISON},
+    {"rt_irq_enable", "vmu_irq_enable", RES_NONE, REG_ACC | REG_PSW},
+    {"rt_irq_disable", "vmu_irq_disable", RES_NONE, REG_ACC | REG_PSW},
+    {"rt_irq_ack", "vmu_irq_ack", RES_NONE, REG_ACC | REG_PSW},
+    {"rt_irq_pending", "vmu_irq_pending", RES_TR, REG_ACC | REG_PSW},
+    {"rt_irq_levels", "vmu_irq_levels", RES_TR, REG_ACC | REG_PSW},
+    {"rt_irq_mask", "vmu_irq_mask", RES_TR, REG_ACC | REG_PSW},
+    {"rt_set_handler", "vmu_set_handler", RES_NONE, REG_ACC | REG_PSW},
+    {"rt_tick_mode", "vmu_tick_mode", RES_NONE, RT_IDLE_POISON},
+    {"rt_sound_play", "vmu_sound_play", RES_NONE, RT_IDLE_POISON},
+    {"rt_sound_stop", "vmu_sound_stop", RES_NONE, RT_IDLE_POISON},
+    {"rt_sys_flags", "vmu_sys_flags", RES_ACC, REG_B | REG_C | REG_PSW},
+    {"rt_power", "vmu_power", RES_NONE, RT_IDLE_POISON},
+    {"rt_save_read", "vmu_save_read", RES_ACC, REG_B | REG_C | REG_R0 | REG_FPR | REG_PSW},
+    {"rt_save_write", "vmu_save_write", RES_ACC, REG_B | REG_C | REG_R0 | REG_R1 | REG_FPR | REG_PSW},
+    {"rt_buzz", "vmu_buzz", RES_NONE, REG_ACC | REG_B | REG_C | REG_PSW},
+    {"rt_lcd", "vmu_lcd", RES_NONE, REG_PSW},
+    {"rt_buttons", "vmu_buttons", RES_ACC, REG_B | REG_C | REG_PSW},
+};
+#define RT_COUNT ((int)(sizeof RT_ENTRIES / sizeof RT_ENTRIES[0]))
+
+/*----------------------
+ | CALL_HALT_LABEL / CALL_SP / MAX_POISON / MAX_RETS / MAX_SHADOW / MAX_HW / CALL_MAX_CYCLES
+ | Description: The --call image's halt stub label, the stack pointer a call starts from (the BIOS's 0x7F), and the limits on poison lines, replayed results, nested calls and logged runtime calls, and the default cycle budget.
+ | Author: suinevere
+ | Dependencies: pocketstation/src/vmu_game/callbase.inc (call_return)
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define CALL_HALT_LABEL "call_return"
+#define CALL_SP 0x7F
+#define MAX_POISON 512
+#define MAX_RETS 4096
+#define MAX_SHADOW 256
+#define MAX_HW 4096
+#define CALL_MAX_CYCLES 2000000
+
+/*----------------------
+ | SAVE_BLOCK / MAX_LOADS
+ | Description: The bytes one vmu_save_read copies into vmu_ram, and how many replayed save reads a --call state can carry.
+ | Author: suinevere
+ | Dependencies: pocketstation/src/vmu/vmu_host.c (vmu_save_read)
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SAVE_BLOCK 0x80
+#define MAX_LOADS 16
+
+/*----------------------
+ | Poison / Shadow / HwLog
+ | Description: A routine's declared poison list by entry address; one open call (return address, stack pointer just after the call, what to poison on return); one runtime call stood in for, with its registers at entry.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+typedef struct { uint16_t addr; unsigned regs; } Poison;
+typedef struct { uint16_t ret; uint8_t sp; unsigned regs; } Shadow;
+typedef struct { int rt; uint8_t acc, b, c, trh, trl; } HwLog;
+
+static Poison g_poison[MAX_POISON];
+static int g_poison_count;
+static uint32_t g_rets[MAX_RETS];
+static int g_ret_count, g_ret_next;
+static Shadow g_shadow[MAX_SHADOW];
+static int g_shadow_count;
+static HwLog g_hw[MAX_HW];
+static int g_hw_count;
+static long g_rt_addr[RT_COUNT];
+static uint8_t g_stack_max;
+static uint8_t g_loads[MAX_LOADS][SAVE_BLOCK];
+static int g_load_count, g_load_next;
+
+/*----------------------
+ | OUT_REGS / OUT_SFRS / ENTRY_POISON
+ | Description: The registers --call's output reports at entry and on return, and what the harness poisons before the state's reg lines, so a routine reading a register it was not given sees 0xA5 (PSW's flags only, CY set).
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const char *OUT_REGS[9] = {"ACC", "B", "C", "TRL", "TRH", "PSW", "VRMAD1", "VRMAD2", "FPR"};
+static const uint8_t OUT_SFRS[9] = {SFR_ACC, SFR_B, SFR_C, SFR_TRL, SFR_TRH, SFR_PSW, SFR_VRMAD1, SFR_VRMAD2, SFR_FPR};
+#define ENTRY_POISON (REG_ACC | REG_B | REG_C | REG_TRL | REG_TRH | REG_VRMAD | REG_PSW)
+static uint8_t g_entry_regs[9];
+
+/*----------------------
+ | parse_regs
+ | Description: A poison list's register bits: comma-separated ACC, B, C, TRL, TRH, PSW, R0-R3, VRMAD and FPR, or - for none.
+ | Author: suinevere
+ | Dependencies: same_name, fail
+ | Globals: N/A
+ | Params: list -- the list
+ | Returns: REG_* bits
+ ----------------------*/
+static unsigned parse_regs(const char *list)
+{
+    static const char *names[12] = {"ACC", "B", "C", "TRL", "TRH", "PSW", "R0", "R1", "R2", "R3", "VRMAD", "FPR"};
+    char buf[128], *tok;
+    unsigned regs = 0;
+    if (strcmp(list, "-") == 0) return 0;
+    if (strlen(list) >= sizeof buf) fail("bad register list", list);
+    strcpy(buf, list);
+    for (tok = strtok(buf, ","); tok; tok = strtok(NULL, ",")) {
+        int i = 0;
+        while (i < 12 && !same_name(tok, names[i])) i++;
+        if (i == 12) fail("unknown register", tok);
+        regs |= 1u << i;
+    }
+    return regs;
+}
+
+/*----------------------
+ | poison_regs
+ | Description: Leaves POISON in each register of a poison list: the SFRs, R0-R3 in the current RAM and indirect banks, both VRMAD bytes, and only PSW's flags, so the RAM and indirect banks stay selected.
+ | Author: suinevere
+ | Dependencies: cpu_sfr, cpu_sfr_write, cpu_ram_write, ram_bank
+ | Globals: N/A
+ | Params: regs -- REG_* bits
+ | Returns: N/A
+ ----------------------*/
+static void poison_regs(unsigned regs)
+{
+    static const uint8_t sfr[5] = {SFR_ACC, SFR_B, SFR_C, SFR_TRL, SFR_TRH};
+    uint8_t rbase = (uint8_t)(((cpu_sfr(SFR_PSW) >> 3) & 3) * 4);
+    for (int i = 0; i < 5; i++)
+        if (regs & (1u << i)) cpu_sfr_write(sfr[i], POISON);
+    for (int i = 0; i < 4; i++)
+        if (regs & ((unsigned)REG_R0 << i)) cpu_ram_write(ram_bank(), (uint16_t)(rbase + i), POISON);
+    if (regs & REG_VRMAD) {
+        cpu_sfr_write(SFR_VRMAD1, POISON);
+        cpu_sfr_write(SFR_VRMAD2, POISON & 1);
+    }
+    if (regs & REG_FPR) cpu_sfr_write(SFR_FPR, POISON);
+    if (regs & REG_PSW) cpu_sfr_write(SFR_PSW, (uint8_t)((cpu_sfr(SFR_PSW) & PSW_KEEP) | (POISON & ~PSW_KEEP)));
+}
+
+/*----------------------
+ | hex_bytes
+ | Description: Decodes a hex string into bytes, failing unless it holds exactly n.
+ | Author: suinevere
+ | Dependencies: fail
+ | Globals: N/A
+ | Params: hex -- the text; out -- the bytes; n -- how many
+ | Returns: N/A
+ ----------------------*/
+static void hex_bytes(const char *hex, uint8_t *out, size_t n)
+{
+    if (strlen(hex) != 2 * n) fail("bad hex length", hex);
+    for (size_t i = 0; i < n; i++) {
+        unsigned v;
+        if (sscanf(hex + 2 * i, "%2x", &v) != 1) fail("bad hex", hex);
+        out[i] = (uint8_t)v;
+    }
+}
+
+/*----------------------
+ | load_state
+ | Description: Reads a --call state file and sets the machine up from it: fill XX (all of bank 1, work RAM and XRAM), ram HEX (the 0x400-byte vmu_ram image, placed through --hw), fb HEX (the 192 screen bytes), poke bank1|wram|xram ADDR HEX, reg NAME XX, poison ROUTINE LIST (what a routine's return destroys), ret HEX (each runtime call's replayed result, in order) and load HEX (the 128 bytes each successful rt_save_read copies, in order); lines starting # are skipped.
+ | Author: suinevere
+ | Dependencies: hex_bytes, parse_regs, label_addr, cpu_ram_write, cpu_wram_write, cpu_xram_write, cpu_sfr_write, fail
+ | Globals: g_fields, g_field_count, g_poison, g_poison_count, g_rets, g_ret_count, g_loads, g_load_count
+ | Params: path -- the state file
+ | Returns: N/A
+ ----------------------*/
+static void load_state(const char *path)
+{
+    static char line[8192], a[4096], b[4096], c[4096];
+    static uint8_t bytes[RAM_IMAGE];
+    char op[16];
+    FILE *f = fopen(path, "r");
+    if (!f) fail("cannot open", path);
+    while (fgets(line, sizeof line, f)) {
+        int n = sscanf(line, "%15s %4095s %4095s %4095s", op, a, b, c);
+        if (n < 1 || op[0] == '#') continue;
+        if (!strcmp(op, "fill") && n == 2) {
+            uint8_t v;
+            hex_bytes(a, &v, 1);
+            for (int i = 0; i < 0x100; i++) cpu_ram_write(1, (uint16_t)i, v);
+            for (int i = 0; i < 0x200; i++) cpu_wram_write((uint16_t)i, v);
+            for (int i = 0; i < 0xC6; i++) cpu_xram_write((uint16_t)i, v);
+        } else if (!strcmp(op, "ram") && n == 2) {
+            if (!g_field_count) fail("ram needs", "--hw");
+            hex_bytes(a, bytes, RAM_IMAGE);
+            for (int i = 0; i < g_field_count; i++) {
+                const HwField *h = &g_fields[i];
+                for (int k = 0; k < h->size; k++) {
+                    if (h->wram) cpu_wram_write((uint16_t)(h->addr + k), bytes[h->offset + k]);
+                    else cpu_ram_write(1, (uint16_t)(h->addr + k), bytes[h->offset + k]);
+                }
+            }
+        } else if (!strcmp(op, "fb") && n == 2) {
+            hex_bytes(a, bytes, FB_BYTES);
+            for (int i = 0; i < FB_BYTES; i++) cpu_xram_write((uint16_t)i, bytes[i]);
+        } else if (!strcmp(op, "poke") && n == 4) {
+            unsigned addr = (unsigned)strtoul(b, NULL, 16);
+            size_t len = strlen(c) / 2;
+            if (len > sizeof bytes) fail("poke too long in", path);
+            hex_bytes(c, bytes, len);
+            for (size_t i = 0; i < len; i++) {
+                if (!strcmp(a, "bank1") && addr + i < 0x100) cpu_ram_write(1, (uint16_t)(addr + i), bytes[i]);
+                else if (!strcmp(a, "wram") && addr + i < 0x200) cpu_wram_write((uint16_t)(addr + i), bytes[i]);
+                else if (!strcmp(a, "xram") && addr + i < 0xC6) cpu_xram_write((uint16_t)(addr + i), bytes[i]);
+                else fail("bad poke in", path);
+            }
+        } else if (!strcmp(op, "reg") && n == 3) {
+            static const uint8_t sfr[6] = {SFR_ACC, SFR_B, SFR_C, SFR_TRL, SFR_TRH, SFR_PSW};
+            unsigned regs = parse_regs(a);
+            int i = 0;
+            while (i < 6 && regs != (1u << i)) i++;
+            if (i == 6) fail("bad reg line in", path);
+            cpu_sfr_write(sfr[i], (uint8_t)strtoul(b, NULL, 16));
+        } else if (!strcmp(op, "poison") && n == 3) {
+            long addr = label_addr(a);
+            if (addr < 0) fail("no such routine in the map:", a);
+            if (g_poison_count == MAX_POISON) fail("too many poison lines in", path);
+            g_poison[g_poison_count].addr = (uint16_t)addr;
+            g_poison[g_poison_count++].regs = parse_regs(b);
+        } else if (!strcmp(op, "ret") && n == 2) {
+            if (g_ret_count == MAX_RETS) fail("too many ret lines in", path);
+            g_rets[g_ret_count++] = (uint32_t)strtoul(a, NULL, 16);
+        } else if (!strcmp(op, "load") && n == 2) {
+            if (g_load_count == MAX_LOADS) fail("too many load lines in", path);
+            hex_bytes(a, g_loads[g_load_count++], SAVE_BLOCK);
+        } else {
+            fail("bad line in", path);
+        }
+    }
+    fclose(f);
+}
+
+/*----------------------
+ | poison_at
+ | Description: The poison list declared for the routine at a code address.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_poison, g_poison_count
+ | Params: addr -- the routine's entry
+ | Returns: REG_* bits, 0 when none was declared
+ ----------------------*/
+static unsigned poison_at(uint16_t addr)
+{
+    for (int i = 0; i < g_poison_count; i++)
+        if (g_poison[i].addr == addr) return g_poison[i].regs;
+    return 0;
+}
+
+/*----------------------
+ | rt_at
+ | Description: The runtime routine --call stands in for at a code address.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: g_rt_addr
+ | Params: pc -- the address
+ | Returns: the RT_ENTRIES index, or -1
+ ----------------------*/
+static int rt_at(uint16_t pc)
+{
+    for (int i = 0; i < RT_COUNT; i++)
+        if (g_rt_addr[i] == (long)pc) return i;
+    return -1;
+}
+
+/*----------------------
+ | save_load
+ | Description: Copies the next replayed save block into the vmu_ram fields from a packed offset on, as vmu_save_read's memcpy fills vmu_ram; bytes no field holds are left alone.
+ | Author: suinevere
+ | Dependencies: cpu_ram_write, cpu_wram_write, fail
+ | Globals: g_fields, g_field_count, g_loads, g_load_count, g_load_next
+ | Params: dst -- the packed vmu_ram offset (TRH:TRL)
+ | Returns: N/A
+ ----------------------*/
+static void save_load(uint16_t dst)
+{
+    if (g_load_next == g_load_count) fail("rt_save_read has no load line for", "--call");
+    const uint8_t *src = g_loads[g_load_next++];
+    for (int i = 0; i < g_field_count; i++) {
+        const HwField *h = &g_fields[i];
+        for (int k = 0; k < h->size; k++) {
+            int at = h->offset + k - dst;
+            if (at < 0 || at >= SAVE_BLOCK) continue;
+            if (h->wram) cpu_wram_write((uint16_t)(h->addr + k), src[at]);
+            else cpu_ram_write(1, (uint16_t)(h->addr + k), src[at]);
+        }
+    }
+}
+
+/*----------------------
+ | stand_in
+ | Description: Runs a runtime routine in --call mode without its code: logs it with its argument registers, poisons what it destroys, gives it the next replayed result and returns to its caller; an rt_save_read that succeeds also copies the next load line into vmu_ram (save_load), and rt_power's exit modes end the run instead.
+ | Author: suinevere
+ | Dependencies: poison_regs, save_load, cpu_sfr, cpu_sfr_write, cpu_ram, cpu_set_pc, fail
+ | Globals: g_hw, g_hw_count, g_rets, g_ret_count, g_ret_next
+ | Params: rt -- the RT_ENTRIES index
+ | Returns: false when the routine never returns (rt_power exiting)
+ ----------------------*/
+static bool stand_in(int rt)
+{
+    const RtEntry *e = &RT_ENTRIES[rt];
+    uint32_t ret = g_ret_next < g_ret_count ? g_rets[g_ret_next] : 0;
+    uint8_t acc = cpu_sfr(SFR_ACC), sp;
+    if (g_hw_count == MAX_HW) fail("too many runtime calls for", "--call");
+    g_hw[g_hw_count++] = (HwLog){rt, acc, cpu_sfr(SFR_B), cpu_sfr(SFR_C), cpu_sfr(SFR_TRH), cpu_sfr(SFR_TRL)};
+    g_ret_next++;
+    if (!strcmp(e->rt, "rt_power") && (acc == 2 || acc == 3)) return false;
+    if (!strcmp(e->rt, "rt_save_read") && ret == 0) save_load((uint16_t)(cpu_sfr(SFR_TRH) << 8 | cpu_sfr(SFR_TRL)));
+    poison_regs(e->poison);
+    if (e->result == RES_ACC) cpu_sfr_write(SFR_ACC, (uint8_t)ret);
+    if (e->result == RES_TR) {
+        cpu_sfr_write(SFR_TRL, (uint8_t)ret);
+        cpu_sfr_write(SFR_TRH, (uint8_t)(ret >> 8));
+    }
+    sp = cpu_sfr(SFR_SP);
+    cpu_set_pc((uint16_t)((cpu_ram(0, sp) << 8) | cpu_ram(0, (uint8_t)(sp - 1))));
+    cpu_sfr_write(SFR_SP, (uint8_t)(sp - 2));
+    return true;
+}
+
+/*----------------------
+ | close_returns
+ | Description: Closes each open call whose return has just happened (the PC at its return address, the stack back below it), poisoning what its routine declared it destroys.
+ | Author: suinevere
+ | Dependencies: poison_regs, cpu_pc, cpu_sfr
+ | Globals: g_shadow, g_shadow_count
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void close_returns(void)
+{
+    while (g_shadow_count && cpu_pc() == g_shadow[g_shadow_count - 1].ret &&
+           cpu_sfr(SFR_SP) == (uint8_t)(g_shadow[g_shadow_count - 1].sp - 2)) {
+        poison_regs(g_shadow[g_shadow_count - 1].regs);
+        g_shadow_count--;
+    }
+}
+
+/*----------------------
+ | bank1_at
+ | Description: A byte of RAM bank 1, as write_hex reads one.
+ | Author: suinevere
+ | Dependencies: cpu_ram
+ | Globals: N/A
+ | Params: addr -- the address
+ | Returns: the byte
+ ----------------------*/
+static uint8_t bank1_at(uint16_t addr)
+{
+    return cpu_ram(1, addr);
+}
+
+/*----------------------
+ | write_hex
+ | Description: Writes a tagged line of hex bytes to --call's output.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: f -- the output; tag -- the line's first word; get -- byte reader; n -- byte count
+ | Returns: N/A
+ ----------------------*/
+static void write_hex(FILE *f, const char *tag, uint8_t (*get)(uint16_t), int n)
+{
+    fprintf(f, "%s ", tag);
+    for (int i = 0; i < n; i++) fprintf(f, "%02X", get((uint16_t)i));
+    fputc('\n', f);
+}
+
+/*----------------------
+ | write_out
+ | Description: Writes --call's output: status, cycles executed (runtime calls stood in for count none), the deepest stack pointer and its depth above 0x7F, the registers at entry (entry lines) and on return (reg lines), each runtime call as hw VMU RT ACC B C TRH TRL, then all of RAM bank 1, work RAM and XRAM as hex.
+ | Author: suinevere
+ | Dependencies: write_hex, bank1_at, cpu_wram, cpu_xram, cpu_sfr, fail
+ | Globals: g_hw, g_hw_count, g_stack_max, g_entry_regs, OUT_REGS, OUT_SFRS
+ | Params: path -- the output file; status -- returned, exit, halted, limit or unbalanced; cycles -- cycles executed
+ | Returns: N/A
+ ----------------------*/
+static void write_out(const char *path, const char *status, uint64_t cycles)
+{
+    FILE *f = fopen(path, "w");
+    if (!f) fail("cannot write", path);
+    fprintf(f, "status %s\ncycles %llu\nstack_max %02X\nstack_depth %d\n", status, (unsigned long long)cycles, g_stack_max,
+            g_stack_max - CALL_SP);
+    for (int i = 0; i < 9; i++) fprintf(f, "entry %s %02X\n", OUT_REGS[i], g_entry_regs[i]);
+    for (int i = 0; i < 9; i++) fprintf(f, "reg %s %02X\n", OUT_REGS[i], cpu_sfr(OUT_SFRS[i]));
+    for (int i = 0; i < g_hw_count; i++) {
+        const HwLog *h = &g_hw[i];
+        fprintf(f, "hw %s %s %02X %02X %02X %02X %02X\n", RT_ENTRIES[h->rt].vmu, RT_ENTRIES[h->rt].rt, h->acc, h->b, h->c, h->trh,
+                h->trl);
+    }
+    write_hex(f, "bank1", bank1_at, 0x100);
+    write_hex(f, "wram", cpu_wram, 0x200);
+    write_hex(f, "xram", cpu_xram, 0xC6);
+    fclose(f);
+}
+
+/*----------------------
+ | call_mode
+ | Description: --call: boots, poisons the registers (ENTRY_POISON), loads the state, whose reg lines set the arguments, notes the entry registers, masks interrupts, pushes the halt stub's address as the return and runs the routine until it gets back there. Runtime routines are stood in for (stand_in); every other call is tracked so its return poisons what its routine declared, the routine under test's own list included. Interrupts stay masked, so --schedule changes nothing here.
+ | Author: suinevere
+ | Dependencies: boot, load_state, label_addr, poison_at, rt_at, stand_in, step, close_returns, write_out, fail
+ | Globals: g_rt_addr, g_shadow, g_shadow_count, g_stack_max, g_entry_regs, g_cycles, g_bank
+ | Params: routine -- the routine's label; state -- the state file; out -- the output file; max_cycles -- the budget, or -1 for CALL_MAX_CYCLES
+ | Returns: does not return
+ ----------------------*/
+static _Noreturn void call_mode(const char *routine, const char *state, const char *out, long long max_cycles)
+{
+    long entry = label_addr(routine), halt = label_addr(CALL_HALT_LABEL);
+    const char *status = "limit";
+    uint64_t start;
+    if (entry < 0) fail("no such routine in the map:", routine);
+    if (halt < 0) fail("no halt stub in the map:", CALL_HALT_LABEL);
+    for (int i = 0; i < RT_COUNT; i++) g_rt_addr[i] = label_addr(RT_ENTRIES[i].rt);
+    boot();
+    poison_regs(ENTRY_POISON);
+    load_state(state);
+    for (int i = 0; i < 9; i++) g_entry_regs[i] = cpu_sfr(OUT_SFRS[i]);
+    cpu_sfr_write(SFR_IE, 0x03);
+    cpu_ram_write(0, CALL_SP + 1, (uint8_t)halt);
+    cpu_ram_write(0, CALL_SP + 2, (uint8_t)(halt >> 8));
+    cpu_sfr_write(SFR_SP, CALL_SP + 2);
+    g_stack_max = CALL_SP + 2;
+    g_shadow[0] = (Shadow){(uint16_t)halt, CALL_SP + 2, poison_at((uint16_t)entry)};
+    g_shadow_count = 1;
+    cpu_set_pc((uint16_t)entry);
+    start = g_cycles;
+    if (max_cycles < 0) max_cycles = CALL_MAX_CYCLES;
+    while (g_cycles - start < (unsigned long long)max_cycles) {
+        uint16_t pc = cpu_pc();
+        uint8_t sp0;
+        int rt = g_bank == LC8670_BANK_FLASH_0 ? rt_at(pc) : -1;
+        if (g_bank == LC8670_BANK_FLASH_0 && pc == (uint16_t)halt) {
+            status = g_shadow_count ? "unbalanced" : "returned";
+            break;
+        }
+        if (rt >= 0) {
+            if (!stand_in(rt)) {
+                status = "exit";
+                break;
+            }
+            close_returns();
+            continue;
+        }
+        if (cpu_halted()) {
+            status = "halted";
+            break;
+        }
+        sp0 = cpu_sfr(SFR_SP);
+        step();
+        if (cpu_sfr(SFR_SP) > g_stack_max) g_stack_max = cpu_sfr(SFR_SP);
+        if (cpu_sfr(SFR_SP) == (uint8_t)(sp0 + 2)) {
+            uint8_t sp = cpu_sfr(SFR_SP);
+            if (g_shadow_count == MAX_SHADOW) fail("calls nest too deep for", "--call");
+            g_shadow[g_shadow_count++] =
+                (Shadow){(uint16_t)((cpu_ram(0, sp) << 8) | cpu_ram(0, (uint8_t)(sp - 1))), sp, poison_at(cpu_pc())};
+        }
+        close_returns();
+    }
+    write_out(out, status, g_cycles - start);
+    printf("call %s %s cycles %llu\n", routine, status, (unsigned long long)(g_cycles - start));
+    fflush(stdout);
+    exit(0);
+}
+
+/*----------------------
  | main
  | Description: Parses the options, boots the GAME and runs it until it exits, ends its script, stops in ROM, halts with nothing left to wake it, or passes --max-cycles. Each idle index's first input applies at its start (index 0 before the first instruction, later ones at their RT_IDLE_MARK write), each next at a quiet halt after a wake, or at once if nothing could wake the CPU.
  | Author: suinevere
- | Dependencies: load_flash, load_hw, load_map, load_script, load_inputs, boot, advance, after_step, step, idle_skip, apply_event, event_due, begin_idle, finish
+ | Dependencies: load_flash, load_hw, load_map, load_script, load_inputs, boot, advance, after_step, step, idle_skip, apply_event, event_due, begin_idle, finish, call_mode
  | Globals: g_log, g_dump, g_marks, g_buzz, g_out_flash, g_cycles, g_steps, g_idle_index, g_idle_marks, g_in_halt, g_woke, g_scripted, g_report
- | Params: argc, argv -- --flash IMG or --game FILE, [--script S.pks] [--inputs EVENTS] [--scenario S.bin] [--schedule idle|real] [--dump OUT --hw HW.json] [--log OUT] [--marks OUT] [--buzz OUT] [--out-flash OUT] [--report --map GAME.map] [--max-cycles N]
- | Returns: 0 on exit, script end or a final halt, 1 on the cycle limit, 2 on a usage error, 3 on an unmodelled ROM entry or return or a buzzer setting no tone has
+ | Params: argc, argv -- --flash IMG or --game FILE, [--script S.pks] [--inputs EVENTS] [--scenario S.bin] [--schedule idle|real] [--dump OUT --hw HW.json] [--log OUT] [--marks OUT] [--buzz OUT] [--out-flash OUT] [--report --map GAME.map] [--max-cycles N]; or --flash IMG --map MAP --hw HW.json --call ROUTINE --state IN --out OUT [--schedule idle|real] [--max-cycles N] (call_mode)
+ | Returns: 0 on exit, script end, a final halt or a --call run, 1 on the cycle limit, 2 on a usage error, 3 on an unmodelled ROM entry or return or a buzzer setting no tone has
  ----------------------*/
 int main(int argc, char **argv)
 {
     const char *image = NULL, *script = NULL, *inputs = NULL, *scenario = NULL, *dump = NULL, *log = NULL, *hw = NULL, *marks = NULL, *buzz = NULL,
-               *map = NULL;
+               *map = NULL, *call = NULL, *state = NULL, *out = NULL;
     bool idle = true;
     long long max_cycles = -1;
 
@@ -1438,7 +1975,22 @@ int main(int argc, char **argv)
         else if (strcmp(a, "--hw") == 0) hw = v;
         else if (strcmp(a, "--map") == 0) map = v;
         else if (strcmp(a, "--max-cycles") == 0) max_cycles = strtoll(v, NULL, 10);
+        else if (strcmp(a, "--call") == 0) call = v;
+        else if (strcmp(a, "--state") == 0) state = v;
+        else if (strcmp(a, "--out") == 0) out = v;
         else fail("bad option", a);
+    }
+    if (call) {
+        if (!image || !map || !hw || !state || !out || script || inputs || dump || g_report) {
+            fprintf(stderr, "usage: vmu_harness --flash IMG --map MAP --hw HW.json --call ROUTINE --state IN --out OUT [--schedule idle|real] "
+                            "[--max-cycles N]\n");
+            return 2;
+        }
+        load_flash(image);
+        load_hw(hw);
+        load_map(map);
+        (void)idle;
+        call_mode(call, state, out, max_cycles);
     }
     if (!image || (script && scenario) || (dump && !hw) || (g_report && !map)) {
         fprintf(stderr, "usage: vmu_harness --flash IMG [--script S.pks | --scenario S.bin] [--inputs EVENTS] [--schedule idle|real] "

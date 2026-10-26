@@ -109,7 +109,10 @@ def test_send_writes_ring_ring_land_as_the_jp_game_fills_it(send_run):
     assert sent is not None and len(sent) == 0xC000
     with open(RES1506, "rb") as f:
         res = f.read()
-    assert sent[:len(res)] == psk_file.pet_transfer(res, 7, 9, PET, PLACED_LANDS, MAXED_MANA)
+    kept = vmu_image.PET_KEPT_BYTES
+    assert sent[:kept] == psk_file.pet_transfer(res, 7, 9, PET, PLACED_LANDS, MAXED_MANA)[:kept]
+    assert sent[kept:] == bytes(0xC000 - kept)
+    assert len(vmu_image.chain(img, vmu_image.vmu_name_for_ps1(RRL_NAME))) <= 5
 
 
 def test_send_empties_the_ranch_slot(send_run):

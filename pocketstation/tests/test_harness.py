@@ -92,7 +92,7 @@ def test_flash_image_lists_game_and_pet():
         assert len(img) == 131072
         assert vmu_image.files(img)[0] == ("HALT", code + b"\0" * (-len(code) % 512))
         assert vmu_image.chain(img, "HALT") == list(range((len(code) + 511) // 512))
-        assert vmu_image.ps1_file(img, "BASLUSP01013") == payload
+        assert vmu_image.ps1_file(img, "BASLUSP01013") == payload[:vmu_image.PET_KEPT_BYTES] + bytes(len(payload) - vmu_image.PET_KEPT_BYTES)
         blocks = vmu_image.chain(img, vmu_image.vmu_name_for_ps1("BASLUSP01013"))
         contiguous = all(a - b == 1 for a, b in zip(blocks, blocks[1:]))
         assert contiguous == (extra == [])
@@ -233,11 +233,11 @@ def test_pet_package_matches_r2s_kos_write(harness):
     assert pkg[16:48] == b"BASLUSP01013".ljust(32, b" ")
     assert pkg[48:64] == app.encode().ljust(16, b"\0")
     assert struct.unpack_from("<HHH", pkg, 0x40) == (count, 8, 0)
-    assert struct.unpack_from("<I", pkg, 0x48)[0] == len(payload)
-    assert pkg[0x4C:0x60] == bytes(20)
+    assert struct.unpack_from("<II", pkg, 0x48) == (vmu_image.PET_KEPT_BYTES, len(payload))
+    assert pkg[0x50:0x60] == bytes(16)
     assert pkg[0x60:0x80] == icon[1:33]
     assert pkg[0x80:0x80 + 512 * count] == icon[33:]
-    assert pkg[0x80 + 512 * count:] == bytes(payload)
+    assert pkg[0x80 + 512 * count:] == bytes(payload[:vmu_image.PET_KEPT_BYTES])
     assert struct.unpack_from("<H", pkg, 0x46)[0] == vmu_image.vms_crc(pkg[:0x46] + b"\0\0" + pkg[0x48:])
     plain = vmu_flash.package("BASLUSP01013", bytes(0x100))
     assert struct.unpack_from("<H", plain, 0x40)[0] == 1 and plain[0x80:0x280] == bytes(512)

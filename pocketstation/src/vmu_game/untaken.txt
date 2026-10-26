@@ -1,0 +1,17 @@
+#----------------------
+# | untaken.txt
+# | Description: Branch outcomes no record takes, scripted or synthetic, that test_level_outcomes_covered accepts: one line each, FUNCTION PROBE OUTCOME REASON, probes as in pocketstation/build/record/probes.txt.
+# | Author: suinevere
+# | Dependencies: pocketstation/tools/untaken.py, pocketstation/tests/test_vmu_game.py
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+game_save 0 true The retry needs vmu_save_write to fail once and then succeed; the host's save fails only on a bad sector or range, permanently, so the C would retry forever.
+game_state_reset 0 true The retry needs vmu_save_read to fail once and then succeed; the host's save fails only on a bad sector or range, permanently, so the C would retry forever.
+game_power_down 0 true The wait needs a button line still up; the host changes buttons only at vmu_present, which this loop never reaches, so the C would idle forever.
+game_strip_pick_three 5 false The bit search reaches bit 32 only when a draw's n is not below the set bits left, and then the C spins there forever, so no call returns to be recorded.
+game_strip_pick_three 8 false As probe 5: the bit stops at 32 only in the search that never ends.
+game_bag_kinds 0 false Every item table entry's kind, its low byte at 0x8094, is 0-3, so no bag item has a kind of 32 or more.
+plot_rows 5 false With height at most 32 and y negative, height + y is always below 32; the 32 cap is defensive.
+game_dock_check 0 true With the dock line raised the C runs game_dock_quit, which leaves through vmu_power and never returns to be recorded; g_dock_quit is checked by reading.

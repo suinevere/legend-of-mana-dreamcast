@@ -1,0 +1,9 @@
+# pet_save.scn: one save write on the full pet package R2 sends, for rt_test only (pocketstation/tools/scenario.py).
+# Author: suinevere
+# The pet save is RES1506 with a pet transferred, padded to 0xC000 bytes: 99 blocks, two icon frames. Sector 6 (the
+# game's SAVE_SECTOR, payload 0x300-0x37F) is read into WRAM 0x180, two pet fields in it change (the PetRecord's first
+# byte at payload 0x358 and its level at 0x370) and it is written back, as the game's save does.
+save_read 6 0x180
+ram_write 0x1D8 0x6B
+ram_write 0x1F0 0x2A
+save_write 6 0x180

@@ -391,10 +391,53 @@ def save_unpack(data, size):
 
 
 #----------------------
-# | package_payload
-# | Description: The PS1 file a VMS package carries after its 128-byte header and icon frames, decompressed unless its stored length equals the uncompressed size at RAW_LEN_OFFSET.
+# | PET_PS1_NAME / PET_KEPT_BYTES
+# | Description: Ring Ring Land's PS1 file and the prefix of it card_store_kos.c keeps uncompressed: CARDA reads only its first 0x400 bytes.
 # | Author: suinevere
-# | Dependencies: save_unpack, struct
+# | Dependencies: src/card/vmu_format.c
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+PET_PS1_NAME = "BASLUSP01013"
+PET_KEPT_BYTES = 0x400
+
+
+#----------------------
+# | kept_bytes
+# | Description: vmu_format.c's vmu_kept_bytes: how many leading bytes of a PS1 file are stored uncompressed in place of the whole, or 0 to store it whole.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: PET_PS1_NAME, PET_KEPT_BYTES
+# | Params: ps1_name -- PS1 file name, size -- the file's byte count
+# | Returns: bytes kept, or 0
+#----------------------
+def kept_bytes(ps1_name, size):
+    return PET_KEPT_BYTES if ps1_name.startswith(PET_PS1_NAME) and size > PET_KEPT_BYTES else 0
+
+
+#----------------------
+# | stored_bytes
+# | Description: What card_store_kos.c stores for a PS1 file: its kept prefix, else the file LZSS-compressed unless that saves nothing.
+# | Author: suinevere
+# | Dependencies: kept_bytes, save_pack
+# | Globals: N/A
+# | Params: ps1_name -- PS1 file name, payload -- file bytes
+# | Returns: stored bytes
+#----------------------
+def stored_bytes(ps1_name, payload):
+    kept = kept_bytes(ps1_name, len(payload))
+    if kept:
+        return bytes(payload[:kept])
+    packed = save_pack(payload)
+    return packed if len(packed) < len(payload) else bytes(payload)
+
+
+#----------------------
+# | package_payload
+# | Description: The PS1 file a VMS package carries after its 128-byte header and icon frames, decompressed unless its stored length equals the uncompressed size at RAW_LEN_OFFSET; a kept prefix comes back zero-filled.
+# | Author: suinevere
+# | Dependencies: kept_bytes, save_unpack, struct
 # | Globals: RAW_LEN_OFFSET
 # | Params: data -- package bytes
 # | Returns: payload bytes
@@ -404,21 +447,26 @@ def package_payload(data):
     raw_len, = struct.unpack_from("<I", data, RAW_LEN_OFFSET)
     start = 128 + 512 * icons
     stored = bytes(data[start:start + data_len])
-    return stored if data_len == raw_len else save_unpack(stored, raw_len)
+    desc = bytes(data[16:48]).rstrip(b" \0").decode("ascii", "replace")
+    kept = kept_bytes(desc, raw_len)
+    if data_len == raw_len:
+        return stored
+    if kept and data_len == kept:
+        return stored + bytes(raw_len - kept)
+    return save_unpack(stored, raw_len)
 
 
 #----------------------
 # | build_package
-# | Description: A VMS package as card_store_kos.c builds one: the long description, icon frames, the payload compressed unless that saves nothing, its uncompressed size and the CRC.
+# | Description: A VMS package as card_store_kos.c builds one: the long description, icon frames, the payload as stored_bytes keeps it, its uncompressed size and the CRC.
 # | Author: suinevere
-# | Dependencies: save_pack, vms_crc, struct
+# | Dependencies: stored_bytes, vms_crc, struct
 # | Globals: RAW_LEN_OFFSET
 # | Params: desc_long -- long description, payload -- PS1 file bytes, icons -- icon frame bytes, a multiple of 512
 # | Returns: package bytes
 #----------------------
 def build_package(desc_long, payload, icons=b"\0" * 512):
-    packed = save_pack(payload)
-    stored = packed if len(packed) < len(payload) else bytes(payload)
+    stored = stored_bytes(desc_long, payload)
     header = bytearray(128)
     header[0:16] = b"LEGEND OF MANA".ljust(16)
     header[16:48] = desc_long.encode("ascii")[:32].ljust(32)
@@ -469,7 +517,7 @@ def vms_crc(data):
 # | set_ps1_file
 # | Description: Replaces the PS1 file stored under a PS1 name with new bytes, keeping its header and icons, recompressing it and growing or shrinking its block chain to fit.
 # | Author: suinevere
-# | Dependencies: _fat, _put_fat, _entries, _chain, vmu_name_for_ps1, save_pack, vms_crc, struct
+# | Dependencies: _fat, _put_fat, _entries, _chain, vmu_name_for_ps1, stored_bytes, vms_crc, struct
 # | Globals: BLOCK, DATA_TYPE, END, FREE, USER_BLOCKS, RAW_LEN_OFFSET
 # | Params: img -- image bytes, ps1_name -- PS1 file name, payload -- new file bytes
 # | Returns: new image bytes; raises ValueError when the file is missing or the card has no room
@@ -485,8 +533,7 @@ def set_ps1_file(img, ps1_name, payload):
         old = b"".join(bytes(img[b * BLOCK:(b + 1) * BLOCK]) for b in blocks)
         icons, = struct.unpack_from("<H", old, 0x40)
         start = 128 + 512 * icons
-        packed = save_pack(payload)
-        stored = packed if len(packed) < len(payload) else bytes(payload)
+        stored = stored_bytes(ps1_name, payload)
         data = bytearray(old[:start] + stored)
         struct.pack_into("<I", data, 0x48, len(stored))
         struct.pack_into("<I", data, RAW_LEN_OFFSET, len(payload))

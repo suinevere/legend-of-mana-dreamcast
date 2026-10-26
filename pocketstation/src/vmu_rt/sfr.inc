@@ -118,6 +118,17 @@ VTRBF	EQU	$166
 VCCR	EQU	$127
 
 ;----------------------
+; | FPR
+; | Description: Flash control: bit 0 picks the flash bank LDF reads, bit 1 unlocks writes, which only the BIOS uses.
+; | Author: suinevere
+; | Dependencies: N/A
+; | Globals: N/A
+; | Params: N/A
+; | Returns: N/A
+;----------------------
+FPR	EQU	$154
+
+;----------------------
 ; | P3 / P3INT
 ; | Description: Port 3, the buttons (active-low; written bits arm lines for the interrupt), and its interrupt control: bit 2 detects held armed lines, bit 1 is the request flag, bit 0 enables the interrupt.
 ; | Author: suinevere

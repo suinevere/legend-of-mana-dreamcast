@@ -1,6 +1,6 @@
 #----------------------
 # | cpu.patch
-# | Description: Drops two stray "*/" lines so the vendored core compiles, and adds the harness's hooks: register and memory accessors, an SFR write callback (ext_sfr_w) and timer event skipping for the idle schedule.
+# | Description: Drops two stray "*/" lines so the vendored core compiles, and adds the harness's hooks: register and memory accessors (work RAM and XRAM writable, for --call), an SFR write callback (ext_sfr_w) and timer event skipping for the idle schedule.
 # | Author: suinevere
 # | Dependencies: cpu.c, cpu.h
 # | Globals: m_pc, m_mram, m_sfr, m_vtrbf, m_xram, m_irq_flag, m_timer0, m_timer1, m_timer0_prescaler, m_base_timer
@@ -9,7 +9,7 @@
 #----------------------
 --- cpu.h	2026-10-23 15:37:24.637125100 -0500
 +++ cpu.h	2026-10-23 15:43:37.932672700 -0500
-@@ -60,4 +60,22 @@
+@@ -60,4 +60,24 @@
  //timers
  void timer_adust(int id, uint32_t freq);
  
@@ -24,6 +24,8 @@
 +void cpu_ram_write(int bank, uint16_t addr, uint8_t data);
 +uint8_t cpu_wram(uint16_t addr);
 +uint8_t cpu_xram(uint16_t index);
++void cpu_wram_write(uint16_t addr, uint8_t data);
++void cpu_xram_write(uint16_t index, uint8_t data);
 +int cpu_irq_pending(void);
 +#define CPU_NO_EVENT 0xFFFFFFFFu
 +uint32_t cpu_clock_ticks_to_event(int wake);
@@ -59,7 +61,7 @@
  	switch(offset)
  	{
  		case 0x00:
-@@ -1954,3 +1953,311 @@
+@@ -1954,3 +1953,330 @@
  };
  
  
@@ -139,6 +141,25 @@
 +uint8_t cpu_xram(uint16_t index)
 +{
 +	return index < sizeof m_xram ? m_xram[index] : 0;
++}
++
++/*----------------------
++ | cpu_wram_write / cpu_xram_write
++ | Description: Writes a byte of the 512-byte work RAM or of the raw XRAM (192 screen bytes, then the icons), for the harness loading a recorded state.
++ | Author: suinevere
++ | Dependencies: N/A
++ | Globals: m_vtrbf, m_xram
++ | Params: addr -- work RAM address; index -- XRAM byte 0-0xC5; data -- byte to write
++ | Returns: N/A
++ ----------------------*/
++void cpu_wram_write(uint16_t addr, uint8_t data)
++{
++	m_vtrbf[addr & 0x1ff] = data;
++}
++
++void cpu_xram_write(uint16_t index, uint8_t data)
++{
++	if (index < sizeof m_xram) m_xram[index] = data;
 +}
 +
 +/*----------------------
