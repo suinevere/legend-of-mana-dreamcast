@@ -42,6 +42,7 @@ typedef struct card_store_entry
  |              list returns a count or -1, read returns bytes or -1, write and remove return 0 or -1.
  |              Optional: write_start begins a background whole-file write, one at a time, whose buffer must stay put until job_poll stops returning 1 (then 0, or -1 on failure);
  |              rewrite renames a stored file and refreshes the blocks holding bytes [offset, offset + len) of its unchanged-size data.
+ |              game_state reports what the slot holds for Ring Ring Land's VMU GAME (a VMU_GAME_* value); game_allow_replace lets the next pet write replace another minigame.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -59,6 +60,8 @@ typedef struct card_store_ops
     int (*write_start)(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size);
     int (*job_poll)(void);
     int (*rewrite)(int slot, const char *old_name, const char *new_name, const unsigned char *buf, unsigned int size, unsigned int offset, unsigned int len);
+    int (*game_state)(int slot);
+    void (*game_allow_replace)(int slot);
 } card_store_ops;
 
 void card_vmu_set_store(const card_store_ops *ops);
@@ -67,5 +70,8 @@ long lom_card_read(long fd, void *buf, long n);
 long lom_card_write(long fd, void *buf, long n);
 long lom_card_close(long fd);
 long lom_card_rename(char *from, char *to);
+int lom_card_game_state(int slot);
+int lom_card_game_last(int slot);
+void lom_card_game_allow_replace(int slot);
 
 #endif

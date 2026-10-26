@@ -71,5 +71,5 @@ press LEFT 6
 wait 30
 capture send-prompt-yes
 press CROSS 6
-wait 1500
+wait 3600
 capture send-done

@@ -229,10 +229,10 @@ g_entry:
 
 ;----------------------
 ; | g_main_loop
-; | Description: game_main_loop: sets up the screen, tick, sound and state block, then runs a frame per tick (mode frame, seed stir, present, buttons), opening the quit dialog on a long fire hold or mode 0xFF and standing by after 0xF00 idle frames. It never returns, so it is checked by the whole-game run.
+; | Description: game_main_loop: sets up the screen, tick, sound and state block, then runs a frame per tick (mode frame, drawn only on even cycle16 frames through draw_skip, seed stir, present, buttons), opening the quit dialog on a long fire hold or mode 0xFF and standing by after 0xF00 idle frames. It never returns, so it is checked by the whole-game run.
 ; | Author: suinevere
-; | Dependencies: g_dock_check, g_fb_clear, g_fb_present, g_ticks_start, g_sound_init, g_state_reset, g_mode0_leave, g_set_idle, g_buttons_init, g_lcd_mode, g_n_arg, g_wait_ticks, g_read_buttons, g_quit_requested, g_quit, g_dock_screen, g_sound_play_waiting, g_mode_frame, g_random, g_quit_dialog, g_standby, rrl_ram.inc (HW_SEED, HW_CYCLE16, HW_BTN_PREV, HW_IDLE_LO, HW_REPEAT_UP, HW_MODE)
-; | Globals: seed, cycle16, mode, btn_prev, idle_lo, repeat_up and what the callees write
+; | Dependencies: g_dock_check, g_fb_clear, g_fb_present, g_ticks_start, g_sound_init, g_state_reset, g_mode0_leave, g_set_idle, g_buttons_init, g_lcd_mode, g_n_arg, g_wait_ticks, g_read_buttons, g_quit_requested, g_quit, g_dock_screen, g_sound_play_waiting, g_mode_frame, g_random, g_quit_dialog, g_standby, rrl_ram.inc (HW_SEED, HW_CYCLE16, HW_DRAW_SKIP, HW_BTN_PREV, HW_IDLE_LO, HW_REPEAT_UP, HW_MODE)
+; | Globals: seed, cycle16, draw_skip, mode, btn_prev, idle_lo, repeat_up and what the callees write
 ; | Params: N/A
 ; | Returns: never
 ;----------------------
@@ -272,6 +272,10 @@ g_main_loop_frame:
 	BZ g_main_loop_run
 	JMPF g_quit
 g_main_loop_run:
+	LD HW_CYCLE16
+	DEC ACC
+	AND #$01
+	ST HW_DRAW_SKIP
 	CALLF g_fb_clear
 	CALLF g_dock_screen
 	CALLF g_sound_play_waiting
@@ -281,6 +285,7 @@ g_main_loop_run:
 	MOV #$10, HW_CYCLE16
 g_main_loop_cycled:
 	CALLF g_mode_frame
+	MOV #$00, HW_DRAW_SKIP
 	MOV #$00, TRL
 	MOV #$01, TRH
 	CALLF g_random

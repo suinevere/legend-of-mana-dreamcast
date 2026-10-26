@@ -112,6 +112,29 @@ shadow call stack stays balanced.
 `test_level_outcomes_covered[N]` requires every branch outcome of the level to
 be taken by a passing record or listed in `untaken.txt`.
 
+## Drawing on a VMU
+
+The game draws straight into XRAM, which is the screen: each frame clears its
+32 columns and redraws them while the LCD shows them. On `race` the game's work
+took 21,277 of a frame's 30,766 cycles on average, about 70% of it drawing, so a
+VMU showed a half-drawn picture about half the time and moving sprites smeared.
+There is no RAM for a back buffer: bank 1 and work RAM are allocated to the last
+byte, and bank 0 holds the BIOS's variables and the stack.
+
+So the main loop draws only every other frame. `draw_skip` (bank 1 `0xFC`) is
+set from the parity of `cycle16`'s next value before the frame's clear and
+cleared after `game_mode_frame`. While it is set nothing reaches the screen,
+and the last finished picture stays up. In the C, `set_fb_row` masks its write,
+without a branch. In the assembly, `g_fb_clear`, `g_fb_put_rows` and
+`g_plot_core` return at once, and `g_run_fill` and `g_run_xor` skip only their
+screen rows. Game logic, animation timing, sound and buttons run every frame
+as before; every other loop draws every frame. `race` now averages 16,229
+cycles a frame, and its missed ticks fell from 320 to 167.
+
+`test_skipped_frames_keep_the_last_picture` checks the skipped frames, and
+`state_compare.py` leaves out the pixels of those frames when it compares the
+VMU-shaped C with the original.
+
 ## Whole-game checks
 
 `test_vmu_game.py`'s `whole_game` fixture runs each script twice: once through
@@ -129,8 +152,8 @@ be taken by a passing record or listed in `untaken.txt`.
   that outlast their tick are listed in `pocketstation/build/vmu_game/overruns.txt`
   with frame, scene (the `mode` field) and why. A frame excused as `changed`
   (its scene changed) or `saved` (a flash write ran) is allowed. The test fails
-  if the unexcused ones grow past the counts accepted at R3b-3's close (race
-  320, menu 0, buttons 588) or fall outside the board scenes 3, 4, 6 and 7.
+  if the unexcused ones grow past race 167, menu 0 and buttons 318 (R3b-3's
+  close accepted 320 and 588; drawing every other frame lowered them) or fall outside the board scenes 3, 4, 6 and 7.
 - `test_stack_fits`: the deepest stack pointer seen is at most 0xF0. It is 0xE1
   on race, buttons, laps and save. The BIOS clock path adds about 15-20 bytes
   on hardware, which the harness does not run, so the stack reaches about 0xF5
@@ -143,3 +166,32 @@ be taken by a passing record or listed in `untaken.txt`.
 `NAME ALL OVER` line per label: the cycles executed from that label to the next
 over all frames and over overrun frames only. This is how to find what to
 optimise in a frame that overruns.
+
+## Installing from the Dreamcast
+
+The Dreamcast port installs the GAME when CARDA sends a pet to a VMU. The disc
+build copies `pocketstation/build/vmu_game/rrl.vms` to `/cd/VMU/RRL.VMS` and fails
+without it, so `make -C pocketstation/src/vmu_game game` (in the `lom-pocket` image)
+runs first.
+
+The VMU BIOS runs a GAME from block 0 straight through flash. KallistiOS gives a
+GAME the lowest free blocks without requiring them to be one run, so the store
+decides first, in `dreamcast/src/card/vmu_game.c`, from the VMU's FAT and
+directory:
+
+| What the VMU holds | What sending a pet does |
+|---|---|
+| No GAME, blocks 0-120 free and room for the pet | Writes the GAME as `RINGRINGLAND`, then the pet |
+| `RINGRINGLAND` already | Rewrites it if its bytes differ from the disc's, then writes the pet |
+| Another GAME | Asks "Replace the other VMU game?"; Yes deletes it and installs ours, No goes back to slot selection |
+| Any of blocks 0-120 holding another file, or too few free blocks | Refuses with "Ring Ring Land requires / 126 Blocks to download." and keeps the pet |
+
+The GAME is written inside the pet write (`card_store_kos.c`'s `kos_write` for
+`BASLUSP01013`). After writing, the store reads the FAT back and requires the GAME
+at block 0 in one unbroken chain, deleting it and failing the send otherwise.
+
+`dreamcast/tests/test_vmu_game_host.py` tests the classifier on the host;
+`dreamcast/tests/test_pet_transfer_flycast.py` sends a pet on Flycast from a blank
+VMU, an older Ring Ring Land, another minigame (with and without a pet there), a
+declined prompt and a VMU whose low blocks hold a save. Flycast cannot run VMU
+games, so playing the GAME is a hardware check.

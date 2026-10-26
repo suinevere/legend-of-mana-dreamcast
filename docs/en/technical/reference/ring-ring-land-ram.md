@@ -44,8 +44,9 @@ directly addressed bank, and the rest are WRAM from address `0x000`;
 to the other. The stack reserve is left out there, as the VMU's stack lives in
 bank 0. The first 32 bytes of bank 1, `rt_reserved`, belong to the VMU runtime:
 its indirect registers R0-R3 sit at `0x00`-`0x03`, and no game field goes there.
-Bank 1's last seven bytes, `rt_input` at `0x0F9`-`0x0FF`, hold the runtime's
-input state, and the packer keeps game fields out of them too.
+Bank 1's last seven bytes hold the runtime's input state (`rt_input`,
+`0x0F9`-`0x0FB`) and the main loop's `draw_skip` (`0x0FC`), and the packer
+keeps game fields out of them too.
 WRAM's last 24 bytes, `rt_save` at `0x2E8`-`0x2FF`, hold the pet save's block
 list the runtime finds at reset, so the stack reserve sits past WRAM's end.
 
@@ -137,7 +138,8 @@ VMU times a sound's end instead of playing its samples, so `snd_start`,
 | `0x077` | bank 1 `0x77` | `0x3FC` | `bag_cursor` | u8 | cursor into the item list |
 | `0x078` | bank 1 `0x78` | `0x3E2` | `bag_full` | u8 | set when the item list fills |
 | `0x079` | bank 1 `0x79` | `0x2C0` | `blit_a` | u32[32] | the blitter's first shifted copy of a sprite |
-| `0x0F9` | bank 1 `0xF9` | - | `rt_input` | u8[7] | the VMU runtime's input state in bank 1's last bytes: buttons held, buttons read as released until let go, and the Sleep, quit and LCD flags; no game field uses it |
+| `0x0F9` | bank 1 `0xF9` | - | `rt_input` | u8[3] | the VMU runtime's input state in bank 1's last bytes: buttons held, buttons read as released until let go, and the Sleep, quit and LCD flags; no game field uses it |
+| `0x0FC` | bank 1 `0xFC` | - | `draw_skip` | u8 | nonzero while an odd frame's clear and mode step run, so nothing they draw reaches the screen and the VMU keeps the last finished picture; zero (draw) everywhere else |
 | `0x100` | WRAM `0x000` | `0x340` | `blit_b` | u32[32] | the blitter's second shifted copy (masks) |
 | `0x180` | WRAM `0x080` | `0x5D4` | `ticks` | u8[6] | three (count, seen) tick counter pairs; the timer callback advances count, the frame wait records seen |
 | `0x186` | WRAM `0x086` | `0x464` | `board_list` | u8[32] | the board draw's on-screen cells as (y, x, cell) byte triples, the walker's own cell first |

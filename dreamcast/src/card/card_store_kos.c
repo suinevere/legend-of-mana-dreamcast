@@ -1,9 +1,9 @@
 /*----------------------
  | card_store_kos.c
- | Description: Keeps each PS1 card file as one LZSS-compressed VMS package on a VMU through KallistiOS vmufs: slot n is the nth VMU found, a file's VMU name comes from vmu_name_for_ps1 and its long description holds the full PS1 name.
+ | Description: Keeps each PS1 card file as one LZSS-compressed VMS package on a VMU through KallistiOS vmufs: slot n is the nth VMU found, a file's VMU name comes from vmu_name_for_ps1 and its long description holds the full PS1 name; the pet transfer also puts Ring Ring Land's VMU GAME at block 0.
  | Author: suinevere
- | Dependencies: kos.h, dc/vmufs.h, dc/vmu_pkg.h, dc/maple/vmu.h, card_store_kos.h, card_vmu.c, vmu_format.h, save_pack.h
- | Globals: s_lcd, s_job, s_job_state
+ | Dependencies: kos.h, dc/vmufs.h, dc/vmu_pkg.h, dc/maple/vmu.h, card_store_kos.h, card_vmu.c, vmu_format.h, vmu_game.h, save_pack.h
+ | Globals: s_lcd, s_job, s_job_state, s_game, s_game_size, s_replace_ok, s_root, s_fat, s_dir, s_dirents, s_dirent_count, s_pet_present
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -15,6 +15,7 @@
 #include <dc/maple/vmu.h>
 #include "card_store_kos.h"
 #include "vmu_format.h"
+#include "vmu_game.h"
 #include "save_pack.h"
 
 /*----------------------
@@ -336,10 +337,292 @@ static int build_package(const char *ps1_name, const unsigned char *buf, unsigne
 }
 
 /*----------------------
- | kos_write
- | Description: Stores a PS1 file as a VMS package, replacing any file of the same name.
+ | KOS_PET_PS1_NAME / KOS_GAME_PATH / KOS_DIR_ENTRIES / KOS_FAT_WORDS
+ | Description: The pet transfer's PS1 name, whose write carries Ring Ring Land's GAME, the GAME's path on the disc, and the directory entries and FAT words a VMU has at most.
  | Author: suinevere
- | Dependencies: slot_device, vmu_name_for_ps1, build_package, vmufs_write, vmu_retry
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define KOS_PET_PS1_NAME "BASLUSP01013"
+#define KOS_GAME_PATH "/cd/VMU/RRL.VMS"
+#define KOS_DIR_ENTRIES 256
+#define KOS_FAT_WORDS 256
+
+/*----------------------
+ | s_game / s_game_size / s_replace_ok / s_root / s_fat / s_dir / s_dirents / s_dirent_count / s_pet_present
+ | Description: The GAME read from the disc once, whether each slot's next pet write may replace another minigame, and the last VMU layout read_layout took.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void *s_game;
+static int s_game_size;
+static int s_replace_ok[2];
+static vmu_root_t s_root;
+static uint16 s_fat[KOS_FAT_WORDS];
+static vmu_dir_t s_dir[KOS_DIR_ENTRIES];
+static vmu_game_dirent s_dirents[KOS_DIR_ENTRIES];
+static int s_dirent_count;
+static int s_pet_present;
+
+/*----------------------
+ | game_image
+ | Description: Loads Ring Ring Land's GAME from the disc on first use.
+ | Author: suinevere
+ | Dependencies: fs_load
+ | Globals: s_game, s_game_size
+ | Params: N/A
+ | Returns: its size in blocks, or -1 when the disc has none
+ ----------------------*/
+static int game_image(void)
+{
+    if (s_game == NULL)
+    {
+        ssize_t size = fs_load(KOS_GAME_PATH, &s_game);
+
+        if (size <= 0)
+        {
+            s_game = NULL;
+            return -1;
+        }
+        s_game_size = (int)size;
+    }
+    return (s_game_size + VMU_BLOCK_BYTES - 1) / VMU_BLOCK_BYTES;
+}
+
+/*----------------------
+ | read_tables
+ | Description: One try at a VMU's root, directory and FAT under vmufs's mutex, which vmufs_dir_read and vmufs_fat_read expect held; vmufs_dir_blocks and vmufs_fat_blocks give bytes, not blocks.
+ | Author: suinevere
+ | Dependencies: vmufs_mutex_lock, vmufs_root_read, vmufs_dir_blocks, vmufs_fat_blocks, vmufs_dir_read, vmufs_fat_read, vmufs_mutex_unlock
+ | Globals: s_root, s_dir, s_fat
+ | Params: dev -- VMU
+ | Returns: 0, or -1 when a read fails or the tables are larger than a VMU's
+ ----------------------*/
+static int read_tables(maple_device_t *dev)
+{
+    int rv = -1;
+
+    vmufs_mutex_lock();
+    if (vmufs_root_read(dev, &s_root) >= 0 && vmufs_dir_blocks(&s_root) <= (int)sizeof s_dir && vmufs_fat_blocks(&s_root) <= (int)sizeof s_fat
+        && s_root.blk_cnt <= KOS_FAT_WORDS && vmufs_dir_read(dev, &s_root, s_dir) >= 0 && vmufs_fat_read(dev, &s_root, s_fat) >= 0)
+    {
+        rv = 0;
+    }
+    vmufs_mutex_unlock();
+    return rv;
+}
+
+/*----------------------
+ | read_layout
+ | Description: Reads a VMU's root, directory and FAT and lists its used entries for vmu_game_classify, noting whether the pet transfer file is among them.
+ | Author: suinevere
+ | Dependencies: read_tables, vmufs_dir_blocks, vmu_retry, vmu_name_for_ps1
+ | Globals: s_root, s_fat, s_dir, s_dirents, s_dirent_count, s_pet_present
+ | Params: dev -- VMU
+ | Returns: 0, or -1 when the VMU cannot be read or its tables are larger than a VMU's
+ ----------------------*/
+static int read_layout(maple_device_t *dev)
+{
+    char pet_name[VMU_NAME_LEN + 1];
+    int attempt = 0;
+    int entries;
+
+    while (read_tables(dev) != 0)
+    {
+        if (!vmu_retry(&attempt))
+        {
+            return -1;
+        }
+    }
+    entries = vmufs_dir_blocks(&s_root) / (int)sizeof(vmu_dir_t);
+    vmu_name_for_ps1(KOS_PET_PS1_NAME, pet_name);
+    s_dirent_count = 0;
+    s_pet_present = 0;
+    for (int i = 0; i < entries; i++)
+    {
+        vmu_game_dirent *d = &s_dirents[s_dirent_count];
+
+        if (s_dir[i].filetype == 0)
+        {
+            continue;
+        }
+        memcpy(d->name, s_dir[i].filename, 12);
+        d->name[12] = 0;
+        d->type = s_dir[i].filetype;
+        d->first = s_dir[i].firstblk;
+        d->blocks = s_dir[i].filesize;
+        if (strcmp(d->name, pet_name) == 0)
+        {
+            s_pet_present = 1;
+        }
+        s_dirent_count++;
+    }
+    return 0;
+}
+
+/*----------------------
+ | layout_state
+ | Description: What a VMU holds for the GAME, from a fresh read_layout and vmu_game_classify.
+ | Author: suinevere
+ | Dependencies: game_image, read_layout, vmu_game_classify
+ | Globals: s_root, s_fat, s_dirents, s_dirent_count, s_pet_present
+ | Params: dev -- VMU; found -- receives the GAME entry's index in s_dirents, or -1
+ | Returns: a VMU_GAME_* value; VMU_GAME_UNSUPPORTED when the disc has no GAME or the VMU cannot be read
+ ----------------------*/
+static int layout_state(maple_device_t *dev, int *found)
+{
+    int blocks = game_image();
+
+    *found = -1;
+    if (dev == NULL || blocks < 0 || read_layout(dev) != 0)
+    {
+            return VMU_GAME_UNSUPPORTED;
+    }
+    return vmu_game_classify(s_fat, s_root.blk_cnt, s_dirents, s_dirent_count, blocks, s_pet_present ? 0 : VMU_GAME_PET_BLOCKS, found);
+}
+
+/*----------------------
+ | kos_game_state / kos_game_allow_replace
+ | Description: The store's game_state and game_allow_replace: what the slot's VMU holds for the GAME, and leave to replace another minigame on the next pet write.
+ | Author: suinevere
+ | Dependencies: layout_state, slot_device
+ | Globals: s_replace_ok
+ | Params: slot -- 0 or 1
+ | Returns: kos_game_state -- a VMU_GAME_* value; kos_game_allow_replace -- N/A
+ ----------------------*/
+static int kos_game_state(int slot)
+{
+    int found;
+
+    return layout_state(slot_device(slot), &found);
+}
+
+static void kos_game_allow_replace(int slot)
+{
+    s_replace_ok[slot & 1] = 1;
+}
+
+/*----------------------
+ | game_matches
+ | Description: Whether the VMU's Ring Ring Land GAME holds the disc's bytes.
+ | Author: suinevere
+ | Dependencies: vmufs_read
+ | Globals: s_game, s_game_size
+ | Params: dev -- VMU
+ | Returns: nonzero when it does
+ ----------------------*/
+static int game_matches(maple_device_t *dev)
+{
+    void *data = NULL;
+    int size = 0;
+    int same;
+
+    if (vmufs_read(dev, VMU_GAME_FILE, &data, &size) < 0 || data == NULL)
+    {
+        return 0;
+    }
+    same = size >= s_game_size && memcmp(data, s_game, (size_t)s_game_size) == 0;
+    free(data);
+    return same;
+}
+
+/*----------------------
+ | game_placed
+ | Description: Whether the GAME just written sits from block 0 in one unbroken chain of its size, as the VMU BIOS runs it.
+ | Author: suinevere
+ | Dependencies: read_layout, game_image
+ | Globals: s_fat, s_dirents, s_dirent_count
+ | Params: dev -- VMU
+ | Returns: nonzero when it does
+ ----------------------*/
+static int game_placed(maple_device_t *dev)
+{
+    int blocks = game_image();
+
+    if (read_layout(dev) != 0)
+    {
+        return 0;
+    }
+    for (int i = 0; i < s_dirent_count; i++)
+    {
+        if (strcmp(s_dirents[i].name, VMU_GAME_FILE) != 0)
+        {
+            continue;
+        }
+        if (s_dirents[i].first != 0 || s_dirents[i].blocks != blocks)
+        {
+            return 0;
+        }
+        for (int b = 0; b < blocks; b++)
+        {
+            if (s_fat[b] != (b + 1 < blocks ? (uint16)(b + 1) : (uint16)VMU_GAME_FAT_END))
+            {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    return 0;
+}
+
+/*----------------------
+ | game_prepare
+ | Description: Before the pet is written: installs the GAME when missing or older, replaces another minigame only when allowed, and refuses when it cannot fit; a disc or VMU without GAME support lets the pet go alone.
+ | Author: suinevere
+ | Dependencies: layout_state, game_matches, vmufs_delete, vmufs_write, vmu_retry, game_placed
+ | Globals: s_replace_ok, s_dirents, s_game, s_game_size
+ | Params: slot -- 0 or 1; dev -- its VMU
+ | Returns: 0 to go on with the pet, -1 to fail the write
+ ----------------------*/
+static int game_prepare(int slot, maple_device_t *dev)
+{
+    int found;
+    int state = layout_state(dev, &found);
+    int allowed = s_replace_ok[slot & 1];
+    int attempt = 0;
+
+    s_replace_ok[slot & 1] = 0;
+    if (state == VMU_GAME_UNSUPPORTED)
+    {
+        return 0;
+    }
+    if (state == VMU_GAME_NO_ROOM || (state == VMU_GAME_OTHER && !allowed))
+    {
+        return -1;
+    }
+    if (state == VMU_GAME_OURS && game_matches(dev))
+    {
+        return 0;
+    }
+    if (state == VMU_GAME_OTHER && vmufs_delete(dev, s_dirents[found].name) < 0)
+    {
+        return -1;
+    }
+    while (vmufs_write(dev, VMU_GAME_FILE, s_game, s_game_size, VMUFS_VMUGAME | VMUFS_OVERWRITE) < 0)
+    {
+        if (!vmu_retry(&attempt))
+        {
+            return -1;
+        }
+    }
+    if (!game_placed(dev))
+    {
+        vmufs_delete(dev, VMU_GAME_FILE);
+        return -1;
+    }
+    return 0;
+}
+
+/*----------------------
+ | kos_write
+ | Description: Stores a PS1 file as a VMS package, replacing any file of the same name; the pet transfer file goes only after game_prepare has put Ring Ring Land's GAME on the VMU.
+ | Author: suinevere
+ | Dependencies: slot_device, game_prepare, vmu_name_for_ps1, build_package, vmufs_write, vmu_retry
  | Globals: N/A
  | Params: slot -- 0 or 1, ps1_name -- PS1 file name, buf -- file bytes, size -- byte count
  | Returns: 0 on success, -1 on failure
@@ -353,7 +636,7 @@ static int kos_write(int slot, const char *ps1_name, const unsigned char *buf, u
     int attempt = 0;
     int result;
 
-    if (dev == NULL || build_package(ps1_name, buf, size, &out, &out_size) != 0)
+    if (dev == NULL || (strcmp(ps1_name, KOS_PET_PS1_NAME) == 0 && game_prepare(slot, dev) != 0) || build_package(ps1_name, buf, size, &out, &out_size) != 0)
     {
         return -1;
     }
@@ -503,7 +786,7 @@ static int kos_free_blocks(int slot)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-const card_store_ops card_store_kos = {kos_present, kos_list, kos_read, kos_write, kos_remove, kos_free_blocks, kos_write_start, kos_job_poll, NULL};
+const card_store_ops card_store_kos = {kos_present, kos_list, kos_read, kos_write, kos_remove, kos_free_blocks, kos_write_start, kos_job_poll, NULL, kos_game_state, kos_game_allow_replace};
 
 /*----------------------
  | card_store_kos_init

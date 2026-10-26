@@ -114,6 +114,7 @@
 0x5D3 u8 snd_mode 0x067 1 when samples are signed bytes scaled into ten bits; 2 turns sound off
 0x5D4 u8[6] ticks 0x180 three (count, seen) tick counter pairs; the timer callback advances count, the frame wait records seen
 - u8[32] rt_reserved 0x000 the VMU runtime's block at the start of bank 1: R0-R3 live at 0x00-0x03 and the runtime's variables after them; no game field uses it
-- u8[7] rt_input 0x0F9 the VMU runtime's input state in bank 1's last bytes: buttons held, buttons read as released until let go, and the Sleep, quit and LCD flags; no game field uses it
+- u8[3] rt_input 0x0F9 the VMU runtime's input state in bank 1's last bytes: buttons held, buttons read as released until let go, and the Sleep, quit and LCD flags; no game field uses it
+- u8 draw_skip 0x0FC:nocmp nonzero while an odd frame's clear and mode step run, so nothing they draw reaches the screen and the VMU keeps the last finished picture; zero (draw) everywhere else
 - u8[24] rt_save 0x2E8 the VMU runtime's pet save block list in WRAM's last bytes: the save's sector count and first payload page, then its flash blocks in chain order, found once at reset; no game field uses it
 - u8[32] stack 0x300 vmu_ram's stack reserve: Phase 1 reads no stack byte, so this is the plan's 32-byte margin alone; it never reaches the VMU, whose stack is bank 0's

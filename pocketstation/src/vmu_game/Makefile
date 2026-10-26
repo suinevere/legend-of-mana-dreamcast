@@ -2,7 +2,7 @@
 # | Makefile
 # | Description: Builds the --call test image and callimg.bin with R2's pet save, the real GAME, link maps, gen_ram.py hw's equates and JSON, tables.s with tables.txt, and the test fixtures; the two images go through vmu_relax.py, which shrinks far calls and jumps that reach. Each rule deletes its output first and checks it exists, as Waterbear exits 0 on failure; the game rule also fails past flash bank 0's 64 KB.
 # | Author: suinevere
-# | Dependencies: callimg.s, callbase.inc, game.s, game.inc, routines.inc, *.s, ../vmu_rt/*.s, ../vmu_rt/*.inc, ../game/ram_map.txt, ../../tools/gen_ram.py, ../../tools/gen_tables.py, ../../tools/vmu_map.py, ../../tools/vmu_flash.py, ../../tools/vmu_relax.py, ../../tests/asm/{stray,wrong_hw,poison,entry_cy,undeclared}.s, dreamcast/build-test/cd-data/RES/05/RES1506.BIN
+# | Dependencies: callimg.s, callbase.inc, game.s, game.inc, routines.inc, *.s, ../vmu_rt/*.s, ../vmu_rt/*.inc, ../game/ram_map.txt, ../../tools/gen_ram.py, ../../tools/gen_tables.py, ../../tools/vmu_map.py, ../../tools/vmu_flash.py, ../../tools/vmu_relax.py, ../../tests/asm/{stray,wrong_hw,poison,entry_cy,undeclared}.s, dreamcast/cd/data/RES/05/RES1506.BIN (the Dreamcast converter's output; RES1506= overrides it)
 # | Globals: N/A
 # | Params: target -- call (default: callimg.vms, callimg.map, callimg.bin, hw.json), game (rrl.vms, rrl.map), fixtures, clean
 # | Returns: N/A
@@ -16,7 +16,7 @@ GEN_TABLES := python3 ../../tools/gen_tables.py
 VMU_FLASH  := python3 ../../tools/vmu_flash.py
 RELAX      := cd ../../.. && python3 pocketstation/tools/vmu_relax.py
 MIRROR     := pocketstation/build/vmu_game/relaxed
-RES1506    := ../../../dreamcast/build-test/cd-data/RES/05/RES1506.BIN
+RES1506    ?= ../../../dreamcast/cd/data/RES/05/RES1506.BIN
 RT_SRC     := $(wildcard ../vmu_rt/*.s ../vmu_rt/*.inc)
 GAME_SRC   := callbase.inc game.inc routines.inc $(wildcard *.s) $(BUILD)/tables.s
 FIXTURES   := stray wrong_hw poison entry_cy undeclared

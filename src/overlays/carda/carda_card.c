@@ -288,6 +288,12 @@ inline s32 carda_card_lacks_free_blocks(void)
     s32 entry_index;
     s32 used_blocks;
 
+#if defined(LOM_DREAMCAST)
+    if (g_carda_mode == CARDA_MODE_SEND_PET && lom_card_game_state(g_card_slot) == CARDA_VMU_GAME_NO_ROOM)
+    {
+        return 1;
+    }
+#endif
     used_blocks = 0;
     for (entry_index = 0; entry_index < g_card_entry_state; entry_index++)
     {

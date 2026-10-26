@@ -92,10 +92,10 @@ void game_quit_dialog(void) {
 
 /*----------------------
  | game_main_loop
- | Description: Sets up the frame buffer, the frame ticks, the sound and the state block, then runs a frame per tick: the current mode's handler, a seed stir, the present and the buttons, with a long fire hold opening the quit dialog, 0xF00 idle frames sending the app to standby and mode 0xFF restarting the game through the dialog. It ends only when the kernel asks for a quit. Never returns in the original, so only the drive and host runs check it.
+ | Description: Sets up the frame buffer, the frame ticks, the sound and the state block, then runs a frame per tick: the current mode's handler (drawn only on even cycle16 frames, through draw_skip), a seed stir, the present and the buttons, with a long fire hold opening the quit dialog, 0xF00 idle frames sending the app to standby and mode 0xFF restarting the game through the dialog. It ends only when the kernel asks for a quit. Never returns in the original, so only the drive and host runs check it.
  | Author: suinevere
  | Dependencies: game_dock_check, game_fb_clear, game_fb_present, game_ticks_start, game_sound_init, game_state_reset, game_mode0_leave, game_buttons_init, game_lcd_mode, game_wait_ticks, game_read_buttons, quit_requested, game_quit, game_dock_screen, game_sound_play_waiting, game_mode_frame, game_random, game_quit_dialog, game_standby, set_idle
- | Globals: seed, cycle16, mode, btn_prev, idle_lo, repeat_up
+ | Globals: seed, cycle16, draw_skip, mode, btn_prev, idle_lo, repeat_up
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -124,12 +124,14 @@ void game_main_loop(void) {
                 game_quit();
                 return;
             }
+            cycle = (uint8_t)(ram_cycle16() - 1u);
+            set_draw_skip((uint8_t)(cycle & 1u));
             game_fb_clear();
             game_dock_screen();
             game_sound_play_waiting();
-            cycle = (uint8_t)(ram_cycle16() - 1u);
             set_cycle16(cycle == 0u ? 16u : cycle);
             game_mode_frame();
+            set_draw_skip(0);
             game_random(0x100u);
             game_wait_ticks(1u, 1u);
             game_fb_present();

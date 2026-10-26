@@ -113,6 +113,8 @@ The lines are `vmu_hw.h`'s: buttons `0x001F`, tick `0x0100`, RTC `0x0200`, dock
 The frame buffer lives in XRAM as the screen shows it, in VMU byte order. Bank 0
 holds rows 0-15 and bank 1 rows 16-31, two 6-byte rows then a 4-byte gap.
 `rt_fb_row` gives a row's place, and the game writes it through R2 or R3.
+The game draws only bytes 1-4 of each row, so the reset's `rt_xram_clear`
+zeroes all six once; otherwise the BIOS menu's leftovers show at the sides.
 `rt_present` only marks the frame for the harness, as the XRAM rows are already
 the screen.
 

@@ -63,9 +63,9 @@ rt_vec_port3:
 
 ;----------------------
 ; | rt_reset
-; | Description: Puts the stack at bank 0 0x80, selects RAM bank 1 with R0 at 0x00 and masks every interrupt, making INT0 and INT1 low priority so IE bit 7 covers them. It then switches to the CF oscillator divided by 6 the way the BIOS starts it, clears RAM, finds the pet save, takes the input as it stands and starts the event schedule.
+; | Description: Puts the stack at bank 0 0x80, selects RAM bank 1 with R0 at 0x00 and masks every interrupt, making INT0 and INT1 low priority so IE bit 7 covers them. It then switches to the CF oscillator divided by 6 the way the BIOS starts it, clears RAM and the whole screen, finds the pet save, takes the input as it stands and starts the event schedule.
 ; | Author: suinevere
-; | Dependencies: rt_ram_clear, rt_save_find, rt_input_init, rt_events_init, rt_main
+; | Dependencies: rt_ram_clear, rt_xram_clear, rt_save_find, rt_input_init, rt_events_init, rt_main
 ; | Globals: N/A
 ; | Params: N/A
 ; | Returns: N/A (falls into rt_main)
@@ -83,6 +83,7 @@ rt_reset_wait:
 	DBNZ ACC, rt_reset_wait
 	MOV #$92, OCR
 	CALLF rt_ram_clear
+	CALLF rt_xram_clear
 	CALLF rt_save_find
 	CALLF rt_input_init
 	CALLF rt_events_init

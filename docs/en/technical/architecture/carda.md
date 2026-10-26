@@ -243,6 +243,17 @@ After the write completes, it restores the incoming pet into the outgoing
 pet's ranch slot and applies its growth. The item additions happen before the
 outgoing write; the pet-slot replacement happens afterward.
 
+The Dreamcast build adds one step to sending, in code guarded by `LOM_DREAMCAST`. It
+also puts Ring Ring Land's VMU GAME on the VMU, so the pet can be played there.
+When the scan counts free space, a VMU that cannot hold the GAME from block 0 counts
+as full, and CARDA shows "Ring Ring Land requires / 126 Blocks to download.". When
+the VMU holds another minigame, the confirm screen asks "Replace the other VMU
+game?" in place of its usual question; Yes lets the store replace it, and No goes
+back to slot selection as before. The store writes the GAME just before the pet, so
+a refused or failed install leaves the ranch as it was. The
+[VMU game](../reference/vmu-game.md#installing-from-the-dreamcast) page has the
+rules.
+
 Returning a pet without sending another follows this order:
 
 1. Confirm that Ring Ring Land will be erased, then read its transfer prefix.

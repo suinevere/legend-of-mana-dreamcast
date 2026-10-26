@@ -2318,7 +2318,7 @@ g_reel_draw:
 
 ;----------------------
 ; | g_run_fill
-; | Description: set_fb_run for rows 0-63 with a byte repeated: frame buffer row bytes 1-4 for rows 0-31, else blit_a's word.
+; | Description: set_fb_run for rows 0-63 with a byte repeated: frame buffer row bytes 1-4 for rows 0-31 (unless draw_skip is set), else blit_a's word.
 ; | Author: suinevere
 ; | Dependencies: rt_fb_row, rrl_ram.inc (HW_BLIT_A)
 ; | Globals: the frame buffer, blit_a, XBNK
@@ -2330,6 +2330,11 @@ g_run_fill:
 	ST C
 	SUB #32
 	BN PSW, 7, g_run_fill_a
+	LD HW_DRAW_SKIP
+	BZ g_run_fill_fb
+	POP ACC
+	RET
+g_run_fill_fb:
 	LD C
 	CALLF rt_fb_row
 	LD B
@@ -2364,7 +2369,7 @@ g_run_fill_a:
 
 ;----------------------
 ; | g_run_xor
-; | Description: Flips bits 11-20 of a run row 0-63, the reel window's inner columns: in the frame buffer's big-endian bytes or blit_a's little-endian word.
+; | Description: Flips bits 11-20 of a run row 0-63, the reel window's inner columns: in the frame buffer's big-endian bytes (unless draw_skip is set) or blit_a's little-endian word.
 ; | Author: suinevere
 ; | Dependencies: rt_fb_row, rrl_ram.inc (HW_BLIT_A)
 ; | Globals: the frame buffer, blit_a, XBNK
@@ -2375,6 +2380,10 @@ g_run_xor:
 	ST C
 	SUB #32
 	BN PSW, 7, g_run_xor_a
+	LD HW_DRAW_SKIP
+	BZ g_run_xor_fb
+	RET
+g_run_xor_fb:
 	LD C
 	CALLF rt_fb_row
 	LD B

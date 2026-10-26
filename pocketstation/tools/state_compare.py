@@ -139,14 +139,14 @@ REVERSED = [reverse8(b) for b in range(256)]
 
 """----------------------
  | compare_frame
- | Description: The first difference in one frame: a field element (fields without both addresses or marked nocmp are skipped), or a pixel in VMU coordinates (x 8-39 against the original's fb, the other columns against blank). The VMU draws straight into its frame buffer, so its counterpart is fb, not the LCD a frame behind it.
+ | Description: The first difference in one frame: a field element (fields without both addresses or marked nocmp are skipped), or, when pixels is set, a pixel in VMU coordinates (x 8-39 against the original's fb, the other columns against blank). The VMU draws straight into its frame buffer, so its counterpart is fb, not the LCD a frame behind it.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: fields -- field list; ps -- PocketStation frame; vmu -- VMU frame
+ | Params: fields -- field list; ps -- PocketStation frame; vmu -- VMU frame; pixels -- whether to compare the frame buffer
  | Returns: a description, or None when the frame matches
  ----------------------"""
-def compare_frame(fields: list, ps: bytes, vmu: bytes):
+def compare_frame(fields: list, ps: bytes, vmu: bytes, pixels: bool = True):
     for f in fields:
         if f["vmu"] is None or f["ps"] is None or f.get("nocmp"):
             continue
@@ -158,7 +158,7 @@ def compare_frame(fields: list, ps: bytes, vmu: bytes):
                 name = f["name"] if f["count"] == 1 else "%s[%d]" % (f["name"], i)
                 return "field %s ps %d vmu %d" % (name, p, v)
     rows, fb = ps[PS_FB:PS_FB + 128], vmu[0x400:]
-    if fb == lcd_bytes(rows):
+    if not pixels or fb == lcd_bytes(rows):
         return None
     for y in range(32):
         for x in range(48):
@@ -171,17 +171,20 @@ def compare_frame(fields: list, ps: bytes, vmu: bytes):
 
 """----------------------
  | compare
- | Description: Compares two state dumps frame by frame.
+ | Description: Compares two state dumps frame by frame, leaving out the pixels of the frames the VMU does not draw: those where its cycle16 has just stepped to an odd value, as the main loop then keeps the last picture.
  | Author: suinevere
- | Dependencies: N/A
+ | Dependencies: compare_frame
  | Globals: N/A
  | Params: fields -- field list; ps, vmu -- whole dumps
  | Returns: the result line and whether they are the same
  ----------------------"""
 def compare(fields: list, ps: bytes, vmu: bytes):
     n, m = len(ps) // PS_FRAME, len(vmu) // VMU_FRAME
+    cycle = next((f["vmu"] for f in fields if f["name"] == "cycle16"), None)
     for k in range(min(n, m)):
-        d = compare_frame(fields, ps[k * PS_FRAME:(k + 1) * PS_FRAME], vmu[k * VMU_FRAME:(k + 1) * VMU_FRAME])
+        frame = vmu[k * VMU_FRAME:(k + 1) * VMU_FRAME]
+        skipped = cycle is not None and k > 0 and frame[cycle] & 1 and frame[cycle] != vmu[(k - 1) * VMU_FRAME + cycle]
+        d = compare_frame(fields, ps[k * PS_FRAME:(k + 1) * PS_FRAME], frame, not skipped)
         if d:
             return "frame %d %s" % (k, d), False
     if n != m:

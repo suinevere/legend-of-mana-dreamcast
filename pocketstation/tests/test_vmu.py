@@ -185,7 +185,7 @@ def test_state_compare_skips_nocmp_fields(tmp_path):
     fields, _ = fields_json(str(tmp_path))
     ps, vmu = blank_pair(fields)
     skipped = [f["name"] for f in fields if f.get("nocmp")]
-    assert skipped == ["snd_start", "snd_pos", "snd_len"]
+    assert skipped == ["snd_start", "snd_pos", "snd_len", "draw_skip"]
     pos = next(f for f in fields if f["name"] == "snd_pos")
     vmu[pos["vmu"]] = 7
     assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("same 1", True)
@@ -200,6 +200,21 @@ def test_state_compare_takes_pixels_from_fb_not_the_lcd(tmp_path):
     ps[0x600] = 0xFF
     assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("same 1", True)
     ps[fb["ps"] - 0x200] = 0x01
+    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("frame 0 fb x 8 y 0", False)
+
+
+def test_state_compare_skips_the_pixels_of_undrawn_frames(tmp_path):
+    import state_compare
+    fields, _ = fields_json(str(tmp_path))
+    ps, vmu = blank_pair(fields)
+    cycle = next(f for f in fields if f["name"] == "cycle16")
+    ps, vmu = ps * 2, vmu * 2
+    for k, value in enumerate((16, 15)):
+        ps[k * state_compare.PS_FRAME + cycle["ps"] - 0x200] = value
+        vmu[k * state_compare.VMU_FRAME + cycle["vmu"]] = value
+    vmu[state_compare.VMU_FRAME + 0x400 + 1] = 0x80
+    assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("same 2", True)
+    vmu[0x400 + 1] = 0x80
     assert state_compare.compare(fields, bytes(ps), bytes(vmu)) == ("frame 0 fb x 8 y 0", False)
 
 

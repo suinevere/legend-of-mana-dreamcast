@@ -88,10 +88,10 @@ static inline uint32_t rev32(uint32_t w) {
 
 /*----------------------
  | fb_row / set_fb_row
- | Description: Read or write a row of the game's area, bytes 1-4 of the VMU frame buffer row, as one word with the leftmost pixel in bit 31.
+ | Description: Read or write a row of the game's area, bytes 1-4 of the VMU frame buffer row, as one word with the leftmost pixel in bit 31. A write while draw_skip is set changes nothing, masked rather than branched so no function gains a branch.
  | Author: suinevere
- | Dependencies: vmu_hw.h
- | Globals: the VMU frame buffer
+ | Dependencies: vmu_hw.h, rrl_ram.h
+ | Globals: the VMU frame buffer, draw_skip
  | Params: row -- row 0-31; v -- value
  | Returns: the row (fb_row)
  ----------------------*/
@@ -101,10 +101,11 @@ static inline uint32_t fb_row(uint8_t row) {
 }
 static inline void set_fb_row(uint8_t row, uint32_t v) {
     uint8_t *p = vmu_fb() + VMU_IX("fb", row, FB_ROWS) * 6u + 1u;
-    p[0] = (uint8_t)(v >> 24);
-    p[1] = (uint8_t)(v >> 16);
-    p[2] = (uint8_t)(v >> 8);
-    p[3] = (uint8_t)v;
+    uint8_t m = (uint8_t)((ram_draw_skip() != 0u) - 1u);
+    p[0] = (uint8_t)((p[0] & ~m) | ((uint8_t)(v >> 24) & m));
+    p[1] = (uint8_t)((p[1] & ~m) | ((uint8_t)(v >> 16) & m));
+    p[2] = (uint8_t)((p[2] & ~m) | ((uint8_t)(v >> 8) & m));
+    p[3] = (uint8_t)((p[3] & ~m) | ((uint8_t)v & m));
 }
 
 /*----------------------

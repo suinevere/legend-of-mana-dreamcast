@@ -20,7 +20,9 @@ The project reconstructs readable C source code that compiles down to the origin
 
 Unless a section says otherwise, the build instructions, targets, and file names below refer to the North American version.
 
-This is a decompilation project, **not a PC port**. The repository does not include the game executable, overlay binaries, artwork, audio, or other copyrighted game data. You must provide the required files from your own copy of the game.
+The reconstructed source also builds a **Sega Dreamcast port** of the North American version (see [Dreamcast port](#dreamcast-port)). As part of it, **Ring Ring Land**, the minigame the PS1 game sends to a PocketStation, has been ported to run on the Dreamcast's **VMU**: sending a pet from the ranch installs it on the VMU, where you play it on its own.
+
+The repository does not include the game executable, overlay binaries, artwork, audio, or other copyrighted game data. You must provide the required files from your own copy of the game; every port build reads them from your disc image.
 
 The primary motivation for this project is to preserve the original game's logic and behavior for educational research and potential modding capabilities.
 
@@ -45,7 +47,7 @@ Run `make verify-bins` to check every module, or `make verify-bins VERSION=jp` f
 
 3. ✅ **NTSC-J version** - *done.* The original Japanese release (`SLPS-02170`) builds from the same source tree as the North American one, and all 18 of its binaries are fully linked too.
 
-4. 💤 **Modding and source port** - build on the reconstructed source to make modding practical and to enable ports to other platforms.
+4. 🚧 **Modding and source ports** - *in progress.* The [Dreamcast port](#dreamcast-port) builds from the reconstructed source and runs the game's screens, music, movies and VMU saves; real-hardware testing on GDEMU is ongoing. Ring Ring Land runs on the VMU. A Saturn port reached the first field scene and is paused.
 
 ## Supported game versions
 
@@ -286,6 +288,71 @@ For that reason, do not bypass the build system and invoke the old compiler dire
 
 Every target builds the North American version by default. Add `VERSION=<name>` to select another release, e.g. `make VERSION=jp`; see [Version layout](#version-layout).
 
+## Dreamcast port
+
+The `dreamcast/` tree builds the North American version for the Sega Dreamcast on [KallistiOS](https://github.com/KallistiOS/KallistiOS). The decompiled C compiles unmodified for the Dreamcast's SH-4 through the shared layer in `port/`, which reimplements the PlayStation SDK calls the game makes: the GPU on the PowerVR, the SPU and its music driver on the AICA, the CD-ROM, the pads, and memory cards as VMU files. Movies are decoded in software with their audio. The game data is converted from your own disc image when you build, so nothing copyrighted is committed.
+
+### Ring Ring Land on the VMU
+
+Ring Ring Land is the board-race minigame Legend of Mana sends to a PocketStation, where your pet goes off to collect items. The Dreamcast has no PocketStation, so the minigame was ported to the VMU:
+
+- **Decompiled.** Every function of the PocketStation program (`RES1506.BIN`, ARM code) was turned into C and checked call by call against the original on an emulated PocketStation (`pocketstation/`).
+- **Rewritten for the VMU.** That C was reshaped into a small VMU-sized program, then rewritten by hand in **LC86K assembly** for the VMU's 8-bit CPU on a small runtime of its own. Every routine is checked against recorded calls of the C, and the whole game matches the C frame for frame, pet save included, on seven scripted play sessions.
+- **Installed by the game.** When you send a pet to Ring Ring Land from the ranch, the Dreamcast port also installs the minigame on that VMU as its GAME file. It asks first if another VMU minigame is there, and refuses with a message if the VMU has no room. Unplug the VMU and launch Ring Ring Land from its menu, then bring the pet home again from the ranch.
+
+The GAME takes 121 of the VMU's 200 blocks, and they must start at block 0, because the VMU runs a game straight from flash. The pet save takes 5 more. Board screens run slower than on a PocketStation, and the first play on a real VMU is still to come. See [VMU game](docs/en/technical/reference/vmu-game.md) and [VMU runtime](docs/en/technical/reference/vmu-runtime.md) for how it works.
+
+### Requirements
+
+- **Docker**, as for the decompilation.
+- The **North American disc image** as one `.bin` at `disc/us/LegendOfMana.bin`, with SHA-1 `c1b536c99f0d390584eb30462a7e37f2bbef3902` (see [Supported game versions](#supported-game-versions)). Set `LOM_PS1_IMAGE` to read it from elsewhere.
+- Three Docker images, built once from the repository root:
+
+```bash
+docker build -t lom-dc -f dockerfiles/dreamcast.Dockerfile dockerfiles
+docker build -t lom-pocket -f dockerfiles/pocketstation.dockerfile .
+docker build -t lom-flycast -f dockerfiles/flycast.Dockerfile dockerfiles
+```
+
+`lom-dc` is the KallistiOS toolchain and the disc tools. `lom-pocket` is the PocketStation and VMU toolchain, including the Waterbear LC86K assembler. `lom-flycast` is a headless Flycast emulator for the tests, and you only need it to run them.
+
+### Building
+
+On Windows, run the batch files in `dreamcast/` from any folder:
+
+| Command | Builds |
+|---|---|
+| `dreamcast\compile.bat` | `dreamcast/lom.elf` and the disc image `dreamcast/lom.cdi` |
+| `dreamcast\compile.bat gdi` | the GD-ROM folder `dreamcast/gdi/` (`disc.gdi` and its tracks) for GDEMU |
+| `dreamcast\compile-debug.bat` | the debug disc `dreamcast/gdi-debug/`, whose title menu also offers the hidden debug start |
+| `dreamcast\compile-vmu.bat` | Ring Ring Land's VMU GAME alone, `pocketstation/build/vmu_game/rrl.vms` |
+| `dreamcast\compile.bat clean` | removes the Dreamcast build output |
+
+`compile.bat` and `compile-debug.bat` run `compile-vmu.bat` first, because the disc carries the VMU GAME. Each step is a `make` that skips work that is already up to date, so one command builds everything from a fresh clone: the disc conversion, the VMU GAME, then the Dreamcast program and disc.
+
+On Linux or macOS, run the same steps directly:
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work lom-dc bash -lc "make -C dreamcast gen/.pre_build.stamp"
+docker run --rm -v "$PWD:/work" -w /work lom-pocket make -C pocketstation/src/vmu_game game
+docker run --rm -v "$PWD:/work" -w /work lom-dc bash -lc "make -C dreamcast all gdi"
+```
+
+### Running
+
+- **Flycast:** open `dreamcast/lom.cdi`.
+- **GDEMU:** copy the contents of `dreamcast/gdi/` (or just `dreamcast/lom.cdi` as `disc.cdi`) into a new numbered folder on the SD card.
+- **VMU:** saves and Ring Ring Land use the VMU in controller A's first slot.
+
+### Tests
+
+```bash
+python -m pytest dreamcast/tests
+python -m pytest pocketstation/tests
+```
+
+The Dreamcast tests boot scripted discs in `lom-flycast` and compare screens, sound and VMU images; build their discs first with `dreamcast\compile.bat test-image`. The full Flycast run takes the better part of an hour. The PocketStation tests run the original Ring Ring Land, its C and its VMU assembly side by side. More in [`dreamcast/README.md`](dreamcast/README.md).
+
 ## Matching functions
 
 The project uses [objdiff](https://github.com/encounter/objdiff) for local function and object comparison.
@@ -368,6 +435,10 @@ lom-decomp/
 |-- tools/                  # Decompilation, compiler, diff, and asset tools
 |-- docs/                   # Architecture and matching documentation
 |-- disc/<version>/         # Your local original game files (gitignored)
+|-- port/                   # PlayStation SDK layer shared by the console ports
+|-- dreamcast/              # Dreamcast port: KallistiOS backend, build scripts, Flycast tests
+|-- pocketstation/          # Ring Ring Land: decompiled C, VMU runtime and VMU assembly game
+|-- saturn/                 # Saturn port (paused)
 |-- assets/<version>/       # Local/generated asset data where required
 |-- asm/<version>/          # Splat-generated target assembly (gitignored)
 |-- linker/<version>/       # Splat-generated linker files (gitignored)
@@ -391,6 +462,7 @@ Browse the [documentation index](docs/README.md) for architecture guides and
 project references. Useful starting points include:
 
 - [Tools index](tools/README.md) - asset tools, scene extraction and test commands.
+- [VMU game](docs/en/technical/reference/vmu-game.md) and [VMU runtime](docs/en/technical/reference/vmu-runtime.md) - Ring Ring Land's VMU assembly and the runtime under it.
 
 ## Troubleshooting
 
@@ -448,7 +520,7 @@ Figuring out how it all works has been a lot of fun. There's still plenty to und
 
 ## Tools and acknowledgements
 
-This project builds on tools and research from the wider decompilation community, including:
+This project builds on tools and research from the wider decompilation and homebrew communities, including:
 
 - [splat](https://github.com/ethteck/splat)
 - [spimdisasm](https://github.com/Decompollaborate/spimdisasm)
@@ -461,3 +533,7 @@ This project builds on tools and research from the wider decompilation community
 - [psyq-obj-parser](https://github.com/mkst/psyq-obj-parser)
 - [decomp.me](https://decomp.me)
 - [decomp.dev](https://decomp.dev)
+- [KallistiOS](https://github.com/KallistiOS/KallistiOS) and [mkdcdisc](https://gitlab.com/simulant/mkdcdisc)
+- [Flycast](https://github.com/flyinghead/flycast)
+- [Waterbear](https://crates.io/crates/waterbear)
+- [pcsx-redux's PocketStation core and OpenPSK](https://github.com/pcsx-redux/pocketstation), and Dmitry Grinberg's VMU emulator core

@@ -63,6 +63,34 @@ rt_present:
 	RET
 
 ;----------------------
+; | rt_xram_clear
+; | Description: Zeroes all six bytes of every screen row in XRAM banks 0 and 1, so the BIOS menu's leftovers do not show beside the game's 32 columns, which it never draws.
+; | Author: suinevere
+; | Dependencies: N/A
+; | Globals: XRAM rows 0-31, XBNK
+; | Params: N/A (interrupts masked)
+; | Returns: N/A. Destroys ACC, B, C, R2, PSW's flags; leaves XBNK at 1.
+;----------------------
+rt_xram_clear:
+	MOV #$00, XBNK
+	CALLF rt_xram_clear_bank
+	MOV #$01, XBNK
+rt_xram_clear_bank:
+	MOV #$80, $02
+	MOV #$08, C
+rt_xram_clear_line:
+	MOV #$0C, B
+rt_xram_clear_byte:
+	MOV #$00, @R2
+	INC $02
+	DBNZ B, rt_xram_clear_byte
+	LD $02
+	ADD #$04
+	ST $02
+	DBNZ C, rt_xram_clear_line
+	RET
+
+;----------------------
 ; | rt_lcd
 ; | Description: vmu_lcd: turns the display on or off through VCCR bit 7, keeping XRAM, and records it in RTI_F_LCD, as VCCR cannot be read back and Sleep's wake restores it from there.
 ; | Author: suinevere

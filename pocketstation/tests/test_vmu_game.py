@@ -785,9 +785,10 @@ def test_game_boots_to_the_title(table_fixtures, built):
 WHOLE_DIR = "pocketstation/build/test/whole"
 FRAME_FIT_SCRIPTS = ("race", "menu", "buttons")
 # Ruling 35: board frames (scenes 3, 4, 6, 7) that outlast the tick were
-# accepted at R3b-3's close with these counts; a script whose unexcused
-# overruns grow, or fall in another scene, fails.
-OVERRUNS_ALLOWED = {"race": 320, "menu": 0, "buttons": 588}
+# accepted at R3b-3's close; R3b-4b's drawing on every other frame lowered
+# the counts to these. A script whose unexcused overruns grow, or fall in
+# another scene, fails.
+OVERRUNS_ALLOWED = {"race": 167, "menu": 0, "buttons": 318}
 OVERRUN_SCENES = {"3", "4", "6", "7"}
 STACK_MAX = 0xF0
 
@@ -860,6 +861,29 @@ def test_race_and_menu_frames_fit(whole_game):
     with open(os.path.join(REPO, CALL_BUILD, "overruns.txt"), "w", newline="\n") as f:
         f.write("\n".join(listing) + "\n")
     assert not grown
+
+
+# The main loop draws only when cycle16 (vmu_ram 0x02A) has just stepped to an
+# even value; on the odd frames the screen keeps the last finished picture.
+CYCLE16 = 0x02A
+
+
+@needs_game
+@pytest.mark.parametrize("script", ("race", "menu"))
+def test_skipped_frames_keep_the_last_picture(whole_game, script):
+    got = _whole(script, "-asm.state")
+    frames = [got[k * FRAME_BYTES:(k + 1) * FRAME_BYTES] for k in range(len(got) // FRAME_BYTES)]
+    skipped = drawn = 0
+    for k in range(1, len(frames)):
+        now, before = frames[k][CYCLE16], frames[k - 1][CYCLE16]
+        if now == before:
+            continue
+        if now & 1:
+            skipped += 1
+            assert frames[k][0x400:] == frames[k - 1][0x400:], "frame %d drew while skipped" % k
+        elif frames[k][0x400:] != frames[k - 1][0x400:]:
+            drawn += 1
+    assert skipped > 100 and drawn > 10, (skipped, drawn)
 
 
 @needs_game

@@ -1601,7 +1601,7 @@ g_plot_pos:
 
 ;----------------------
 ; | g_plot_core
-; | Description: plot_rows on registers: clips the rows, looks up which source and screen bytes the shift by x keeps, and runs the row loop for the source and the merge.
+; | Description: plot_rows on registers: clips the rows, looks up which source and screen bytes the shift by x keeps, and runs the row loop for the source and the merge; nothing while draw_skip is set.
 ; | Author: suinevere
 ; | Dependencies: g_plot_plan, g_plot_pos, rt_fb_rows, g_plot_keep, g_plot_orb, g_plot_mkb, g_plot_ohb, g_plot_mhb, g_plot_or0, g_plot_mk0, g_plot_orr, g_plot_mkr, g_bit_rot, game.inc (ARG_BLOCK)
 ; | Globals: XRAM rows, XBNK, blit_a, blit_b, ARG_BLOCK+0..5 (scratch once y and bitmap are read)
@@ -1610,6 +1610,10 @@ g_plot_pos:
 ;----------------------
 g_plot_core:
 	ST $01
+	LD HW_DRAW_SKIP
+	BZ g_plot_core_go
+	RET
+g_plot_core_go:
 	PUSH B
 	PUSH C
 	CLR1 VSEL, 4

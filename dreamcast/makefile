@@ -907,19 +907,33 @@ $(OBJDIR)/ovl/OVL13C.BIN: $(TARGET) $(GOSUB_OBJS) gen/gosub.ld gen/gosub_pending
 	$(PYTHON) ../port/tools/overlay_link.py --target dreamcast link gosub $(TARGET) $(OBJDIR)/ovl $@ $(GOSUB_OBJS) --links field
 
 #----------------------
-# | $(OBJDIR)/cd-data/.stamp
-# | Description: Stages a per-build copy of the shared cd/data tree (the converter's output, via $(PRE_BUILD_STAMP)) with that build's own packed overlay code laid on top.
-# |              So packing never mixes one build's data with another build's overlay code.
+# | VMU_GAME
+# | Description: Ring Ring Land's VMU GAME, built from the user's RES1506.BIN by the PocketStation Makefile in the lom-pocket image; the disc carries it as /cd/VMU/RRL.VMS.
 # | Author: suinevere
-# | Dependencies: PRE_BUILD_STAMP, OVERLAY_CODE
+# | Dependencies: ../pocketstation/src/vmu_game/Makefile (game)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-$(OBJDIR)/cd-data/.stamp: $(PRE_BUILD_STAMP) $(OVERLAY_CODE)
+VMU_GAME = ../pocketstation/build/vmu_game/rrl.vms
+
+#----------------------
+# | $(OBJDIR)/cd-data/.stamp
+# | Description: Stages a per-build copy of the shared cd/data tree (the converter's output, via $(PRE_BUILD_STAMP)) with that build's own packed overlay code and the VMU GAME laid on top, failing without the GAME.
+# |              So packing never mixes one build's data with another build's overlay code.
+# | Author: suinevere
+# | Dependencies: PRE_BUILD_STAMP, OVERLAY_CODE, VMU_GAME
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+$(OBJDIR)/cd-data/.stamp: $(PRE_BUILD_STAMP) $(OVERLAY_CODE) $(wildcard $(VMU_GAME))
 	rm -rf $(OBJDIR)/cd-data
 	cp -a cd/data $(OBJDIR)/cd-data
 	cp -f $(OVERLAY_CODE) $(OBJDIR)/cd-data/OVL/
+	test -s $(VMU_GAME) || { echo "build the VMU GAME first: make -C pocketstation/src/vmu_game game (lom-pocket image)"; exit 1; }
+	mkdir -p $(OBJDIR)/cd-data/VMU
+	cp -f $(VMU_GAME) $(OBJDIR)/cd-data/VMU/RRL.VMS
 	touch $@
 
 #----------------------
@@ -990,14 +1004,14 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 
 #----------------------
 # | PADSEL_IMAGES / lom_<script>_test.cdi
-# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the land effect ranking disc, the card save and load discs, the pet send, return and ranch discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc, the PAL 50 Hz boot disc and the FIELD scene sweep disc.
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the land effect ranking disc, the card save and load discs, the pet send, declined send, return and ranch discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc, the PAL 50 Hz boot disc and the FIELD scene sweep disc.
 # | Author: suinevere
 # | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = landfx_rank exit_map card_save card_load movie_skip pet_send pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
+PADSEL_SCRIPTS = landfx_rank exit_map card_save card_load movie_skip pet_send pet_send_decline pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*

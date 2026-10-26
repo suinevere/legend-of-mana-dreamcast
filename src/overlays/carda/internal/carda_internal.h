@@ -385,6 +385,21 @@ typedef enum CardaSequenceResult
 #define CARDA_TEXT_PLUS_MARKER 88
 #define CARDA_TEXT_CARD_OR_CONTROLLER 89
 
+#if defined(LOM_DREAMCAST)
+/** @brief Dreamcast line asking to replace the VMU's other minigame with Ring Ring Land (an entry the US table leaves empty). */
+#define CARDA_TEXT_REPLACE_VMU_GAME 82
+/** @brief The VMU GAME states from dreamcast/src/card/vmu_game.h that CARDA acts on. */
+#define CARDA_VMU_GAME_OTHER 2
+#define CARDA_VMU_GAME_NO_ROOM 3
+/** @brief The confirm screen's question line: the replace question when the VMU holds another minigame, else @p index. */
+#define CARDA_QUESTION_TEXT(index) (lom_card_game_last(g_card_slot) == CARDA_VMU_GAME_OTHER ? CARDA_TEXT_REPLACE_VMU_GAME : (index))
+int lom_card_game_state(int slot);
+int lom_card_game_last(int slot);
+void lom_card_game_allow_replace(int slot);
+#else
+#define CARDA_QUESTION_TEXT(index) index
+#endif
+
 /**
  * @brief Address of CARDA text @p index, reached through its own u16 offset-table entry @p entry.
  * @note The table start is derived back from the entry symbol, like FIELD_UI_TEXT_AT.

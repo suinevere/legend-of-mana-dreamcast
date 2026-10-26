@@ -389,6 +389,13 @@ void* carda_draw_save_flow(u_long* ot, void* prim, s32 x_offset, s32 y_offset)
         }
         field_play_sound(FIELD_SOUND_LOAD_DONE, FIELD_SOUND_PAN_CENTRE);
         g_card_entry_state = CARDA_ENTRY_STATE_CONFIRM_DOWNLOAD;
+#if defined(LOM_DREAMCAST)
+        if (g_carda_mode == CARDA_MODE_SEND_PET && lom_card_game_state(g_card_slot) == CARDA_VMU_GAME_NO_ROOM)
+        {
+            g_card_entry_state = CARDA_ENTRY_STATE_NO_ROOM_FOR_DOWNLOAD;
+            break;
+        }
+#endif
         g_carda_pet_already_on_ranch = 0;
         save_id = CARDA_SAVE_DATA->record.unique_id;
         for (i = 0; i < PET_RECORD_COUNT; i++)
@@ -481,7 +488,7 @@ void* carda_draw_save_flow(u_long* ot, void* prim, s32 x_offset, s32 y_offset)
             prim = field_draw_text(prim, ot, CARDA_TEXT_AT(g_carda_text_game_to_pocketstation, CARDA_TEXT_GAME_TO_POCKETSTATION), FIELD_TEXT_COLOR_NORMAL,
                                    x + CARDA_SAVE_TEXT_X, -y_offset, FIELD_TEXT_ALIGN_CENTER);
             text_table = CARDA_TEXT_TABLE(g_carda_text_game_to_pocketstation, CARDA_TEXT_GAME_TO_POCKETSTATION);
-            prim = field_draw_text(prim, ot, CARDA_TEXT(text_table, CARDA_TEXT_DOWNLOAD_OK), FIELD_TEXT_COLOR_NORMAL, x + CARDA_SAVE_TEXT_X,
+            prim = field_draw_text(prim, ot, CARDA_TEXT(text_table, CARDA_QUESTION_TEXT(CARDA_TEXT_DOWNLOAD_OK)), FIELD_TEXT_COLOR_NORMAL, x + CARDA_SAVE_TEXT_X,
                                    CARDA_TEXT_LINE_HEIGHT - y_offset, FIELD_TEXT_ALIGN_CENTER);
             color = FIELD_TEXT_COLOR_NORMAL;
             y = CARDA_TEXT_LINE_HEIGHT * 2 - y_offset;
@@ -528,7 +535,7 @@ void* carda_draw_save_flow(u_long* ot, void* prim, s32 x_offset, s32 y_offset)
             text_table = CARDA_TEXT_TABLE(g_carda_text_swap_pets, CARDA_TEXT_SWAP_PETS);
             prim = field_draw_text(prim, ot, CARDA_TEXT(text_table, CARDA_TEXT_GAME_TO_POCKETSTATION), FIELD_TEXT_COLOR_NORMAL, x + CARDA_SAVE_TEXT_X,
                                    CARDA_TEXT_LINE_HEIGHT - y_offset, FIELD_TEXT_ALIGN_CENTER);
-            prim = field_draw_text(prim, ot, CARDA_TEXT(text_table, CARDA_TEXT_OVERWRITE_OK), FIELD_TEXT_COLOR_NORMAL, x + CARDA_SAVE_TEXT_X,
+            prim = field_draw_text(prim, ot, CARDA_TEXT(text_table, CARDA_QUESTION_TEXT(CARDA_TEXT_OVERWRITE_OK)), FIELD_TEXT_COLOR_NORMAL, x + CARDA_SAVE_TEXT_X,
                                    CARDA_TEXT_LINE_HEIGHT * 2 - y_offset, FIELD_TEXT_ALIGN_CENTER);
             color = FIELD_TEXT_COLOR_NORMAL;
             y = CARDA_TEXT_LINE_HEIGHT * 3 - y_offset;
@@ -576,6 +583,12 @@ void* carda_draw_save_flow(u_long* ot, void* prim, s32 x_offset, s32 y_offset)
             {
                 g_gosub_result_values = PET_RECORD_COUNT;
             }
+#if defined(LOM_DREAMCAST)
+            if (lom_card_game_last(g_card_slot) == CARDA_VMU_GAME_OTHER)
+            {
+                lom_card_game_allow_replace(g_card_slot);
+            }
+#endif
             carda_store_active_record();
             g_carda_save_in_progress = 1;
             g_card_step = g_carda_steps_overwrite_alt_save;
@@ -664,6 +677,9 @@ void* carda_draw_save_flow(u_long* ot, void* prim, s32 x_offset, s32 y_offset)
                     strcat(g_carda_selected_card_path.raw, g_lom_pocketstation_filename_prefix);
                     carda_store_active_record();
                     g_card_entry_state = CARDA_ENTRY_STATE_CONFIRM_DOWNLOAD;
+#if defined(LOM_DREAMCAST)
+                    lom_card_game_state(g_card_slot);
+#endif
                     g_carda_choice_toggle = CARDA_CHOICE_DEFAULT;
                     field_reset_input_repeat();
                     break;

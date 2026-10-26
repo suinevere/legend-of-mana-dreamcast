@@ -2,7 +2,7 @@
  | card_vmu.c
  | Description: Memory-card BIOS, libcard and libmcx calls answered as a PS1 memory card whose files live in a card_store (VMUs on the Dreamcast); with no store or no card a slot answers as empty.
  | Author: suinevere
- | Dependencies: libapi.h, libmcx.h, card_store.h, vmu_format.h, stdlib.h, string.h
+ | Dependencies: libapi.h, libmcx.h, card_store.h, vmu_format.h, vmu_game.h, stdlib.h, string.h
  | Globals: s_store, s_event_descs, s_event_specs, s_event_count, s_posted, s_mcx_pending, s_mcx_result, s_files, s_handles, s_dir, s_dir_count, s_dir_valid, s_unreadable, s_search, s_search_count, s_search_pos, s_search_pattern, s_pending
  | Params: N/A
  | Returns: N/A
@@ -13,6 +13,7 @@
 #include <libmcx.h>
 #include "card_store.h"
 #include "vmu_format.h"
+#include "vmu_game.h"
 
 /*----------------------
  | CARD_EVENT_MAX / CARD_EVENT_HANDLE_BASE
@@ -1510,4 +1511,63 @@ char *func_800170BC(char *dst, const char *src)
     {
     }
     return dst;
+}
+
+/*----------------------
+ | s_game_last
+ | Description: Each slot's answer from the last lom_card_game_state, which CARDA's screens read without asking the VMU every frame.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_game_last[2] = {VMU_GAME_UNSUPPORTED, VMU_GAME_UNSUPPORTED};
+
+/*----------------------
+ | lom_card_game_state
+ | Description: For CARDA's send-pet step: what the slot's VMU holds for Ring Ring Land's GAME, or VMU_GAME_UNSUPPORTED when the store cannot install one; the answer is kept for lom_card_game_last.
+ | Author: suinevere
+ | Dependencies: card_store_ops.game_state
+ | Globals: s_store, s_game_last
+ | Params: slot -- 0 or 1
+ | Returns: a VMU_GAME_* value
+ ----------------------*/
+int lom_card_game_state(int slot)
+{
+    int state = s_store != NULL && s_store->game_state != NULL ? s_store->game_state(slot) : VMU_GAME_UNSUPPORTED;
+
+    s_game_last[slot & 1] = state;
+    return state;
+}
+
+/*----------------------
+ | lom_card_game_last
+ | Description: The slot's answer from the last lom_card_game_state, without asking the VMU.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_game_last
+ | Params: slot -- 0 or 1
+ | Returns: a VMU_GAME_* value
+ ----------------------*/
+int lom_card_game_last(int slot)
+{
+    return s_game_last[slot & 1];
+}
+
+/*----------------------
+ | lom_card_game_allow_replace
+ | Description: For CARDA's replace prompt: lets the slot's next pet write replace the minigame there with Ring Ring Land.
+ | Author: suinevere
+ | Dependencies: card_store_ops.game_allow_replace
+ | Globals: s_store
+ | Params: slot -- 0 or 1
+ | Returns: N/A
+ ----------------------*/
+void lom_card_game_allow_replace(int slot)
+{
+    if (s_store != NULL && s_store->game_allow_replace != NULL)
+    {
+        s_store->game_allow_replace(slot);
+    }
 }

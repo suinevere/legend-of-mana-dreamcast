@@ -1,9 +1,10 @@
 #----------------------
 # | test_pet_transfer_flycast.py
 # | Description: Flycast checks of R2's pet transfer: CARDA mode 2 writes Ring Ring Land with the fixture pet to the VMU as the JP game fills it,
-# |              CARDA mode 3 brings the pet and its rewards back and erases the file, and the ranch's ring menu offers Ring Ring Land and opens CARDA.
+# |              CARDA mode 3 brings the pet and its rewards back and erases the file, and the ranch's ring menu offers Ring Ring Land and opens CARDA;
+# |              a send also installs Ring Ring Land's VMU GAME from block 0, rewriting an older one and replacing another minigame after Yes, and changes nothing when declined or full.
 # | Author: suinevere
-# | Dependencies: tools/flycast_run.py, tools/vmu_image.py, stale_image.py, pocketstation/tools/psk_file.py, lom_pet_send_test.cdi, lom_pet_return_test.cdi, lom_pet_ranch_test.cdi
+# | Dependencies: tools/flycast_run.py, tools/vmu_image.py, stale_image.py, pocketstation/tools/psk_file.py, pocketstation/build/vmu_game/rrl.vms, lom_pet_send_test.cdi, lom_pet_send_decline_test.cdi, lom_pet_return_test.cdi, lom_pet_ranch_test.cdi
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -20,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(DC), "pocketstation", "tools"))
 
 import flycast_run  # noqa: E402
+import frame_diff  # noqa: E402
 import psk_file  # noqa: E402
 import stale_image  # noqa: E402
 import vmu_image  # noqa: E402
@@ -128,6 +130,171 @@ def test_return_brings_the_pet_and_its_rewards_home_and_erases_the_file(return_r
     assert name0 == PET[0] and unique_id == struct.unpack_from("<I", PET, 0x5C)[0]
     assert counts == (1, 1)
     assert vmu_image.ps1_file(img, RRL_NAME) is None
+
+
+#----------------------
+# | GAME_FILE / GAME_IMAGE / OTHER_GAME
+# | Description: Ring Ring Land's VMU GAME name and the build it comes from, and the stand-in minigame's name.
+# | Author: suinevere
+# | Dependencies: dreamcast/src/card/vmu_game.h (VMU_GAME_FILE), pocketstation/src/vmu_game/Makefile (rrl.vms)
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+GAME_FILE = "RINGRINGLAND"
+GAME_IMAGE = os.path.join(os.path.dirname(DC), "pocketstation", "build", "vmu_game", "rrl.vms")
+OTHER_GAME = "MINIGAME"
+
+
+def _game():
+    with open(GAME_IMAGE, "rb") as f:
+        return f.read()
+
+
+def _entry(img, name):
+    return [data for n, data in vmu_image.files(img) if n == name]
+
+
+def _sent_package(send_run):
+    found = _entry(send_run[2], vmu_image.vmu_name_for_ps1(RRL_NAME))
+    if not found:
+        pytest.skip("the send run wrote no Ring Ring Land file")
+    return found[0]
+
+
+@pytest.fixture(scope="module")
+def stale_run(tmp_path_factory):
+    vmu_in = vmu_image.add_game(vmu_image.blank(), GAME_FILE, bytes(512 * 3))
+    return vmu_in, run("lom_pet_send_test.cdi", vmu_in, "LOM: capture send-done", 1500, tmp_path_factory, "stale")
+
+
+@pytest.fixture(scope="module")
+def other_run(tmp_path_factory):
+    vmu_in = vmu_image.add_game(vmu_image.blank(), OTHER_GAME, bytes(512 * 40))
+    return vmu_in, run("lom_pet_send_test.cdi", vmu_in, "LOM: capture send-done", 1500, tmp_path_factory, "other")
+
+
+def _with_foreign_pet(send_run, vmu_in):
+    package = bytes(_sent_package(send_run))
+    uid = struct.pack("<I", struct.unpack_from("<I", PET, 0x5C)[0])
+    vmu_in = vmu_image.add(vmu_in, vmu_image.vmu_name_for_ps1(RRL_NAME), package)
+    payload = bytearray(vmu_image.ps1_file(vmu_in, RRL_NAME))
+    at = payload.find(uid)
+    if at < 0:
+        pytest.skip("the sent pet's unique id is not in its payload")
+    payload[at] ^= 0xFF
+    return vmu_image.set_ps1_file(vmu_in, RRL_NAME, bytes(payload))
+
+
+def _low_save(img):
+    return vmu_image.add(img, "FILLER", bytes(512 * 10), blocks=list(range(69, 59, -1)))
+
+
+@pytest.fixture(scope="module")
+def swap_other_run(send_run, tmp_path_factory):
+    vmu_in = _with_foreign_pet(send_run, vmu_image.add_game(vmu_image.blank(), OTHER_GAME, bytes(512 * 40)))
+    return vmu_in, run("lom_pet_send_test.cdi", vmu_in, "LOM: capture send-done", 1500, tmp_path_factory, "swap-other")
+
+
+@pytest.fixture(scope="module")
+def swap_noroom_run(send_run, tmp_path_factory):
+    vmu_in = _with_foreign_pet(send_run, _low_save(vmu_image.blank()))
+    return vmu_in, run("lom_pet_send_decline_test.cdi", vmu_in, "LOM: capture send-done", 1500, tmp_path_factory, "swap-noroom")
+
+
+@pytest.fixture(scope="module")
+def decline_run(tmp_path_factory):
+    vmu_in = vmu_image.add_game(vmu_image.blank(), OTHER_GAME, bytes(512 * 40))
+    return vmu_in, run("lom_pet_send_decline_test.cdi", vmu_in, "LOM: capture send-done", 1500, tmp_path_factory, "decline")
+
+
+@pytest.fixture(scope="module")
+def noroom_run(tmp_path_factory):
+    vmu_in = _low_save(vmu_image.blank())
+    return vmu_in, run("lom_pet_send_decline_test.cdi", vmu_in, "LOM: capture send-done", 1500, tmp_path_factory, "noroom")
+
+
+def _assert_game_installed(img):
+    game = _game()
+    blocks = (len(game) + 511) // 512
+    games = [n for n, _ in vmu_image.files(img) if n in (GAME_FILE, OTHER_GAME)]
+    assert games == [GAME_FILE], games
+    assert vmu_image.chain(img, GAME_FILE) == list(range(blocks))
+    assert _entry(img, GAME_FILE)[0][:len(game)] == game
+
+
+def test_send_installs_the_game_from_block_0(send_run):
+    code, lines, img, _ = send_run
+    assert code == 0, lines[-20:]
+    _assert_game_installed(img)
+
+
+def test_send_rewrites_an_older_ring_ring_land(stale_run):
+    _, (code, lines, img, _) = stale_run
+    assert code == 0, lines[-20:]
+    _assert_game_installed(img)
+    assert vmu_image.ps1_file(img, RRL_NAME) is not None
+
+
+def test_send_replaces_another_minigame_after_yes(other_run):
+    _, (code, lines, img, _) = other_run
+    assert code == 0, lines[-20:]
+    _assert_game_installed(img)
+    assert vmu_image.ps1_file(img, RRL_NAME) is not None
+
+
+def test_a_swap_replaces_another_minigame_after_yes(swap_other_run):
+    _, (code, lines, img, _) = swap_other_run
+    assert code == 0, lines[-20:]
+    _assert_game_installed(img)
+
+
+def test_the_replace_question_shows_on_another_minigame(send_run, other_run):
+    with open(os.path.join(send_run[3], "send-prompt.png"), "rb") as a, open(os.path.join(other_run[1][3], "send-prompt.png"), "rb") as b:
+        assert a.read() != b.read()
+    with open(os.path.join(send_run[3], "send-slot.png"), "rb") as a, open(os.path.join(other_run[1][3], "send-slot.png"), "rb") as b:
+        assert a.read() == b.read()
+
+
+def test_declining_leaves_the_vmu_and_ranch_alone(decline_run):
+    vmu_in, (code, lines, img, _) = decline_run
+    assert code == 0, lines[-20:]
+    assert img == vmu_in
+    _, name0, _, _ = transfer_line(lines)
+    assert name0 == PET[0]
+
+
+#----------------------
+# | SAME_SCREEN_MEAN
+# | Description: The largest mean pixel difference (frame_diff.compare, 320x240 blurred) between two captures of the same CARDA screen; the animated room behind it moves a few pixels, while a different message moves several units.
+# | Author: suinevere
+# | Dependencies: tools/frame_diff.py
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+SAME_SCREEN_MEAN = 0.5
+
+
+def _screen_gap(a, b, name):
+    return frame_diff.compare(frame_diff.load_capture(os.path.join(a[1][3], name)),
+                              frame_diff.load_capture(os.path.join(b[1][3], name)))["mean"]
+
+
+def test_no_room_refuses_and_keeps_the_pet(noroom_run, decline_run):
+    vmu_in, (code, lines, img, _) = noroom_run
+    assert code == 0, lines[-20:]
+    assert img == vmu_in
+    _, name0, _, _ = transfer_line(lines)
+    assert name0 == PET[0]
+    assert _screen_gap(noroom_run, decline_run, "send-prompt.png") > SAME_SCREEN_MEAN
+
+
+def test_a_swap_with_no_room_shows_the_not_enough_blocks_screen(swap_noroom_run, noroom_run):
+    vmu_in, (code, lines, img, _) = swap_noroom_run
+    assert code == 0, lines[-20:]
+    assert img == vmu_in
+    assert _screen_gap(swap_noroom_run, noroom_run, "send-prompt.png") <= SAME_SCREEN_MEAN
 
 
 def test_the_ranch_menu_offers_ring_ring_land_and_opens_carda(ranch_run):

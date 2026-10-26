@@ -39,7 +39,7 @@ g_state_reset:
 
 ;----------------------
 ; | g_fb_clear
-; | Description: game_fb_clear: zeroes bytes 1-4 of all 32 frame buffer rows in XRAM, bank 0 then bank 1, two rows per 16-byte line through @R2.
+; | Description: game_fb_clear: zeroes bytes 1-4 of all 32 frame buffer rows in XRAM, bank 0 then bank 1, two rows per 16-byte line through @R2; nothing while draw_skip is set.
 ; | Author: suinevere
 ; | Dependencies: N/A
 ; | Globals: XRAM rows 0-31, XBNK
@@ -47,6 +47,10 @@ g_state_reset:
 ; | Returns: N/A. Destroys ACC, C, R2, PSW; leaves XBNK at 1; four bytes of stack.
 ;----------------------
 g_fb_clear:
+	LD HW_DRAW_SKIP
+	BZ g_fb_clear_go
+	RET
+g_fb_clear_go:
 	MOV #$00, XBNK
 	CALLF g_fb_clear_bank
 	MOV #$01, XBNK
@@ -79,7 +83,7 @@ g_fb_clear_pair:
 
 ;----------------------
 ; | g_fb_put_rows
-; | Description: game_fb_put_rows: copies count table rows from src into frame buffer rows row on, each byte bit-reversed through g_bit_rot and inverted when asked.
+; | Description: game_fb_put_rows: copies count table rows from src into frame buffer rows row on, each byte bit-reversed through g_bit_rot and inverted when asked; nothing while draw_skip is set.
 ; | Author: suinevere
 ; | Dependencies: rt_fb_row, g_bit_rot, g_tb_find, g_fb_src, game.inc (ARG_BLOCK)
 ; | Globals: XRAM rows, XBNK
@@ -88,6 +92,10 @@ g_fb_clear_pair:
 ;----------------------
 g_fb_put_rows:
 	ST $00
+	LD HW_DRAW_SKIP
+	BZ g_fb_put_rows_go
+	RET
+g_fb_put_rows_go:
 	LD B
 	ST $01
 	LD C

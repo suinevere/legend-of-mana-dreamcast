@@ -1,13 +1,14 @@
 /*----------------------
  | test_card_vmu.c
- | Description: Host test for card_vmu.c over an in-memory store: absent and empty slots, the temp-file-then-rename save, overwrite, load, title patch, card header, card full, a pulled card, erase and libmcx answers.
+ | Description: Host test for card_vmu.c over an in-memory store: absent and empty slots, the temp-file-then-rename save, overwrite, load, title patch, card header, card full, a pulled card, erase, libmcx answers and the GAME calls CARDA makes.
  | Author: suinevere
- | Dependencies: card_vmu.c, vmu_format.c, card_store.h, libapi.h, libmcx.h
+ | Dependencies: card_vmu.c, vmu_format.c, card_store.h, vmu_game.h, libapi.h, libmcx.h
  ----------------------*/
 #include <string.h>
 #include <libapi.h>
 #include <libmcx.h>
 #include "card_store.h"
+#include "vmu_game.h"
 
 int printf(const char *format, ...);
 int puts(const char *text);
@@ -222,6 +223,22 @@ static int fake_rewrite(int slot, const char *old_name, const char *new_name, co
 }
 
 static const card_store_ops s_fake = {fake_present, fake_list, fake_read, fake_write, fake_remove, fake_free_blocks, fake_write_start, fake_job_poll, fake_rewrite};
+
+static int s_game_state = VMU_GAME_MISSING;
+static int s_game_allowed[2];
+
+static int fake_game_state(int slot)
+{
+    return slot == 0 ? s_game_state : VMU_GAME_NO_ROOM;
+}
+
+static void fake_game_allow_replace(int slot)
+{
+    s_game_allowed[slot]++;
+}
+
+static const card_store_ops s_game_fake = {fake_present, fake_list, fake_read, fake_write, fake_remove, fake_free_blocks, fake_write_start, fake_job_poll, fake_rewrite,
+                                           fake_game_state, fake_game_allow_replace};
 
 static unsigned char s_blob[0x4000];
 
@@ -470,6 +487,18 @@ int main(void)
         CHECK(func_800170BC(path, "bu00:") == path && func_80016F9C(path, "BASLUS") == path);
         CHECK(strcmp(path, "bu00:BASLUS") == 0);
     }
+
+    CHECK(lom_card_game_state(0) == VMU_GAME_UNSUPPORTED);
+    lom_card_game_allow_replace(0);
+    card_vmu_set_store(&s_game_fake);
+    s_game_state = VMU_GAME_OTHER;
+    CHECK(lom_card_game_state(0) == VMU_GAME_OTHER && lom_card_game_state(1) == VMU_GAME_NO_ROOM);
+    lom_card_game_allow_replace(1);
+    CHECK(s_game_allowed[0] == 0 && s_game_allowed[1] == 1);
+    CHECK(lom_card_game_last(0) == VMU_GAME_OTHER && lom_card_game_last(1) == VMU_GAME_NO_ROOM);
+    s_game_state = VMU_GAME_MISSING;
+    CHECK(lom_card_game_last(0) == VMU_GAME_OTHER && lom_card_game_state(0) == VMU_GAME_MISSING && lom_card_game_last(0) == VMU_GAME_MISSING);
+    card_vmu_set_store(&s_fake);
     puts("OK");
     return 0;
 }

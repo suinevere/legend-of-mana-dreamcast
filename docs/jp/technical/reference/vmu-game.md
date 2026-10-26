@@ -96,6 +96,25 @@ NAME FILE LEVEL ROUTINE|inlined:CALLER ARGS RESULT DESTROYS STATUS
 `test_level_passes[N]` はレベルNのすべてのルーチンでこれを実行します。
 `test_level_outcomes_covered[N]` は、そのレベルのすべての分岐の行き先が、合格した記録で通るか `untaken.txt` に載っていることを確かめます。
 
+## VMUでの描画
+
+ゲームは画面そのものであるXRAMに直接描きます。
+フレームごとに32列を消して描き直し、その間もLCDはそれを表示しています。
+`race` では、ゲームの処理が1フレームの30,766サイクルのうち平均21,277サイクルを使い、その約70%が描画でした。
+そのためVMUでは、半分ほどの時間、描きかけの絵が見え、動くスプライトがにじんでいました。
+裏バッファーを置くRAMはありません。
+バンク1とワークRAMは最後の1バイトまで割り当て済みで、バンク0にはBIOSの変数とスタックがあります。
+
+そこでメインループは、1フレームおきにだけ描きます。
+`draw_skip`（バンク1の `0xFC`）は、フレームの消去の前に `cycle16` の次の値の偶奇から設定し、`game_mode_frame` の後で0に戻します。
+設定中は何も画面に届かず、最後に描き終えた絵が残ります。
+Cでは `set_fb_row` が分岐を使わずにマスクで書き込みを止めます。
+アセンブリでは `g_fb_clear`、`g_fb_put_rows`、`g_plot_core` がすぐ戻り、`g_run_fill` と `g_run_xor` は画面の行だけを飛ばします。
+ゲームの処理、アニメーションの時間、音、ボタンはこれまでどおり毎フレーム動き、ほかのループは毎フレーム描きます。
+`race` は1フレーム平均16,229サイクルになり、逃したティックは320から167に減りました。
+
+`test_skipped_frames_keep_the_last_picture` が飛ばしたフレームを確かめ、`state_compare.py` はVMU向けのCを元のゲームと比べるとき、そのフレームの画素を除きます。
+
 ## ゲーム全体の検査
 
 `test_vmu_game.py` の `whole_game` フィクスチャーは、各スクリプトを2回実行します。
@@ -108,7 +127,7 @@ NAME FILE LEVEL ROUTINE|inlined:CALLER ARGS RESULT DESTROYS STATUS
   `race` と `save` は、参照用のペットに入っているのと同じ値を書きます。
 - `test_race_and_menu_frames_fit`：`race`、`menu`、`buttons` で、ティックの間に収まらなかったフレームを、フレーム番号、場面（`mode` フィールド）、理由とともに `pocketstation/build/vmu_game/overruns.txt` に書き出します。
   `changed`（場面が変わった）や `saved`（フラッシュに書き込んだ）の理由があるフレームは認めます。
-  理由のないものが、R3b-3の終了時に認めた数（race 320、menu 0、buttons 588）を超えるか、盤面の場面3、4、6、7以外で起きると不合格です。
+  理由のないものが、race 167、menu 0、buttons 318（R3b-3の終了時に認めた320と588を、1フレームおきの描画で下げた数）を超えるか、盤面の場面3、4、6、7以外で起きると不合格です。
 - `test_stack_fits`：一番深いスタックポインターが0xF0以下であることを確かめます。
   race、buttons、laps、saveで0xE1です。
   本物のVMUではBIOSの時計の処理がさらに15〜20バイトほど使いますが、ハーネスはそこを実行しません。
@@ -119,3 +138,29 @@ NAME FILE LEVEL ROUTINE|inlined:CALLER ARGS RESULT DESTROYS STATUS
 `vmu_harness --report --map rrl.map --profile OUT` は、ラベル1つにつき `NAME ALL OVER` の1行も書き出します。
 そのラベルから次のラベルまでで実行したサイクル数を、全フレームの合計と、ティックに収まらなかったフレームだけの合計で示します。
 ティックに収まらないフレームで何を速くすればよいかは、これで探します。
+
+## ドリームキャストからのインストール
+
+ドリームキャスト版は、CARDAがペットをVMUに送るときにGAMEも入れます。
+ディスクのビルドは `pocketstation/build/vmu_game/rrl.vms` を `/cd/VMU/RRL.VMS` にコピーし、これがなければ失敗します。
+そのため、先に `make -C pocketstation/src/vmu_game game`（`lom-pocket` イメージ）を実行します。
+
+VMUのBIOSは、GAMEをブロック0からフラッシュの順にそのまま実行します。
+KallistiOSはGAMEに空いている一番下のブロックから割り当てますが、それが連続しているとは限りません。
+そのため保存処理は、先に `dreamcast/src/card/vmu_game.c` でVMUのFATとディレクトリから判断します。
+
+| VMUの中身 | ペットを送るときの動作 |
+|---|---|
+| GAMEがなく、ブロック0〜120が空いていて、ペットの分の空きもある | GAMEを `RINGRINGLAND` として書き、それからペットを書く |
+| すでに `RINGRINGLAND` がある | ディスクのものとバイトが違えば書き直し、それからペットを書く |
+| ほかのGAMEがある | 「Replace the other VMU game?」と聞く。Yesならそれを消して置き換え、Noならスロット選択に戻る |
+| ブロック0〜120のどれかに別のファイルがある、または空きが足りない | 「Ring Ring Land requires / 126 Blocks to download.」と表示して断り、ペットは牧場に残す |
+
+GAMEはペットの書き込みの中で書きます（`card_store_kos.c` の `kos_write` が `BASLUSP01013` を書くとき）。
+書いた後でFATを読み直し、GAMEがブロック0から途切れずに並んでいることを確かめます。
+そうでなければGAMEを消し、送信を失敗にします。
+
+`dreamcast/tests/test_vmu_game_host.py` は判断の処理をホストで確かめます。
+`dreamcast/tests/test_pet_transfer_flycast.py` はFlycastでペットを送ります。
+送る先は、空のVMU、古いリング・りんぐ・ランド、ほかのミニゲーム（ペットがある場合とない場合）、質問を断る場合、下のブロックにセーブがあるVMUです。
+FlycastはVMUのゲームを動かせないので、GAMEで遊ぶのは実機での確認です。
