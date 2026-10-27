@@ -1,0 +1,167 @@
+#----------------------
+# | release-kit.yml
+# | Description: On a published release, builds the Dreamcast GDI from the PS1 disc at LOM_URL, turns it into game-data-free kit data, freezes lom-dc-kit for Windows, Linux and macOS, and attaches the three zips to the release.
+# | Author: suinevere
+# | Dependencies: dockerfiles/dreamcast.Dockerfile, dockerfiles/pocketstation.dockerfile, port/kit, vars.LOM_URL or secrets.LOM_URL
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+name: Release kit
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build the kit for and attach to
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-kit-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  IMAGE_DC: ghcr.io/${{ github.repository_owner }}/lom-dc
+  IMAGE_POCKET: ghcr.io/${{ github.repository_owner }}/lom-pocket
+
+jobs:
+  kit-data:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+          submodules: recursive
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull or build the toolchain images
+        run: |
+          set -eu
+          for pair in "lom-dc:dockerfiles/dreamcast.Dockerfile:$IMAGE_DC" "lom-pocket:dockerfiles/pocketstation.dockerfile:$IMAGE_POCKET"; do
+            local_name=${pair%%:*}
+            rest=${pair#*:}
+            file=${rest%%:*}
+            remote=${rest#*:}
+            tag=$(sha256sum "$file" | cut -c1-16)
+            if docker pull "$remote:$tag"; then
+              docker tag "$remote:$tag" "$local_name"
+            else
+              docker build -f "$file" -t "$local_name" -t "$remote:$tag" dockerfiles
+              docker push "$remote:$tag"
+            fi
+          done
+
+      - name: Download the PS1 disc
+        env:
+          LOM_URL: ${{ secrets.LOM_URL || vars.LOM_URL }}
+        run: |
+          set -eu
+          test -n "$LOM_URL" || { echo "LOM_URL is not set as a repository variable or secret"; exit 1; }
+          echo "::add-mask::$LOM_URL"
+          mkdir -p "$RUNNER_TEMP/ps1" disc/us
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/ps1/disc.zip" "$LOM_URL"
+          unzip -q "$RUNNER_TEMP/ps1/disc.zip" -d "$RUNNER_TEMP/ps1"
+          rm "$RUNNER_TEMP/ps1/disc.zip"
+          cue=$(find "$RUNNER_TEMP/ps1" -iname '*.cue' | head -n1)
+          test -n "$cue" || { echo "no .cue in the LOM_URL zip"; exit 1; }
+          bin=$(python3 -c "import sys; sys.path.insert(0, '.'); from port.kit import disc_input; print(disc_input.resolve(sys.argv[1]))" "$cue")
+          mv "$bin" disc/us/LegendOfMana.bin
+          rm -r "$RUNNER_TEMP/ps1"
+
+      - name: Build the GDI
+        run: |
+          set -eu
+          docker run --rm -v "$PWD:/work" -w /work lom-dc bash -lc "make -C dreamcast gen/.pre_build.stamp"
+          docker run --rm -v "$PWD:/work" -w /work lom-pocket make -C pocketstation/src/vmu_game game
+          docker run --rm -v "$PWD:/work" -w /work lom-dc bash -lc "make -C dreamcast all"
+
+      - name: Make the kit data
+        run: python3 port/kit/make_template.py --gdi dreamcast/gdi --elf dreamcast/lom.elf --image disc/us/LegendOfMana.bin --out kit-data --tag "$TAG" --sha "$GITHUB_SHA"
+
+      - name: Check the kit data holds no game bytes
+        run: |
+          set -eu
+          allow=()
+          if [ -f port/kit/leak_allow.json ]; then allow=(--allow port/kit/leak_allow.json); fi
+          python3 port/kit/leak_check.py --kit kit-data --image disc/us/LegendOfMana.bin "${allow[@]}"
+
+      - name: Check the kit rebuilds the GDI byte for byte
+        run: |
+          set -eu
+          python3 port/kit/lom_dc_kit.py disc/us/LegendOfMana.bin --kit kit-data -o "$RUNNER_TEMP/roundtrip"
+          for f in disc.gdi track01.bin track02.raw track03.bin; do cmp "dreamcast/gdi/$f" "$RUNNER_TEMP/roundtrip/$f"; done
+
+      - name: Remove the disc and every build output holding its data
+        if: always()
+        run: sudo rm -rf disc/us dreamcast/cd/data dreamcast/gen dreamcast/gdi dreamcast/gdi.tmp dreamcast/build dreamcast/*.cdi dreamcast/*.elf pocketstation/build "$RUNNER_TEMP/roundtrip" "$RUNNER_TEMP/ps1"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-data
+          path: kit-data
+          if-no-files-found: error
+          retention-days: 3
+
+  freeze:
+    needs: kit-data
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: windows-x64
+          - os: ubuntu-22.04
+            platform: linux-x64
+          - os: macos-14
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: kit-data
+          path: kit-data
+
+      - name: Freeze lom-dc-kit
+        run: |
+          python -m pip install pyinstaller==6.11.1
+          python port/kit/freeze.py --tag "${{ env.TAG }}" --platform ${{ matrix.platform }} --kit-data kit-data --out dist-zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zip-${{ matrix.platform }}
+          path: dist-zip/*.zip
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: freeze
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: zip-*
+          merge-multiple: true
+          path: zips
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" zips/*.zip --clobber --repo "${{ github.repository }}"
