@@ -42,7 +42,7 @@ This kit holds no game data. It makes the GDI from your own Legend of Mana (USA,
    Windows:  lom-dc-kit.exe "Legend of Mana (USA).cue"
    Linux:    ./lom-dc-kit "Legend of Mana (USA).cue"
    macOS:    xattr -d com.apple.quarantine lom-dc-kit && ./lom-dc-kit "Legend of Mana (USA).cue"
-3. It writes a "Legend of Mana (Dreamcast)" folder beside the disc, holding disc.gdi and three tracks, for GDEMU, MODE or an emulator. About 1.3 GB of free space is needed.
+3. It writes a "Legend of Mana (Dreamcast)" folder beside the disc, holding disc.gdi and three tracks, for GDEMU, MODE or an emulator. About 2 GB of free space is needed while it runs.
 
 Keep the kit folder next to the program.
 """

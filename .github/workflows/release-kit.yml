@@ -2,7 +2,7 @@
 # | release-kit.yml
 # | Description: On a published release, builds the Dreamcast GDI from the PS1 disc at LOM_URL, turns it into game-data-free kit data, freezes lom-dc-kit for Windows, Linux and macOS, and attaches the three zips to the release.
 # | Author: suinevere
-# | Dependencies: dockerfiles/dreamcast.Dockerfile, dockerfiles/pocketstation.dockerfile, port/kit, vars.LOM_URL or secrets.LOM_URL
+# | Dependencies: dockerfiles/dreamcast.Dockerfile, dockerfiles/pocketstation.dockerfile, port/kit, secrets.LOM_URL
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -61,12 +61,18 @@ jobs:
             fi
           done
 
+      - name: Refuse a LOM_URL kept as a public variable
+        if: ${{ vars.LOM_URL != '' }}
+        run: |
+          echo "LOM_URL is a repository variable, which the run log shows to anyone who can read the repository; delete it and add it as a repository secret instead"
+          exit 1
+
       - name: Download the PS1 disc
         env:
-          LOM_URL: ${{ secrets.LOM_URL || vars.LOM_URL }}
+          LOM_URL: ${{ secrets.LOM_URL }}
         run: |
           set -eu
-          test -n "$LOM_URL" || { echo "LOM_URL is not set as a repository variable or secret"; exit 1; }
+          test -n "$LOM_URL" || { echo "add LOM_URL as a repository secret holding the URL of the PS1 .cue/.bin zip"; exit 1; }
           echo "::add-mask::$LOM_URL"
           mkdir -p "$RUNNER_TEMP/ps1" disc/us
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/ps1/disc.zip" "$LOM_URL"

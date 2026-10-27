@@ -76,12 +76,51 @@ def test_refuses_existing_output(tmp_path, stub):
         fill.make_gdi(str(kit), "x.bin", str(tmp_path / "out"), progress=_quiet)
 
 
-def test_overwrite_replaces_existing_output(tmp_path, stub):
+def test_overwrite_replaces_earlier_gdi(tmp_path, stub):
     kit, full = _kit(tmp_path)
     (tmp_path / "out").mkdir()
-    (tmp_path / "out" / "stale.txt").write_text("old")
+    (tmp_path / "out" / "track03.bin").write_bytes(b"old")
     out = fill.make_gdi(str(kit), "x.bin", str(tmp_path / "out"), overwrite=True, progress=_quiet)
-    assert not os.path.exists(os.path.join(out, "stale.txt"))
+    assert open(os.path.join(out, "track03.bin"), "rb").read() == full
+
+
+def test_overwrite_refuses_folder_with_other_files(tmp_path, stub):
+    kit, _ = _kit(tmp_path)
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "notes.txt").write_text("mine")
+    with pytest.raises(fill.KitError, match="notes.txt"):
+        fill.make_gdi(str(kit), "x.bin", str(tmp_path / "out"), overwrite=True, progress=_quiet)
+    assert (tmp_path / "out" / "notes.txt").exists()
+
+
+def test_overwrite_refuses_folder_holding_the_disc(tmp_path, stub):
+    kit, _ = _kit(tmp_path)
+    games = tmp_path / "games"
+    games.mkdir()
+    disc = games / "lom.bin"
+    disc.write_bytes(b"x")
+    with pytest.raises(fill.KitError, match="lom.bin"):
+        fill.make_gdi(str(kit), str(disc), str(games), overwrite=True, progress=_quiet)
+    assert disc.exists()
+
+
+def test_trailing_separator_on_output(tmp_path, stub):
+    kit, full = _kit(tmp_path)
+    out = fill.make_gdi(str(kit), "x.bin", str(tmp_path / "out") + os.sep, progress=_quiet)
+    assert open(os.path.join(out, "track03.bin"), "rb").read() == full
+    assert not (tmp_path / "out" / ".tmp").exists()
+
+
+def test_kit_from_another_release(tmp_path, stub):
+    kit, _ = _kit(tmp_path)
+    with pytest.raises(fill.KitError) as err:
+        fill.make_gdi(str(kit), "x.bin", str(tmp_path / "out"), progress=_quiet, program_version="v9.9")
+    assert "v9.9" in str(err.value) and "v-test" in str(err.value)
+
+
+def test_dev_program_accepts_any_kit(tmp_path, stub):
+    kit, full = _kit(tmp_path)
+    out = fill.make_gdi(str(kit), "x.bin", str(tmp_path / "out"), progress=_quiet, program_version="dev")
     assert open(os.path.join(out, "track03.bin"), "rb").read() == full
 
 

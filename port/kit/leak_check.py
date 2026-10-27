@@ -20,7 +20,7 @@ from port.kit import manifest, sources  # noqa: E402
 
 #----------------------
 # | CHUNK / STRIDE
-# | Description: Chunk size hashed from the game data, and the step the kit data is scanned at.
+# | Description: Chunk size hashed from the game data, and the step the kit data is scanned at: every byte, so a copy at any alignment is found.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -28,7 +28,7 @@ from port.kit import manifest, sources  # noqa: E402
 # | Returns: N/A
 #----------------------
 CHUNK = 256
-STRIDE = 4
+STRIDE = 1
 
 #----------------------
 # | MIN_DISTINCT
@@ -132,7 +132,7 @@ def unallowed(hits, allow):
 
 #----------------------
 # | _disc_user_data
-# | Description: The PS1 .bin's Mode 2 user data (2048 bytes from offset 24 of each 2352-byte sector) in 64 MB pieces.
+# | Description: Each PS1 sector's payload from offset 24, 2324 bytes so Form 2 (XA audio, movie) sectors count whole as well as Form 1, in pieces of 32768 sectors.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -145,7 +145,7 @@ def _disc_user_data(image):
             raw = handle.read(2352 * 32768)
             if not raw:
                 return
-            yield b"".join(raw[i + 24:i + 24 + 2048] for i in range(0, len(raw), 2352))
+            yield b"".join(raw[i + 24:i + 24 + 2324] for i in range(0, len(raw), 2352))
 
 
 #----------------------

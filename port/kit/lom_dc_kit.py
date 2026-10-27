@@ -72,19 +72,40 @@ def _is_terminal(stream):
 
 
 #----------------------
-# | main
-# | Description: Parses arguments, or asks for a dragged-in path when launched from a terminal with none, makes the GDI and reports failures in one line.
+# | _launched_alone
+# | Description: Whether the program owns its console window, as when Windows opens one for a double-click or a file dragged onto the exe; the one-file build's loader shares it, so two processes still count as alone.
 # | Author: suinevere
-# | Dependencies: fill.make_gdi, disc_input.resolve, default_kit_dir, OUT_NAME, VERSION
+# | Dependencies: ctypes, kernel32.GetConsoleProcessList
 # | Globals: N/A
-# | Params: argv -- arguments, stdin -- input stream for the prompt, kit_dir -- kit folder override, interactive -- force the prompt behaviour on or off
+# | Params: N/A
+# | Returns: bool
+#----------------------
+def _launched_alone():
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        processes = (ctypes.c_uint32 * 8)()
+        count = ctypes.windll.kernel32.GetConsoleProcessList(processes, 8)
+    except (AttributeError, OSError):
+        return False
+    return 0 < count <= (2 if getattr(sys, "frozen", False) else 1)
+
+
+#----------------------
+# | main
+# | Description: Parses arguments, or asks for a dragged-in path when launched with none, makes the GDI, reports any failure in one line, and waits for Enter when it owns its window.
+# | Author: suinevere
+# | Dependencies: fill.make_gdi, disc_input.resolve, default_kit_dir, _is_terminal, _launched_alone, OUT_NAME, VERSION
+# | Globals: N/A
+# | Params: argv -- arguments, stdin -- input stream for the prompt, kit_dir -- kit folder override, interactive -- force prompting and the closing pause on or off
 # | Returns: exit code
 #----------------------
 def main(argv=None, stdin=None, kit_dir=None, interactive=None):
     argv = sys.argv[1:] if argv is None else argv
     stdin = sys.stdin if stdin is None else stdin
     if interactive is None:
-        interactive = not argv and _is_terminal(stdin)
+        interactive = (not argv and _is_terminal(stdin)) or _launched_alone()
     parser = argparse.ArgumentParser(prog="lom-dc-kit", description="Make the Legend of Mana Dreamcast GDI from your PS1 disc image")
     parser.add_argument("disc", nargs="?", help="your Legend of Mana (USA) .cue or .bin")
     parser.add_argument("-o", "--out", help="GDI folder to create (default: '%s' beside your disc)" % OUT_NAME)
@@ -105,10 +126,14 @@ def main(argv=None, stdin=None, kit_dir=None, interactive=None):
     try:
         image = disc_input.resolve(args.disc)
         out = args.out or os.path.join(os.path.dirname(os.path.abspath(args.disc.strip().strip('"'))), OUT_NAME)
-        done = fill.make_gdi(args.kit or default_kit_dir(), image, out, overwrite=args.overwrite, progress=print)
+        done = fill.make_gdi(args.kit or default_kit_dir(), image, out, overwrite=args.overwrite, progress=print,
+                             program_version=VERSION)
         print("Done: %s" % done)
     except (fill.KitError, disc_input.DiscError, RuntimeError, ValueError, OSError) as exc:
         print("lom-dc-kit: %s" % exc, file=sys.stderr)
+        code = 1
+    except Exception as exc:
+        print("lom-dc-kit: unexpected %s: %s; the kit folder may be damaged, so unzip the release again" % (type(exc).__name__, exc), file=sys.stderr)
         code = 1
     if interactive:
         print("Press Enter to close.")

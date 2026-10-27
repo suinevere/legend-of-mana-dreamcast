@@ -60,3 +60,20 @@ def test_sparse_but_varied_chunk_still_counts():
     varied = bytes(range(0, 256, 8)) + bytes(224)
     hashes = leak_check.chunk_hashes([varied])
     assert leak_check.scan(bytes(4) + varied, hashes) == [4]
+
+
+def test_finds_copy_at_odd_offset():
+    secret = _random(7)
+    hashes = leak_check.chunk_hashes([secret])
+    shipped = bytes(3) + secret[256:512] + bytes(9)
+    assert leak_check.scan(shipped, hashes) == [3]
+
+
+def test_disc_sectors_include_form2_tail(tmp_path):
+    raw = bytearray(2352 * 2)
+    tail = _random(8, 276)
+    raw[2352 + 24 + 2048:2352 + 24 + 2324] = tail
+    path = tmp_path / "d.bin"
+    path.write_bytes(bytes(raw))
+    data = b"".join(leak_check._disc_user_data(str(path)))
+    assert tail in data

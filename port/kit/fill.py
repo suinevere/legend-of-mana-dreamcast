@@ -23,7 +23,7 @@ from port.kit import disc_input, manifest, sector, sources
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-SCRATCH_BYTES = 600 << 20
+SCRATCH_BYTES = 700 << 20
 
 #----------------------
 # | COPIED
@@ -35,6 +35,17 @@ SCRATCH_BYTES = 600 << 20
 # | Returns: N/A
 #----------------------
 COPIED = ("disc.gdi", "track01.bin", "track02.raw")
+
+#----------------------
+# | GDI_FILES
+# | Description: Everything a finished GDI folder holds, the only files --overwrite may replace.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+GDI_FILES = frozenset(("disc.gdi", "track01.bin", "track02.raw", "track03.bin"))
 
 
 #----------------------
@@ -111,14 +122,14 @@ def write_track03(kit_dir, m, srcs, dest, progress=None):
 
 #----------------------
 # | _load_manifest
-# | Description: Reads the kit's manifest, raising KitError when the folder is missing or from another format version.
+# | Description: Reads the kit's manifest, raising KitError when the folder is missing, from another format version, or from another release than the program.
 # | Author: suinevere
 # | Dependencies: manifest.read, manifest.VERSION, KitError
 # | Globals: N/A
-# | Params: kit_dir -- kit folder
+# | Params: kit_dir -- kit folder, program_version -- the program's release tag, "dev" from source
 # | Returns: dict
 #----------------------
-def _load_manifest(kit_dir):
+def _load_manifest(kit_dir, program_version):
     try:
         m = manifest.read(kit_dir)
     except (OSError, ValueError):
@@ -126,23 +137,46 @@ def _load_manifest(kit_dir):
     if m.get("version") != manifest.VERSION:
         raise KitError("this kit's data is format %s but the program reads format %s; use the program and kit folder from the same release"
                        % (m.get("version"), manifest.VERSION))
+    if program_version != "dev" and m.get("kit_tag") != program_version:
+        raise KitError("the kit folder is from release %s but the program is from %s; use the program and kit folder from the same release zip"
+                       % (m.get("kit_tag"), program_version))
     return m
+
+
+#----------------------
+# | _check_replaceable
+# | Description: Raises KitError unless out_dir holds only an earlier GDI's files, so --overwrite never deletes the user's disc, the kit or anything else.
+# | Author: suinevere
+# | Dependencies: GDI_FILES, KitError
+# | Globals: N/A
+# | Params: out_dir -- existing output folder
+# | Returns: N/A
+#----------------------
+def _check_replaceable(out_dir):
+    if not os.path.isdir(out_dir):
+        raise KitError("%s exists and is not a folder" % out_dir)
+    others = sorted(set(os.listdir(out_dir)) - GDI_FILES)
+    if others:
+        raise KitError("--overwrite only replaces an earlier GDI folder, but %s also holds %s" % (out_dir, ", ".join(others[:5])))
 
 
 #----------------------
 # | make_gdi
 # | Description: Checks the kit and the disc, writes the GDI into out_dir.tmp, checks every track's SHA-1 and only then renames it to out_dir.
 # | Author: suinevere
-# | Dependencies: _load_manifest, disc_input, sources, write_track03, needed_bytes, KitError, COPIED
+# | Dependencies: _load_manifest, _check_replaceable, disc_input, sources, write_track03, needed_bytes, KitError, COPIED
 # | Globals: N/A
-# | Params: kit_dir -- kit folder, image_path -- the user's data-track .bin, out_dir -- GDI folder to create, overwrite -- replace an existing out_dir, progress -- callable(message)
-# | Returns: out_dir
+# | Params: kit_dir -- kit folder, image_path -- the user's data-track .bin, out_dir -- GDI folder to create, overwrite -- replace an earlier GDI in out_dir, progress -- callable(message), program_version -- the program's release tag
+# | Returns: out_dir, normalised
 #----------------------
-def make_gdi(kit_dir, image_path, out_dir, overwrite=False, progress=print):
-    m = _load_manifest(kit_dir)
-    if os.path.exists(out_dir) and not overwrite:
-        raise KitError("%s already exists; pick another folder or pass --overwrite" % out_dir)
-    parent = os.path.dirname(os.path.abspath(out_dir))
+def make_gdi(kit_dir, image_path, out_dir, overwrite=False, progress=print, program_version="dev"):
+    m = _load_manifest(kit_dir, program_version)
+    out_dir = os.path.normpath(os.path.abspath(out_dir))
+    if os.path.exists(out_dir):
+        if not overwrite:
+            raise KitError("%s already exists; pick another folder or pass --overwrite" % out_dir)
+        _check_replaceable(out_dir)
+    parent = os.path.dirname(out_dir)
     os.makedirs(parent, exist_ok=True)
     free = shutil.disk_usage(parent)[2]
     if free < needed_bytes(m):
