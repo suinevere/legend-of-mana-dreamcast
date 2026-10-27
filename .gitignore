@@ -63,3 +63,6 @@ reference/ps1/audio/*.mp4
 
 # PocketStation build output: listings, card images and traces derived from the disc
 pocketstation/build/
+port/kit/_version.py
+port/kit/dist/
+port/kit/build/
