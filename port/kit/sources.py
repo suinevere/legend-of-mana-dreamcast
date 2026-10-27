@@ -7,6 +7,8 @@
 # | Params: N/A
 # | Returns: N/A
 #----------------------
+import contextlib
+import io
 import os
 
 from port.kit import paths
@@ -55,19 +57,36 @@ def _cd_files(work_dir):
 
 
 #----------------------
+# | _quiet
+# | Description: Runs a converter command line with its output captured, raising RuntimeError with its last error line if it fails.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: step -- what the step is called in the error, main -- the tool's main, argv -- its arguments
+# | Returns: N/A
+#----------------------
+def _quiet(step, main, argv):
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = main(argv)
+    if code:
+        detail = (err.getvalue().strip().splitlines() or ["exit code %d" % code])[-1]
+        raise RuntimeError("%s failed: %s" % (step, detail))
+
+
+#----------------------
 # | build
 # | Description: Converts the disc into work_dir as pre.makefile does and returns the cd/data files plus the ELF and VMU GAME blocks.
 # | Author: suinevere
-# | Dependencies: convert_disc, libgte_tables, akao_data, main_data, vmu_portraits, gen_tables, _cd_files
+# | Dependencies: convert_disc, libgte_tables, akao_data, main_data, vmu_portraits, gen_tables, _cd_files, _quiet
 # | Globals: RES1506
 # | Params: image_path -- the user's PS1 .bin, work_dir -- empty scratch folder
 # | Returns: dict name -> bytes
 #----------------------
 def build(image_path, work_dir):
-    if convert_disc.main(["--target", "dreamcast", "--image", image_path, "--out", work_dir]):
-        raise RuntimeError("the converter failed on %s" % image_path)
-    if libgte_tables.main(["--image", image_path, "--out", work_dir]):
-        raise RuntimeError("libgte table extraction failed on %s" % image_path)
+    argv = ["--image", image_path, "--out", work_dir]
+    _quiet("the disc converter", convert_disc.main, ["--target", "dreamcast"] + argv)
+    _quiet("libgte table extraction", libgte_tables.main, argv)
     out = _cd_files(work_dir)
     with open(os.path.join(work_dir, "gen", "libgte_tables.bin"), "rb") as handle:
         out["gen/libgte_tables"] = handle.read()

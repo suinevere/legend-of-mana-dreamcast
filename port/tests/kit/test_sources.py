@@ -65,3 +65,9 @@ def test_every_cd_file_matches_build(built):
 
 def test_rrl_pages_are_whole_pages(built):
     assert built["vmu/rrl_pages"] and len(built["vmu/rrl_pages"]) % 256 == 0
+
+
+def test_build_prints_nothing(tmp_path, capfd):
+    sources.build(IMAGE, str(tmp_path))
+    out, err = capfd.readouterr()
+    assert out == "" and err == ""
