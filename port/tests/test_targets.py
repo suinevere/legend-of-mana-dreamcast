@@ -73,18 +73,6 @@ def test_pointer_one_past_last_range_passes_through():
     end = spec.ranges[-1][1]
     assert overlay_rules.relocate_pointer(end, spec, targets.DREAMCAST) == end
 
-
-def test_saturn_relocation_unchanged_by_default():
-    spec = spec_named("title")
-    first_start = spec.ranges[0][0]
-    assert overlay_rules.relocate_pointer(first_start, spec) == overlay_rules.relocate_pointer(first_start, spec, targets.SATURN)
-
-
-def test_dreamcast_skips_convert_rules():
-    assert targets.DREAMCAST.convert_rules is False
-    assert targets.DREAMCAST.big_endian is False
-
-
 SYNTH_VRAM = 0x80100000
 SYNTH_START = SYNTH_VRAM + 0x10
 SYNTH_END = SYNTH_START + 0x40
@@ -92,15 +80,11 @@ SYNTH_SYMBOLS = {"synth_ptrs": SYNTH_START, "synth_tim": SYNTH_START + 0x10}
 
 
 def synth_target(data_size):
-    return targets.Target("synth_dc", False, {"synth": targets.Region(0x8C800000, 0x1000, 0x8C801000, data_size)}, False)
-
-
-def synth_convert(buf, off):
-    overlay_rules.swap_words(buf, 0, len(buf) // 4, 4)
+    return targets.Target("synth_dc", {"synth": targets.Region(0x8C800000, 0x1000, 0x8C801000, data_size)})
 
 
 def synth_overlay():
-    spec = overlay_rules.OverlaySpec("synth", SYNTH_VRAM, [(SYNTH_START, SYNTH_END)], "synth.txt", ["synth_tim"], synth_convert)
+    spec = overlay_rules.OverlaySpec("synth", SYNTH_VRAM, [(SYNTH_START, SYNTH_END)], "synth.txt")
     overlay = bytearray((i * 7 + 1) & 0xFF for i in range(SYNTH_END - SYNTH_VRAM))
     ptrs = SYNTH_START - SYNTH_VRAM
     overlay[ptrs:ptrs + 8] = (SYNTH_START + 0x30).to_bytes(4, "little") + (0x80010000).to_bytes(4, "little")
@@ -115,7 +99,7 @@ def with_synth_pointer_rule(monkeypatch, spec):
     monkeypatch.setitem(overlay_rules.POINTER_RULES, "synth", rule)
 
 
-def test_dreamcast_build_relocates_only_inside_pointer_and_skips_rules(monkeypatch):
+def test_dreamcast_build_relocates_only_inside_pointer(monkeypatch):
     spec, overlay = synth_overlay()
     with_synth_pointer_rule(monkeypatch, spec)
     target = synth_target(0x40)
@@ -150,33 +134,14 @@ def test_dreamcast_build_rejects_blob_over_data_size(monkeypatch):
         raise AssertionError("expected an overflow ValueError")
 
 
-def test_dreamcast_packs_wmap_whole_with_no_placed_buffers():
-    spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[3], targets.DREAMCAST)
+def test_dreamcast_packs_wmap_whole():
+    spec = overlay_rules.OVERLAYS[3]
     assert spec.ranges == [(0x8004FC74, 0x80054A2C), (0x800C4588, 0x801B32D8)]
-    assert spec.placed == ()
-
-
-def test_saturn_keeps_wmap_split_and_placed():
-    spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[3], targets.SATURN)
-    assert spec is overlay_rules.OVERLAYS[3]
-    assert spec.placed
-
-
-def test_dreamcast_build_places_a_cut_buffer_at_its_ps1_offset():
-    spec, overlay = synth_overlay()
-    split = spec._replace(ranges=overlay_rules.split_ranges(spec.ranges, [(SYNTH_START + 0x20, SYNTH_START + 0x30)]),
-                          placed=(("synth_buf", 0x002F0000),), unsplit_ranges=spec.ranges)
-    symbols = dict(SYNTH_SYMBOLS, synth_buf=SYNTH_START + 0x20, synth_after=SYNTH_START + 0x30)
-    buf, script = overlay_rules.build_overlay(split, overlay, symbols, synth_target(0x40))
-    assert len(buf) == 0x40
-    assert "_synth_buf = 0x8C801020;" in script
-    assert "_synth_after = 0x8C801030;" in script
-    assert "0x002F0000" not in script
 
 
 def test_dreamcast_wmap_relocates_its_input_script_pointers():
     import convert_disc
-    spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[3], targets.DREAMCAST)
+    spec = overlay_rules.OVERLAYS[3]
     symbols = convert_disc.load_spec_symbols(spec, os.path.join(PORT, "..", "config", "us", "symbols"))
     off = functools.partial(overlay_rules.symbol_offset, symbols, spec)
     buf = bytearray(sum(end - start for start, end in spec.ranges))
@@ -201,9 +166,3 @@ def test_menu_pointer_rule_relocates_both_tables_and_keeps_the_script_count():
     at = lambda addr: base + overlay_rules.packed_offset(addr, spec)
     assert struct.unpack_from("<3I", buf, off("g_menu_content_table")) == (at(0x8014FF7C), 0, at(0x80151A54))
     assert struct.unpack_from("<3I", buf, off("g_script_table")) == (1, at(0x80150594), at(0x80151104))
-
-
-def test_movie_is_a_secondary_overlay_saturn_leaves_unlinked():
-    assert "movie" in targets.SECONDARY_OVERLAYS
-    assert targets.DREAMCAST.regions["movie"] is targets.SECONDARY_REGION
-    assert "movie" in targets.SATURN_UNLINKED_OVERLAYS

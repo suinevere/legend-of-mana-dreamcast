@@ -1,8 +1,8 @@
 /*----------------------
  | controller_dc.c
- | Description: Dreamcast stand-ins for the main executable's controller service, publishing the Maple pad on port A into port 0 and leaving port 1 disconnected.
+ | Description: Dreamcast stand-ins for the main executable's controller service, publishing the Maple pads on ports A and B into ports 0 and 1 and driving their Jump Packs from the game's motor commands.
  | Author: suinevere
- | Dependencies: lom_prefix.h, common/pad.h, main/game_state.h, main/controller.h, main/controller_internal.h, pad_dc.h, pad_dc_map.h, pad_publish.h, vsync_pacer.h
+ | Dependencies: lom_prefix.h, common/pad.h, main/game_state.h, main/controller.h, main/controller_internal.h, pad_dc.h, pad_dc_map.h, pad_publish.h, rumble_dc.h, vsync_pacer.h
  | Globals: s_last_vblank, s_field_frame, s_field_walking
  | Params: N/A
  | Returns: N/A
@@ -17,6 +17,7 @@
 #include "pad_dc.h"
 #include "pad_dc_map.h"
 #include "pad_publish.h"
+#include "rumble_dc.h"
 #include "vsync_pacer.h"
 
 /*----------------------
@@ -103,10 +104,10 @@ static PadSample dc_pad_encode_sample(int connected, const DcPadSample *sample)
 
 /*----------------------
  | update_controllers
- | Description: Publishes the Maple pad on port A as port 0 and an empty port 1, advancing repeat timers by the vblanks elapsed since the last call.
+ | Description: Publishes the Maple pads on ports A and B as ports 0 and 1, advancing repeat timers by the vblanks elapsed since the last call, then sets each port's Jump Pack to the level its motor commands ask for.
  |              The D-pad gives L2, R2 and Select only while walking (pad_dc_dpad_as_buttons) and steers every menu otherwise.
  | Author: suinevere
- | Dependencies: vsync_count, pad_dc_read, pad_dc_dpad_as_buttons, dc_pad_encode_sample, pad_publish_port
+ | Dependencies: vsync_count, pad_dc_read_port, pad_dc_dpad_as_buttons, dc_pad_encode_sample, pad_publish_port, pad_dc_rumble_level, rumble_dc_update
  | Globals: CONTROLLER_STATE, SCD_REGS, s_last_vblank, s_field_frame, s_field_walking, g_game_state
  | Params: N/A
  | Returns: N/A
@@ -116,15 +117,21 @@ void update_controllers(void)
     ControllerState *state = CONTROLLER_STATE;
     unsigned now = vsync_count();
     int vblanks = (int)(now - s_last_vblank);
-    DcPadSample sample;
-    int connected = pad_dc_read(&sample);
+    int dpad_buttons = pad_dc_dpad_as_buttons(g_game_state, s_field_frame, s_field_walking);
+    int port;
 
-    sample.dpad_buttons = pad_dc_dpad_as_buttons(g_game_state, s_field_frame, s_field_walking);
     s_field_frame = 0;
-
     s_last_vblank = now;
-    pad_publish_port(&state->ports[0], dc_pad_encode_sample(connected, &sample), vblanks, state->fast_button_repeat, state->sample_unavailable);
-    pad_publish_port(&state->ports[1], dc_pad_encode_sample(0, &sample), vblanks, state->fast_button_repeat, state->sample_unavailable);
+    for (port = 0; port < 2; port++)
+    {
+        ControllerPortState *out = &state->ports[port];
+        DcPadSample sample;
+        int connected = pad_dc_read_port(port, &sample);
+
+        sample.dpad_buttons = dpad_buttons;
+        pad_publish_port(out, dc_pad_encode_sample(connected, &sample), vblanks, state->fast_button_repeat, state->sample_unavailable);
+        rumble_dc_update(port, pad_dc_rumble_level(out->actuators_enabled, out->small_motor_command, out->actuator_control.fields.large_motor_command));
+    }
 }
 
 /*----------------------

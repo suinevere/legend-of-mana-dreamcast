@@ -1,4 +1,4 @@
-# FIELD movies: the new-game path to Home, then an embedded movie (scene 114, movie 0) and a full-screen one (scene 766, movie 2) from port/tools/field_movie_census.py, each started by a fieldmovie step.
+# FIELD movies: the new-game path to Home, then an embedded movie (scene 114, movie 0) and a full-screen one (scene 766, movie 2), each started by a fieldmovie step.
 wait state 2
 wait 600
 press DOWN 6

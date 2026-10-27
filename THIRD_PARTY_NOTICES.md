@@ -13,6 +13,11 @@ The MIT License does not grant any rights to:
 - copyrighted material extracted from or distributed with the original game;
 - third-party software, libraries, SDK components, tools, or other materials that are subject to their own licenses or terms.
 
+## Bundled third-party material
+
+- `tools/assets/DC-buttons.png` is Flycast's `resources/picture/buttons.png` (https://github.com/flyinghead/flycast), licensed under the GNU General Public License version 2. `port/tools/button_icons.py` is generated from it, so the Dreamcast button art built into the port carries that license.
+- `pocketstation/harness/lc86k/` is Sandro Ronco's LC8670 core, under the BSD-3-Clause license in `pocketstation/harness/lc86k/LICENSE.txt`.
+
 *Legend of Mana* and related intellectual property are the property of their respective rights holders.
 
 This project is not affiliated with, endorsed by, or sponsored by Square Enix.

@@ -1,9 +1,10 @@
+
 #----------------------
 # | gen_pending.py
-# | Description: Generates halting C stubs and linker aliases for what FIELD and GNAME, or WMAP, objects reference but nothing defines; run it with `make pending` in saturn/.
+# | Description: Generates halting C stubs and linker aliases for what the Dreamcast objects reference but nothing defines; run it with `make -C dreamcast pending`.
 # | Author: suinevere
-# | Dependencies: sh2eb-elf-nm, overlay_rules.py, config/us/SLUS_010.13.yaml, config/us/overlays/{FIELD,GNAME}.BIN.yaml, config/us/symbols/*.txt
-# | Globals: KNOWN_SDK_FUNCTIONS, CODE_YAMLS, SECONDARY_OVERLAY_RANGE, SLOT_OVERLAYS, OVERLAY_SLOTS, BUFFER_RANGES, BENIGN, OVERLAY_BENIGN, OVERLAY_LABELS
+# | Dependencies: sh-elf-nm, overlay_rules.py, config/us/SLUS_010.13.yaml, config/us/overlays/{FIELD,GNAME}.BIN.yaml, config/us/symbols/*.txt
+# | Globals: KNOWN_SDK_FUNCTIONS, CODE_YAMLS, SECONDARY_OVERLAY_RANGE, BUFFER_RANGES, DREAMCAST_BUFFER_RANGES, DREAMCAST_BENIGN, OVERLAY_LABELS, PLATFORM
 # | Params: N/A
 # | Returns: N/A
 #----------------------
@@ -47,28 +48,6 @@ CODE_YAMLS = (
 SECONDARY_OVERLAY_RANGE = (0x80140000, 0x80180000)
 
 #----------------------
-# | SLOT_OVERLAYS
-# | Description: overlay_rules.OVERLAYS keys of the overlays linked with FIELD and GNAME, whose packed ranges (data plus tail) map onto the LWRAM slot.
-# | Author: suinevere
-# | Dependencies: overlay_rules.py
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-SLOT_OVERLAYS = (2, 5)
-
-#----------------------
-# | OVERLAY_SLOTS
-# | Description: Per --overlay run, the overlay_rules.OVERLAYS keys whose packed ranges that run's references may resolve into; WMAP is never resident with FIELD or GNAME.
-# | Author: suinevere
-# | Dependencies: SLOT_OVERLAYS
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-OVERLAY_SLOTS = {"field": SLOT_OVERLAYS, "wmap": (3,), "dreamcast": ()}
-
-#----------------------
 # | DREAMCAST_FIELD_SLOTS
 # | Description: Where a Dreamcast overlay linked against FIELD resolves names inside FIELD's packed data: FIELD's own Dreamcast data region, resident whenever such an overlay runs.
 # | Author: suinevere
@@ -88,39 +67,32 @@ DREAMCAST_FIELD_SLOTS = (("dreamcast", 2),)
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_LABELS = {"field": ("field", "FIELD and GNAME", "FIELD"), "wmap": ("wmap", "WMAP", "WMAP"),
-                  "dreamcast": ("dc", "the Dreamcast main executable, CHECKPS and TITLE", "Dreamcast")}
+OVERLAY_LABELS = {"dreamcast": ("dc", "the Dreamcast main executable, CHECKPS and TITLE", "Dreamcast")}
 
 
 #----------------------
 # | slot_address
-# | Description: Maps a PS1 address inside a slot overlay's packed ranges to its Saturn slot address, or for a ("dreamcast", key) entry to that overlay's Dreamcast data region, exactly as the converter packs it.
+# | Description: Maps a PS1 address inside a ("dreamcast", key) overlay's packed ranges to that overlay's Dreamcast data region, exactly as the converter packs it.
 # | Author: suinevere
-# | Dependencies: overlay_rules.packed_offset, overlay_rules.target_spec, overlay_rules.OVERLAYS, overlay_rules.SLOT_BASE, targets.DREAMCAST
-# | Globals: SLOT_OVERLAYS
-# | Params: addr -- PS1 address, overlays -- overlay_rules.OVERLAYS keys or ("dreamcast", key) pairs to search
-# | Returns: slot or region address, or None outside every packed range
+# | Dependencies: overlay_rules.packed_offset, overlay_rules.OVERLAYS, targets.DREAMCAST
+# | Globals: N/A
+# | Params: addr -- PS1 address, overlays -- ("dreamcast", overlay_rules.OVERLAYS key) pairs to search
+# | Returns: region address, or None outside every packed range
 #----------------------
-def slot_address(addr, overlays=SLOT_OVERLAYS):
-    for overlay in overlays:
-        if isinstance(overlay, tuple):
-            spec = overlay_rules.target_spec(overlay_rules.OVERLAYS[overlay[1]], targets.DREAMCAST)
-            offset = overlay_rules.packed_offset(addr, spec)
-            if offset is not None:
-                return targets.DREAMCAST.regions[spec.name].data_base + offset
-            continue
-        spec = overlay_rules.OVERLAYS[overlay]
+def slot_address(addr, overlays=()):
+    for _, key in overlays:
+        spec = overlay_rules.OVERLAYS[key]
         offset = overlay_rules.packed_offset(addr, spec)
         if offset is not None:
-            return overlay_rules.SLOT_BASE + spec.base + offset
+            return targets.DREAMCAST.regions[spec.name].data_base + offset
     return None
 
 
 #----------------------
 # | BUFFER_RANGES
-# | Description: PS1 regions (start, Saturn buffer size, buffer symbol) that lom_prefix.h redirects to Saturn buffers of the same layout.
+# | Description: PS1 regions (start, size, buffer symbol) that lom_prefix.h redirects to port buffers of the same layout.
 # | Author: suinevere
-# | Dependencies: ../port/psyq/lom_prefix.h, src/boot/main_globals.c
+# | Dependencies: ../port/psyq/lom_prefix.h, dreamcast/src/boot/main_globals_dc.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -148,17 +120,6 @@ DREAMCAST_BUFFER_RANGES = tuple((start, 0x4000 if symbol == "_lom_sound_bank" el
     (akao_data.DATA_START, akao_data.DATA_END - akao_data.DATA_START, "_lom_akao_data"),
     (akao_data.BSS_START, akao_data.BSS_END - akao_data.BSS_START, "_lom_akao_bss"),
 ) + main_data.buffer_ranges()
-
-#----------------------
-# | OVERLAY_BUFFER_RANGES
-# | Description: Per --overlay run, the redirected-buffer table its aliases resolve against.
-# | Author: suinevere
-# | Dependencies: BUFFER_RANGES, DREAMCAST_BUFFER_RANGES
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-OVERLAY_BUFFER_RANGES = {"field": BUFFER_RANGES, "wmap": BUFFER_RANGES, "dreamcast": DREAMCAST_BUFFER_RANGES}
 
 #----------------------
 # | KNOWN_SDK_FUNCTIONS
@@ -301,37 +262,17 @@ def classify(names, symbol_lines, code_ranges):
 
 
 #----------------------
-# | WMAP_SAVE_BIG_ENDIAN_OFFSETS
-# | Description: g_saved_game byte offsets for WMAP raw externs that alias a field wmap_save_views.h's LOM_BIG_ENDIAN branch moves, overriding the PS1 (little-endian) address difference resolve_aliases would otherwise compute; each value is read straight off that struct's #if defined(LOM_BIG_ENDIAN) member order, not derived here.
-# | Author: suinevere
-# | Dependencies: src/overlays/wmap/internal/wmap_save_views.h (WmapSave.calendar, WmapLandStatus)
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-WMAP_SAVE_BIG_ENDIAN_OFFSETS = {
-    # WmapSave.calendar.data on LOM_BIG_ENDIAN: day (0x2E4-0x2E5), placed_land_count (0x2E6), unknown_0x2e4 (0x2E7, no alias reads it).
-    "g_wmap_saved_day": ("g_saved_game", 0x2E4),
-    "g_wmap_placed_land_count": ("g_saved_game", 0x2E6),
-    # WmapLandStatus.data on LOM_BIG_ENDIAN, for lands[0] (D_800432C8/D_800432C9 index by WMAP_NODE_RECORD_SIZE from this base): artifact_order (byte 0), placement_order (byte 1), position (byte 2), flags (byte 3).
-    "D_800432C8": ("g_saved_game", 0x2F3),
-    "D_800432C9": ("g_saved_game", 0x2F2),
-}
-
-#----------------------
 # | resolve_aliases
 # | Description: Maps names (splat auto names by their own address) to an equal-address defined symbol outside the secondary range.
 # |              Or an offset into a defined size:/allow_addend symbol that contains them, a databin slot address, or a redirected buffer.
-# |              Names in offset_overrides get that fixed container and offset instead.
 # |              A function (classify's rule over code_ranges) is never placed inside a container, since another overlay's data can span its address.
 # | Author: suinevere
-# | Dependencies: SYMBOL_LINE, SIZED_SYMBOL, SPLAT_AUTO_NAME, SECONDARY_OVERLAY_RANGE, slot_address, BUFFER_RANGES, classify
+# | Dependencies: SYMBOL_LINE, SIZED_SYMBOL, SPLAT_AUTO_NAME, SECONDARY_OVERLAY_RANGE, slot_address, DREAMCAST_BUFFER_RANGES, classify
 # | Globals: N/A
-# | Params: names -- undefined names, symbol_lines -- symbol_addrs lines, targets -- names that linked objects or slot scripts define, slot_overlays -- overlays whose packed ranges may resolve a name, offset_overrides -- dict of name to (container, offset) that wins over the computed alias, buffer_ranges -- redirected-buffer table, code_ranges -- (start, end) code ranges that make a name a function
+# | Params: names -- undefined names, symbol_lines -- symbol_addrs lines, targets -- names that linked objects or slot scripts define, slot_overlays -- ("dreamcast", key) overlays whose packed ranges may resolve a name, buffer_ranges -- redirected-buffer table, code_ranges -- (start, end) code ranges that make a name a function
 # | Returns: dict of name to linker expression ("_target", "_container + offset", a hex slot address or "_buffer + offset")
 #----------------------
-def resolve_aliases(names, symbol_lines, targets, slot_overlays=SLOT_OVERLAYS, offset_overrides=None, buffer_ranges=BUFFER_RANGES,
-                    code_ranges=()):
+def resolve_aliases(names, symbol_lines, targets, slot_overlays=(), buffer_ranges=DREAMCAST_BUFFER_RANGES, code_ranges=()):
     addresses, by_address, containers = {}, {}, set()
     for line in symbol_lines:
         match = SYMBOL_LINE.match(line)
@@ -376,47 +317,12 @@ def resolve_aliases(names, symbol_lines, targets, slot_overlays=SLOT_OVERLAYS, o
             if buffer is not None:
                 aliases[name] = "%s + 0x%X" % buffer
                 break
-    for name, container in (offset_overrides or {}).items():
-        if name in aliases:
-            aliases[name] = "_%s + 0x%X" % container
     return aliases
 
 
 #----------------------
-# | BENIGN
-# | Description: Pending FIELD/GNAME functions that Home's path reaches with no input; each logs once and returns a safe value instead of halting.
-# | Author: suinevere
-# | Dependencies: N/A
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-BENIGN = {
-    "field_load_actor_sequence_data": "void",
-    "field_refresh_party_routes": "void",
-    "field_reset_leader_position_history": "void",
-    "field_update_object_tints": "void",
-    "field_update_actor_input": "zero",
-    "field_record_actor_position": "void",
-    "field_render_effects": "void",
-    "field_render_effect_frame8": "arg:cursor",
-    "field_render_effect_frame16": "arg:cursor",
-    "akao_set_master_volume": "zero",
-    "cdrom_set_audio_volume": "void",
-    "McxCardType": "zero",
-    "record_game_diagnostic": "void",
-    "field_update_actor_command": "void",
-    "field_follow_leader_route": "void",
-    "field_advance_actor_effects": "void",
-    "field_collect_attack_sphere_hits": "void",
-    "field_probe_actor_interaction": "void",
-    "field_start_object_ground_effect": "void",
-    "field_update_sequence_actor_binding": "void",
-}
-
-#----------------------
 # | DREAMCAST_BENIGN
-# | Description: Pending Dreamcast functions GNAME's path reaches with no input once FIELD got its own overlay (Task 6); McxCardType is Saturn's memory-card probe, absent hardware on Dreamcast.
+# | Description: Pending Dreamcast functions GNAME's path reaches with no input once FIELD got its own overlay (Task 6); McxCardType is the PS1's memory-card probe, absent hardware on the Dreamcast.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -430,30 +336,15 @@ DREAMCAST_BENIGN = {
 }
 
 #----------------------
-# | OVERLAY_BENIGN
-# | Description: Per --overlay run, the BENIGN table it applies; WMAP's pending functions all halt.
+# | PLATFORM
+# | Description: The generator command named in the outputs, the system header, the halt call and its message.
 # | Author: suinevere
-# | Dependencies: BENIGN, DREAMCAST_BENIGN
+# | Dependencies: dreamcast/src/system/dc_system.h
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-OVERLAY_BENIGN = {"field": BENIGN, "wmap": {}, "dreamcast": DREAMCAST_BENIGN}
-
-
-#----------------------
-# | SATURN_PLATFORM / OVERLAY_PLATFORMS
-# | Description: Per --overlay run, the generator command named in the outputs, the system header, the halt call and its message; runs not listed use the Saturn's.
-# | Author: suinevere
-# | Dependencies: saturn/src/system/saturn_system.h, dreamcast/src/system/dc_system.h
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-SATURN_PLATFORM = ("saturn/tools/gen_pending.py (make pending in saturn/)", "saturn_system.h", "saturn_halt",
-                   "%(overlay)s function %(name)s not ported yet")
-OVERLAY_PLATFORMS = {"dreamcast": ("port/tools/gen_pending.py (make -C dreamcast pending)", "dc_system.h", "dc_halt",
-                                   "pending: %(name)s")}
+PLATFORM = ("port/tools/gen_pending.py (make -C dreamcast pending)", "dc_system.h", "dc_halt", "pending: %(name)s")
 
 
 #----------------------
@@ -471,20 +362,16 @@ class UnmatchedBenignNameError(Exception):
 
 #----------------------
 # | render_benign_function
-# | Description: Builds one BENIGN stub: logs once (saturn_log_once on Saturn, or a static-flag-guarded dc_log call on Dreamcast), then returns void, zero or its second argument unchanged.
+# | Description: Builds one BENIGN stub: logs once through a static-flag-guarded dc_log call, then returns void, zero or its second argument unchanged.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: name -- function name, kind -- "void", "zero" or "arg:<param>", overlay -- OVERLAY_LABELS key, selecting the logging call
 # | Returns: C source text for the one function
 #----------------------
-def render_benign_function(name, kind, overlay="field"):
-    if overlay == "dreamcast":
-        log_dep = "dc_log"
-        log_line = ("    static int logged;\n    if (!logged) { logged = 1; dc_log(\"field: %s skipped\"); }\n" % name)
-    else:
-        log_dep = "saturn_log_once"
-        log_line = "    saturn_log_once(\"field: %s skipped\");\n" % name
+def render_benign_function(name, kind):
+    log_dep = "dc_log"
+    log_line = ("    static int logged;\n    if (!logged) { logged = 1; dc_log(\"field: %s skipped\"); }\n" % name)
     if kind == "void":
         signature = "void lom_pending_%s(void)" % name
         body = log_line
@@ -523,13 +410,13 @@ def render_benign_function(name, kind, overlay="field"):
 # | Params: functions -- function names, data -- data names, aliases -- dict of name to linker expression, benign -- dict of name to BENIGN kind, overlay -- OVERLAY_LABELS key
 # | Returns: (C source text, linker script text); raises UnmatchedBenignNameError
 #----------------------
-def render(functions, data, aliases=None, benign=None, overlay="field"):
+def render(functions, data, aliases=None, benign=None, overlay="dreamcast"):
     stem, callers, halt = OVERLAY_LABELS[overlay]
     if benign:
         unmatched = sorted(set(benign) - set(functions))
         if unmatched:
             raise UnmatchedBenignNameError("BENIGN names with no matching pending function: %s" % ", ".join(unmatched))
-    tool, system_header, halt_call, halt_text = OVERLAY_PLATFORMS.get(overlay, SATURN_PLATFORM)
+    tool, system_header, halt_call, halt_text = PLATFORM
     c_parts = [
         "/*----------------------\n"
         " | %s_pending.c\n"
@@ -544,7 +431,7 @@ def render(functions, data, aliases=None, benign=None, overlay="field"):
     ]
     for name in sorted(functions):
         if benign and name in benign:
-            c_parts.append(render_benign_function(name, benign[name], overlay))
+            c_parts.append(render_benign_function(name, benign[name]))
             continue
         c_parts.append(
             "\n/*----------------------\n"
@@ -571,7 +458,7 @@ def render(functions, data, aliases=None, benign=None, overlay="field"):
         " | Globals: lom_trap_buffer\n"
         " | Params: N/A\n"
         " | Returns: N/A\n"
-        " ----------------------*/\n" % (stem, tool, callers, "src/boot/main_globals_dc.c" if overlay == "dreamcast" else "src/boot/main_globals.c")
+        " ----------------------*/\n" % (stem, tool, callers, "src/boot/main_globals_dc.c")
     ]
     for name, target in sorted((aliases or {}).items()):
         ld_parts.append("_%s = %s;\n" % (name, target))
@@ -725,13 +612,13 @@ def group_overlay(group):
 # | own_data_aliases
 # | Description: Maps names that fall inside an overlay's own packed data, by symbol file or splat auto-name address, to their Dreamcast data-region address.
 # | Author: suinevere
-# | Dependencies: SYMBOL_LINE, SPLAT_AUTO_NAME, overlay_rules.target_spec, overlay_rules.packed_offset, targets.DREAMCAST
+# | Dependencies: SYMBOL_LINE, SPLAT_AUTO_NAME, overlay_rules.packed_offset, targets.DREAMCAST
 # | Globals: N/A
 # | Params: names -- unresolved names, symbol_lines -- symbol_addrs lines, overlay -- overlay name
 # | Returns: dict of name to address
 #----------------------
 def own_data_aliases(names, symbol_lines, overlay):
-    spec = overlay_rules.target_spec(next(s for s in overlay_rules.OVERLAYS.values() if s.name == overlay), targets.DREAMCAST)
+    spec = next(s for s in overlay_rules.OVERLAYS.values() if s.name == overlay)
     base = targets.DREAMCAST.regions[overlay].data_base
     addresses = {}
     for line in symbol_lines:
@@ -786,8 +673,8 @@ def render_group(overlay, aliases, dependency_aliases=None):
 def main(argv=None):
     here = os.path.dirname(os.path.abspath(__file__))
     repo = os.path.abspath(os.path.join(here, "..", ".."))
-    parser = argparse.ArgumentParser(description="Generate FIELD/GNAME or WMAP pending stubs.")
-    parser.add_argument("--overlay", choices=sorted(OVERLAY_LABELS), default="field")
+    parser = argparse.ArgumentParser(description="Generate the Dreamcast pending stubs.")
+    parser.add_argument("--overlay", choices=sorted(OVERLAY_LABELS), default="dreamcast")
     parser.add_argument("--objects", nargs="+", required=True)
     parser.add_argument("--symbols", nargs="+", required=True)
     parser.add_argument("--defined", nargs="*", default=[])
@@ -798,7 +685,7 @@ def main(argv=None):
     parser.add_argument("--group-out-dir", default=None)
     parser.add_argument("--out-c", required=True)
     parser.add_argument("--out-ld", required=True)
-    parser.add_argument("--nm", default="sh2eb-elf-nm")
+    parser.add_argument("--nm", default="sh-elf-nm")
     parser.add_argument("--yamls", nargs="+", default=[os.path.join(repo, p) for p in CODE_YAMLS])
     args = parser.parse_args(argv)
 
@@ -843,8 +730,8 @@ def main(argv=None):
             dep_defined = group_defined_by_overlay.get(dep)
             if not dep_defined:
                 continue
-            slots = DREAMCAST_FIELD_SLOTS if args.overlay == "dreamcast" and dep == "field" else OVERLAY_SLOTS[args.overlay]
-            found = resolve_aliases(remaining, symbol_lines, dep_defined, slots, None, OVERLAY_BUFFER_RANGES[args.overlay])
+            slots = DREAMCAST_FIELD_SLOTS if dep == "field" else ()
+            found = resolve_aliases(remaining, symbol_lines, dep_defined, slots, DREAMCAST_BUFFER_RANGES)
             if found:
                 dependency_aliases_by_overlay.setdefault(dep, {}).update(found)
                 consumed_by_dependent.setdefault(dependent, set()).update(found)
@@ -865,16 +752,14 @@ def main(argv=None):
     alias_targets = object_defined | defined_by(args.nm, args.alias_defined)
 
     ranges = [code_range(path) for path in args.yamls]
-    overrides = WMAP_SAVE_BIG_ENDIAN_OFFSETS if args.overlay == "wmap" else None
     try:
-        aliases = resolve_aliases(missing, symbol_lines, alias_targets, OVERLAY_SLOTS[args.overlay], overrides,
-                                  OVERLAY_BUFFER_RANGES[args.overlay], ranges)
+        aliases = resolve_aliases(missing, symbol_lines, alias_targets, (), DREAMCAST_BUFFER_RANGES, ranges)
         functions, data = classify(missing - set(aliases), symbol_lines, ranges)
     except UnknownSymbolError as error:
         print("gen_pending: %s" % error, file=sys.stderr)
         return 1
 
-    applicable_benign = {name: kind for name, kind in OVERLAY_BENIGN[args.overlay].items() if name in functions}
+    applicable_benign = {name: kind for name, kind in DREAMCAST_BENIGN.items() if name in functions}
     c_text, ld_text = render(functions, data, aliases, benign=applicable_benign, overlay=args.overlay)
     with open(args.out_c, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(c_text)

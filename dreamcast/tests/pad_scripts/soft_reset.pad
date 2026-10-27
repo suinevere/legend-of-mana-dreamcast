@@ -1,0 +1,4 @@
+# Soft reset check for test_soft_reset.py: A+B+X+Y+Start held during the intro movie restarts the game from the disc at the Squaresoft logo; the replayed script resets again.
+wait 300
+press CROSS+CIRCLE+SQUARE+TRIANGLE+START 30
+wait 600

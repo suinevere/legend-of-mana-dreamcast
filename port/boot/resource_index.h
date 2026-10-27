@@ -14,7 +14,7 @@
 
 /*----------------------
  | CD_FOLDER_*
- | Description: Disc folders: the root (no folder), OVL for overlay files and RES for every other resource; Saturn's cd_dir.h takes these from here to keep this header portable.
+ | Description: Disc folders: the root (no folder), OVL for overlay files and RES for every other resource.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -41,7 +41,7 @@
 
 /*----------------------
  | ResourceEntry
- | Description: One exported resource: PS1 resource index, kind and byte size of its Saturn file.
+ | Description: One exported resource: PS1 resource index, kind and byte size of its disc file.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

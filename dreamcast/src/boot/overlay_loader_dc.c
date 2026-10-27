@@ -35,7 +35,7 @@
 
 /*----------------------
  | FIELD_RESOURCE
- | Description: FIELD's PS1 CD resource index, matching overlay_rules.OVERLAYS[2] and saturn/makefile's OVERLAY_RESOURCE_field.
+ | Description: FIELD's PS1 CD resource index, matching overlay_rules.OVERLAYS[2].
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

@@ -1491,7 +1491,7 @@ void* menu_draw_scene_content(void* packet_cursor, u_long* ot_entry)
                             {
                                 packet_cursor = menu_emit_draw_mode_primitive(menu_emit_icon_sprite(packet_cursor, ot_entry, t0,
                                                                                                     content_item->packed_x & MENU_CONTENT_X_MASK,
-                                                                                                    content_item->y - MENU_CONTENT_VIEW_Y_OFFSET, 0, 0, 0, 0),
+                                                                                                    MENU_CONTENT_ICON_Y(t0, content_item->y - MENU_CONTENT_VIEW_Y_OFFSET), 0, 0, 0, 0),
                                                                               ot_entry);
                             }
                         }
@@ -3459,7 +3459,7 @@ void* menu_draw_node_recursive(s32 node_index, void* prim_buf, u_long* ot)
     node = node_base + node_index;
     g_menu_nav_count += 1;
     next_prim = menu_emit_icon_sprite(prim_buf, ot, node->icon_id, ((node->idx_nav.nav_x_packed >> 8) & (MENU_NAV_X_MASK >> 8)) + 1,
-                                      ((node->u8_u.s.nav_y_hi << 1) | (work_value = node->idx_nav.nav_x_packed >> 15)) - g_menu_content_height, 1,
+                                      MENU_CONTENT_ICON_Y(node->icon_id, ((node->u8_u.s.nav_y_hi << 1) | (work_value = node->idx_nav.nav_x_packed >> 15)) - g_menu_content_height), 1,
                                       ((node->u2.unk2 >> 2) & 3) != 0, g_menu_scene_type == node_index, (node->u2.unk2 >> 6) & 3);
 
     {

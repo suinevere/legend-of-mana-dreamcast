@@ -2,7 +2,7 @@
  | lom_prefix.h
  | Description: Forced-include prefix that maps the decomp's fixed PS1 addresses to platform buffers and makes packet macros endian-correct; each backend's lom_platform_memory.h supplies its own memory map.
  | Author: suinevere
- | Dependencies: gte_saturn.h, lom_platform_memory.h, spu_shadow.h (Dreamcast), common.h, libgpu.h, common/gpu_packet.h
+ | Dependencies: gte_soft.h, lom_platform_memory.h, spu_shadow.h (Dreamcast), common.h, libgpu.h, common/gpu_packet.h
  | Globals: lom_resident_state, lom_load_buffer, lom_sound_bank, lom_font_buffer, lom_render_arena, lom_primary_upper, lom_scratchpad, lom_text_cache, lom_trap_buffer
  | Params: N/A
  | Returns: N/A
@@ -14,7 +14,7 @@
 #define SDK_MEMORY_H
 #define INCLUDE_ASM_H
 #define SDK_INLINE_C_BRIDGE_H
-#include "gte_saturn.h"
+#include "gte_soft.h"
 
 #include "version.h"
 #include "lom_platform_memory.h"
@@ -55,7 +55,7 @@ extern unsigned char lom_sound_bank[];
 
 /*----------------------
  | LOAD_BUFFER_ADDRESS / LOAD_BUFFER_AT
- | Description: The PS1 CD staging buffer at 0x80180000, redirected to a platform buffer (on the Saturn it shares LWRAM with resident overlay data until a CD read fills it).
+ | Description: The PS1 CD staging buffer at 0x80180000, redirected to a platform buffer.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: lom_load_buffer
@@ -99,7 +99,7 @@ extern unsigned char lom_trap_buffer[];
  | PRIMARY_OVERLAY_UPPER_ADDRESS
  | Description: The PS1 page at 0x80100000, resolved per link: the render arena for main and CHECKPS, FIELD's own slot page in FIELD.
  | Author: suinevere
- | Dependencies: saturn.linker, tools/overlay_link.py, main_globals_dc.c
+ | Dependencies: port/tools/overlay_link.py, main_globals_dc.c
  | Globals: lom_primary_upper
  | Params: N/A
  | Returns: N/A

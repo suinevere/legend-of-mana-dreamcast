@@ -464,7 +464,7 @@ void cdrom_load_resource_table(s32 lba, s32 data_size_bytes)
 /*----------------------
  | cdrom_stream
  | Description: Loads an overlay into its arena region, or decompresses a raw resource or copies a converted stream into the destination, rebasing a map's PS1 pointers.
- |              A missing index halts naming it; a skipped one silently returns instead, matching the Saturn since game code (e.g. the intro movie) expects some targets to omit it.
+ |              A missing index halts naming it; a skipped one silently returns instead, since game code (e.g. the intro movie) expects some targets to omit it.
  | Author: suinevere
  | Dependencies: resource_index_find, load_overlay, stream_raw_resource, read_resource, map_relocate, halt_resource_not_on_disc, dc_log
  | Globals: N/A

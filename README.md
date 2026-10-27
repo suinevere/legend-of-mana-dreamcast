@@ -47,7 +47,7 @@ Run `make verify-bins` to check every module, or `make verify-bins VERSION=jp` f
 
 3. ✅ **NTSC-J version** - *done.* The original Japanese release (`SLPS-02170`) builds from the same source tree as the North American one, and all 18 of its binaries are fully linked too.
 
-4. 🚧 **Modding and source ports** - *in progress.* The [Dreamcast port](#dreamcast-port) builds from the reconstructed source and runs the game's screens, music, movies and VMU saves; real-hardware testing on GDEMU is ongoing. Ring Ring Land runs on the VMU. A Saturn port reached the first field scene and is paused.
+4. 🚧 **Modding and source ports** - *in progress.* The [Dreamcast port](#dreamcast-port) builds from the reconstructed source and runs the game's screens, music, movies and VMU saves; real-hardware testing on GDEMU is ongoing. Ring Ring Land runs on the VMU.
 
 ## Supported game versions
 
@@ -435,10 +435,9 @@ lom-decomp/
 |-- tools/                  # Decompilation, compiler, diff, and asset tools
 |-- docs/                   # Architecture and matching documentation
 |-- disc/<version>/         # Your local original game files (gitignored)
-|-- port/                   # PlayStation SDK layer shared by the console ports
+|-- port/                   # PlayStation SDK layer and disc converter the Dreamcast port builds on
 |-- dreamcast/              # Dreamcast port: KallistiOS backend, build scripts, Flycast tests
 |-- pocketstation/          # Ring Ring Land: decompiled C, VMU runtime and VMU assembly game
-|-- saturn/                 # Saturn port (paused)
 |-- assets/<version>/       # Local/generated asset data where required
 |-- asm/<version>/          # Splat-generated target assembly (gitignored)
 |-- linker/<version>/       # Splat-generated linker files (gitignored)

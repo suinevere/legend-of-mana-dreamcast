@@ -358,12 +358,12 @@ def test_gen_pad_script_boothold_rejects_when_not_first():
     assert not os.path.exists(header_path)
 
 
-def test_gen_pad_script_sound_sets_match_convert_sound():
+def test_gen_pad_script_sound_sets_match_sound_banks():
     sys.path.insert(0, os.path.join(DC, "tools"))
     sys.path.insert(0, os.path.join(DC, "..", "port", "tools"))
-    convert_sound = pytest.importorskip("convert_sound")
+    sound_banks = pytest.importorskip("sound_banks")
     import gen_pad_script
-    kinds = dict(convert_sound.SOUND_RESOURCES)
+    kinds = dict(sound_banks.SOUND_RESOURCES)
     assert gen_pad_script.MUSIC_RESOURCES == {r for r, k in kinds.items() if k == "music"}
     assert gen_pad_script.SFXSET_RESOURCES == {r for r, k in kinds.items() if k in ("effect_set", "bank", "sfx_set", "weapon_sfx")}
 
@@ -371,7 +371,7 @@ def test_gen_pad_script_sound_sets_match_convert_sound():
 def test_sound_sweep_script_is_generated():
     sys.path.insert(0, os.path.join(DC, "tools"))
     sys.path.insert(0, os.path.join(DC, "..", "port", "tools"))
-    pytest.importorskip("convert_sound")
+    pytest.importorskip("sound_banks")
     import gen_sound_sweep
     with open(os.path.join(DC, "tests", "pad_scripts", "sound_sweep.pad")) as f:
         assert f.read() == gen_sound_sweep.render(), "rerun dreamcast/tools/gen_sound_sweep.py"

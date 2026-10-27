@@ -55,7 +55,7 @@ const char *overlay_region_check(const OverlayRegion *region, const OverlayHeade
 
 /*----------------------
  | overlay_file_name
- | Description: Builds an overlay's file name, "OVLnnC.BIN" for its code or "OVLnn.BIN" for its data, as the Saturn loader names them.
+ | Description: Builds an overlay's file name, "OVLnnC.BIN" for its code or "OVLnn.BIN" for its data.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

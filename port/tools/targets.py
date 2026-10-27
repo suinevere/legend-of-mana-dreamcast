@@ -1,9 +1,10 @@
+
 #----------------------
 # | targets.py
-# | Description: Converter targets: the Saturn profile with its byte-swap and colour rules, and the little-endian Dreamcast profile with fixed per-overlay arena regions.
+# | Description: The converter's Dreamcast target: little-endian PS1 bytes with fixed per-overlay arena regions.
 # | Author: suinevere
 # | Dependencies: N/A
-# | Globals: SATURN, DREAMCAST, SECONDARY_REGION, SECONDARY_OVERLAYS, DREAMCAST_UNLINKED_OVERLAYS, SATURN_UNLINKED_OVERLAYS, ARENA_BASE, ARENA_END, TARGETS
+# | Globals: DREAMCAST, SECONDARY_REGION, SECONDARY_OVERLAYS, DREAMCAST_UNLINKED_OVERLAYS, ARENA_BASE, ARENA_END, TARGETS
 # | Params: N/A
 # | Returns: N/A
 #----------------------
@@ -22,14 +23,14 @@ Region = collections.namedtuple("Region", "code_base code_size data_base data_si
 
 #----------------------
 # | Target
-# | Description: A converter profile: name, whether data is byte-swapped to big-endian, per-overlay regions (None keeps the Saturn slot logic) and whether the convert rules run.
+# | Description: A converter profile: name and per-overlay regions.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-Target = collections.namedtuple("Target", "name big_endian regions convert_rules")
+Target = collections.namedtuple("Target", "name regions")
 
 #----------------------
 # | ARENA_BASE / ARENA_END
@@ -43,17 +44,6 @@ Target = collections.namedtuple("Target", "name big_endian regions convert_rules
 #----------------------
 ARENA_BASE = 0x8C480000
 ARENA_END = 0x8CE00000
-
-#----------------------
-# | SATURN
-# | Description: Saturn profile: big-endian output through the per-overlay convert rules, packed into the LWRAM slot overlay_rules.SLOT_BASE describes.
-# | Author: suinevere
-# | Dependencies: N/A
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-SATURN = Target("saturn", True, None, True)
 
 #----------------------
 # | SECONDARY_REGION
@@ -95,7 +85,7 @@ SECONDARY_OVERLAYS = ("gname", "menu", "shop", "golem", "zukan", "gosub", "carda
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-DREAMCAST = Target("dreamcast", False, {
+DREAMCAST = Target("dreamcast", {
     "field": Region(0x8C480000, 0x70000, 0x8C4F0000, 0x70000),
     "wmap": Region(0x8C560000, 0x60000, 0x8C5C0000, 0x140000),
     "checkps": Region(0x8C800000, 0x40000, 0x8C840000, 0x40000),
@@ -113,7 +103,7 @@ DREAMCAST = Target("dreamcast", False, {
     "cload": SECONDARY_REGION,
     "carda": SECONDARY_REGION,
     "gosub": SECONDARY_REGION,
-}, False)
+})
 
 #----------------------
 # | DREAMCAST_UNLINKED_OVERLAYS
@@ -127,26 +117,15 @@ DREAMCAST = Target("dreamcast", False, {
 DREAMCAST_UNLINKED_OVERLAYS = ()
 
 #----------------------
-# | SATURN_UNLINKED_OVERLAYS
-# | Description: Overlays the Dreamcast links that the Saturn build does not yet, since they have no big-endian data rules; Saturn skips them on the disc and in its link scripts.
-# | Author: suinevere
-# | Dependencies: N/A
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-SATURN_UNLINKED_OVERLAYS = ("menu", "shop", "golem", "zukan", "gosub", "carda", "cload", "niki", "addhero", "gover", "movie")
-
-#----------------------
 # | TARGETS
 # | Description: Every converter target keyed by its command-line name.
 # | Author: suinevere
-# | Dependencies: SATURN, DREAMCAST
+# | Dependencies: DREAMCAST
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-TARGETS = {target.name: target for target in (SATURN, DREAMCAST)}
+TARGETS = {target.name: target for target in (DREAMCAST,)}
 
 
 #----------------------
@@ -155,7 +134,7 @@ TARGETS = {target.name: target for target in (SATURN, DREAMCAST)}
 # | Author: suinevere
 # | Dependencies: TARGETS
 # | Globals: N/A
-# | Params: name -- "saturn" or "dreamcast"
+# | Params: name -- "dreamcast"
 # | Returns: Target; raises ValueError for an unknown name
 #----------------------
 def by_name(name):

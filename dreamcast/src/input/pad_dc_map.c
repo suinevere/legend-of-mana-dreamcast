@@ -1,6 +1,6 @@
 /*----------------------
  | pad_dc_map.c
- | Description: Maps a Dreamcast Maple controller sample onto the game's PAD_BTN_* layout, with every PS1 button reachable from the Dreamcast pad, and encodes it as the PS1 held-button word.
+ | Description: Maps a Dreamcast Maple controller sample onto the game's PAD_BTN_* layout, with every PS1 button reachable from the Dreamcast pad, encodes it as the PS1 held-button word, spots the soft-reset chord and turns the PS1 motor commands into a Jump Pack level.
  | Author: suinevere
  | Dependencies: pad_dc_map.h, common/pad.h
  | Globals: N/A
@@ -114,7 +114,7 @@ uint16_t pad_dc_logical_buttons(const DcPadSample *s)
 
 /*----------------------
  | pad_dc_held_word
- | Description: Encodes a Maple sample as the PS1 driver's SCDRegs.held_buttons word, undoing the readers' byte swap and face-button remap as saturn/src/input/pad_encode.c does.
+ | Description: Encodes a Maple sample as the PS1 driver's SCDRegs.held_buttons word, undoing the readers' byte swap and face-button remap.
  | Author: suinevere
  | Dependencies: pad_dc_logical_buttons
  | Globals: N/A
@@ -147,4 +147,57 @@ int pad_dc_dpad_as_buttons(unsigned game_state, int field_frame, PadDcWalkingQue
     }
     return (game_state == PAD_DC_STATE_FIELD || game_state == PAD_DC_STATE_ATTRACT_1 || game_state == PAD_DC_STATE_ATTRACT_2) && field_frame &&
            walking != NULL && walking();
+}
+
+/*----------------------
+ | PAD_DC_SOFT_RESET
+ | Description: The Dreamcast's standard soft-reset chord, A, B, X, Y and Start held together.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_DC_SOFT_RESET (DC_CONT_A | DC_CONT_B | DC_CONT_X | DC_CONT_Y | DC_CONT_START)
+
+/*----------------------
+ | pad_dc_soft_reset_chord
+ | Description: Whether a sample holds the whole soft-reset chord; other buttons held as well do not stop it.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: s -- Maple controller sample
+ | Returns: 1 when A, B, X, Y and Start are all held, else 0
+ ----------------------*/
+int pad_dc_soft_reset_chord(const DcPadSample *s)
+{
+    return (s->buttons & PAD_DC_SOFT_RESET) == PAD_DC_SOFT_RESET;
+}
+
+/*----------------------
+ | pad_dc_rumble_level
+ | Description: The Jump Pack level for a port's PS1 motor commands: the large motor's 1-255 strength spread over levels 1-7, at least PAD_DC_RUMBLE_SMALL while the small motor's on bit is set, and nothing when the port's actuators are off.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: enabled -- the port's actuators_enabled, small_motor -- its small_motor_command, large_motor -- its large_motor_command
+ | Returns: 0 for still, else 1 to PAD_DC_RUMBLE_MAX
+ ----------------------*/
+int pad_dc_rumble_level(int enabled, unsigned small_motor, unsigned large_motor)
+{
+    int level = 0;
+
+    if (!enabled)
+    {
+        return 0;
+    }
+    if (large_motor != 0)
+    {
+        level = 1 + (int)((large_motor - 1) * (PAD_DC_RUMBLE_MAX - 1) / 254);
+    }
+    if ((small_motor & 1) && level < PAD_DC_RUMBLE_SMALL)
+    {
+        level = PAD_DC_RUMBLE_SMALL;
+    }
+    return level;
 }

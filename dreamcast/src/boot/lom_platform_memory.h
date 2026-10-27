@@ -23,7 +23,7 @@
 
 /*----------------------
  | LOM_RENDER_ARENA_SIZE
- | Description: Bytes in lom_render_arena, matching the Saturn arena and covering TITLE's double menu context (0x1FB10).
+ | Description: Bytes in lom_render_arena, covering TITLE's double menu context (0x1FB10).
  | Author: suinevere
  | Dependencies: main_globals_dc.c
  | Globals: N/A
@@ -69,9 +69,9 @@ extern unsigned char lom_secondary_overlay[];
 
 /*----------------------
  | FIELD_CD_BUFFER_ADDRESS / FIELD_ACTOR_HEAP_ADDRESS
- | Description: FIELD's CD read buffer and actor heap, at PS1 0x80140000 and 0x80158000, each its own real buffer as on the Saturn, now that FIELD's actors reach them for real.
+ | Description: FIELD's CD read buffer and actor heap, at PS1 0x80140000 and 0x80158000, each its own real buffer now that FIELD's actors reach them for real.
  | Author: suinevere
- | Dependencies: main_globals_dc.c, saturn/src/boot/lom_platform_memory.h
+ | Dependencies: main_globals_dc.c
  | Globals: lom_field_cd_buffer, lom_field_actor_heap
  | Params: N/A
  | Returns: N/A

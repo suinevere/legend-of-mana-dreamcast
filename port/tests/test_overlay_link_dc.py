@@ -1,8 +1,8 @@
 #----------------------
 # | test_overlay_link_dc.py
-# | Description: Checks overlay_link.py's --target and --dry-run: the Dreamcast link profile at each arena region, the region header, the header packing, and Saturn output left unchanged.
+# | Description: Checks overlay_link.py's --target and --dry-run: the Dreamcast link profile at each arena region, the region header and the OVLnnC.BIN header packing.
 # | Author: suinevere
-# | Dependencies: tools/overlay_link.py, tools/targets.py, ../saturn/gen
+# | Dependencies: tools/overlay_link.py, tools/targets.py
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -126,53 +126,10 @@ def test_dreamcast_gen_writes_every_dry_run_file():
             assert f.read() == text
 
 
-def test_saturn_dry_run_matches_generated_saturn_files():
-    gen = os.path.join(REPO, "saturn", "gen")
-    files = files_in(run("--target", "saturn", "--dry-run"))
-    assert "overlay_entries.ld" in files
-    for name, text in files.items():
-        path = os.path.join(gen, name)
-        if os.path.exists(path):
-            with open(path, newline="") as f:
-                assert f.read() == text, name
-
-
-def test_saturn_default_target_is_unchanged():
-    assert run("--dry-run") == run("--target", "saturn", "--dry-run")
-
-
-def test_dreamcast_header_packs_the_region_code_base():
-    nm = ("8c800000 T _lom_ovl_code_start\n8c800040 T _lom_ovl_code_end\n0000ac88 A _lom_ovl_checkps_data_size\n"
-          "8c84ac88 B _lom_ovl_checkps_bss_start\n8c84ac98 B _lom_ovl_checkps_bss_end\n")
-    work = tempfile.mkdtemp()
-    nm_path, code_path, out_path = (os.path.join(work, n) for n in ("c.nm", "c.bin", "OVL15C.BIN"))
-    with open(nm_path, "w") as f:
-        f.write(nm)
-    with open(code_path, "wb") as f:
-        f.write(b"\x09\x00" * 0x20)
-    run("--target", "dreamcast", "header", "checkps", nm_path, out_path, code_path)
-    with open(out_path, "rb") as f:
-        packed = f.read()
-    assert struct.unpack(">4sIIIIIII", packed[:32]) == (b"LOMC", 1, 0x8C800000, 0x40, 0xAC88, 0x8C84AC88, 0x8C84AC98, 0)
-    assert packed[32:] == b"\x09\x00" * 0x20
-
-
-def test_dreamcast_rejects_an_overlay_without_a_region():
-    result = subprocess.run([sys.executable, TOOL, "--target", "dreamcast", "header", "nosuchoverlay", "x", "y"],
-                            capture_output=True, text=True)
-    assert result.returncode != 0
-    assert "nosuchoverlay" in result.stdout + result.stderr
-
-
 def test_dreamcast_menu_entry_is_its_code_base():
     base = targets.DREAMCAST.regions["menu"].code_base
     assert "_func_801405B0 = 0x%08X;" % base in overlay_link.dc_entries_ld()
 
-
-def test_saturn_leaves_menu_out_of_its_generated_files():
-    names = [name for name, _ in overlay_link.generated_files(targets.SATURN)]
-    assert "menu.ld" not in names
-    assert "_func_801405B0" not in overlay_link.entries_ld()
 
 def test_secondary_aliases_agree_across_overlays():
     seen = {}
@@ -182,7 +139,7 @@ def test_secondary_aliases_agree_across_overlays():
 
 
 def test_gname_entry_is_also_func_80140004():
-    gname = overlay_link.overlay_named("gname", targets.DREAMCAST)
+    gname = overlay_link.overlay_named("gname")
     exported = dict(overlay_link.dc_exported_entries(gname))
     assert exported["gname_run"] == exported["func_80140004"] == targets.SECONDARY_REGION.code_base
 
@@ -211,7 +168,22 @@ def test_dreamcast_link_strips_main_copies_of_the_aliased_card_calls():
 
 
 def test_movie_exports_its_four_entries_in_the_secondary_region():
-    movie = overlay_link.overlay_named("movie", targets.DREAMCAST)
+    movie = overlay_link.overlay_named("movie")
     exported = dict(overlay_link.dc_exported_entries(movie))
     names = ["movie_play", "movie_init", "movie_update", "movie_service_video_ops"]
     assert [exported[n] for n in names] == [targets.SECONDARY_REGION.code_base + 16 * i for i in range(4)]
+
+
+def test_dreamcast_header_packs_the_region_code_base():
+    nm = ("8c800000 T _lom_ovl_code_start\n8c800040 T _lom_ovl_code_end\n0000ac88 A _lom_ovl_checkps_data_size\n"
+          "8c84ac88 B _lom_ovl_checkps_bss_start\n8c84ac98 B _lom_ovl_checkps_bss_end\n")
+    packed = overlay_link.pack_overlay_file(overlay_link.overlay_named("checkps"), overlay_link.read_nm(nm), b"\x09\x00" * 0x20)
+    assert struct.unpack(">4sIIIIIII", packed[:32]) == (b"LOMC", 1, 0x8C800000, 0x40, 0xAC88, 0x8C84AC88, 0x8C84AC98, 0)
+    assert packed[32:] == b"\x09\x00" * 0x20
+
+
+def test_dreamcast_rejects_an_overlay_without_a_region():
+    result = subprocess.run([sys.executable, TOOL, "--target", "dreamcast", "link", "nosuchoverlay", "main.elf", "work", "out", "a.o"],
+                            capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "nosuchoverlay" in result.stdout + result.stderr

@@ -105,7 +105,7 @@ def test_dreamcast_overlay_message_tables_hold_the_english_lines(name, index):
     table_addr = overlay_rules.TEXT_TABLES[name]
     old = text_table.parse(overlay, table_addr - spec.vram, US)
     buf, script = overlay_rules.build_overlay(spec, overlay, symbols, targets.DREAMCAST)
-    base = overlay_rules.data_base(overlay_rules.target_spec(spec, targets.DREAMCAST), targets.DREAMCAST)
+    base = overlay_rules.data_base(spec, targets.DREAMCAST)
     placed = {m.group(1): int(m.group(2), 16) for m in re.finditer(r"^_(\w+) = 0x([0-9A-F]+);", script, re.M)}
     inside = [s for s, a in symbols.items() if table_addr <= a < table_addr + old.size]
     assert inside

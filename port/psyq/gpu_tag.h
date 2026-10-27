@@ -55,7 +55,7 @@ static inline uint32_t gpu_tag_len(uint32_t tag)
 
 /*----------------------
  | gpu_tag_pointer
- | Description: Expands a 24-bit tag address to a full pointer value: Dreamcast RAM 0x8Cxxxxxx, or Saturn High RAM 0x060xxxxx / Low RAM 0x002xxxxx.
+ | Description: Expands a 24-bit tag address to a full pointer value: Dreamcast RAM 0x8Cxxxxxx; host test builds pass addresses at or above 2 MB through unchanged.
  | Author: suinevere
  | Dependencies: lom_platform_memory.h
  | Globals: N/A

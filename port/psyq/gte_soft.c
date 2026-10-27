@@ -1,15 +1,15 @@
 /*----------------------
- | gte_saturn.c
+ | gte_soft.c
  | Description: Bit-exact C model of the PS1 GTE operations the decomp uses, from psx-spx, plus libgte translated from the SLUS_010.13 MIPS.
  | Author: suinevere
- | Dependencies: gte_saturn.h, libgte.h, libgte_tables.h (generated), string.h
+ | Dependencies: gte_soft.h, libgte.h, libgte_tables.h (generated), string.h
  | Globals: lom_gte, lom_libgte_tables, gte_unr_table, gte_unr_ready, gte_matrix_stack, gte_matrix_depth
  | Params: N/A
  | Returns: N/A
  ----------------------*/
 #include <string.h>
 
-#include "gte_saturn.h"
+#include "gte_soft.h"
 #include "libgte.h"
 #include "libgte_tables.h"
 
@@ -604,7 +604,7 @@ static int64_t gte_matrix_vector(const int16_t matrix[3][3], const int16_t vecto
 }
 
 /*----------------------
- | gte_saturn_unr_entry
+ | gte_soft_unr_entry
  | Description: Returns one UNR table entry, max(0, (0x40000/(i+0x100)+1)/2 - 0x101), building the table on first use.
  | Author: suinevere
  | Dependencies: N/A
@@ -612,7 +612,7 @@ static int64_t gte_matrix_vector(const int16_t matrix[3][3], const int16_t vecto
  | Params: index -- 0..0x100
  | Returns: the table entry
  ----------------------*/
-int gte_saturn_unr_entry(int index)
+int gte_soft_unr_entry(int index)
 {
     if (!gte_unr_ready)
     {
@@ -633,7 +633,7 @@ int gte_saturn_unr_entry(int index)
  | gte_divide
  | Description: The GTE's UNR Newton-Raphson division H*0x20000/SZ3 rounded, or 0x1FFFF with FLAG bit 17 when H >= 2*SZ3.
  | Author: suinevere
- | Dependencies: gte_saturn_unr_entry, gte_set_flag
+ | Dependencies: gte_soft_unr_entry, gte_set_flag
  | Globals: lom_gte
  | Params: h -- projection distance, sz -- SZ3
  | Returns: the 17-bit quotient
@@ -655,7 +655,7 @@ static uint32_t gte_divide(uint32_t h, uint32_t sz)
     z = (uint32_t)__builtin_clz(sz) - 16u;
     n = h << z;
     d = sz << z;
-    u = gte_saturn_unr_entry((int)((d - 0x7FC0) >> 7)) + 0x101;
+    u = gte_soft_unr_entry((int)((d - 0x7FC0) >> 7)) + 0x101;
     step = ((int64_t)0x2000080 - (int64_t)d * u) >> 8;
     step = ((int64_t)0x80 + step * u) >> 8;
     quotient = ((uint64_t)n * (uint64_t)step + 0x8000) >> 16;
@@ -701,7 +701,7 @@ static void gte_rtp(int slot, int sf, int lm, int depth_cue)
 }
 
 /*----------------------
- | gte_saturn_reset
+ | gte_soft_reset
  | Description: Zeroes every GTE register and empties the matrix stack.
  | Author: suinevere
  | Dependencies: N/A
@@ -709,14 +709,14 @@ static void gte_rtp(int slot, int sf, int lm, int depth_cue)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-void gte_saturn_reset(void)
+void gte_soft_reset(void)
 {
     memset(&lom_gte, 0, sizeof(lom_gte));
     gte_matrix_depth = 0;
 }
 
 /*----------------------
- | gte_saturn_ldv
+ | gte_soft_ldv
  | Description: Loads VXn, VYn, VZn from three consecutive shorts.
  | Author: suinevere
  | Dependencies: N/A
@@ -724,13 +724,13 @@ void gte_saturn_reset(void)
  | Params: slot -- 0..2, vector -- SVECTOR address
  | Returns: N/A
  ----------------------*/
-void gte_saturn_ldv(int slot, const void *vector)
+void gte_soft_ldv(int slot, const void *vector)
 {
     memcpy(lom_gte.v[slot], vector, sizeof(lom_gte.v[slot]));
 }
 
 /*----------------------
- | gte_saturn_ldlvl
+ | gte_soft_ldlvl
  | Description: Loads IR1-IR3 from the low 16 bits of three 32-bit words.
  | Author: suinevere
  | Dependencies: N/A
@@ -738,7 +738,7 @@ void gte_saturn_ldv(int slot, const void *vector)
  | Params: vector -- VECTOR address
  | Returns: N/A
  ----------------------*/
-void gte_saturn_ldlvl(const void *vector)
+void gte_soft_ldlvl(const void *vector)
 {
     int32_t words[3];
     int i;
@@ -751,7 +751,7 @@ void gte_saturn_ldlvl(const void *vector)
 }
 
 /*----------------------
- | gte_saturn_ldsxy3
+ | gte_soft_ldsxy3
  | Description: Loads SXY0-SXY2 from packed words whose bytes are an in-memory x,y short pair, matching words read back from gte_stsxy output.
  | Author: suinevere
  | Dependencies: N/A
@@ -759,7 +759,7 @@ void gte_saturn_ldlvl(const void *vector)
  | Params: sxy0, sxy1, sxy2 -- packed screen words
  | Returns: N/A
  ----------------------*/
-void gte_saturn_ldsxy3(uint32_t sxy0, uint32_t sxy1, uint32_t sxy2)
+void gte_soft_ldsxy3(uint32_t sxy0, uint32_t sxy1, uint32_t sxy2)
 {
     memcpy(lom_gte.sxy[0], &sxy0, sizeof(sxy0));
     memcpy(lom_gte.sxy[1], &sxy1, sizeof(sxy1));
@@ -767,7 +767,7 @@ void gte_saturn_ldsxy3(uint32_t sxy0, uint32_t sxy1, uint32_t sxy2)
 }
 
 /*----------------------
- | gte_saturn_set_matrix
+ | gte_soft_set_matrix
  | Description: Loads the rotation, light or colour matrix from the first nine shorts of a MATRIX.
  | Author: suinevere
  | Dependencies: N/A
@@ -775,7 +775,7 @@ void gte_saturn_ldsxy3(uint32_t sxy0, uint32_t sxy1, uint32_t sxy2)
  | Params: mx -- GTE_MX_RT, GTE_MX_LLM or GTE_MX_LCM, matrix -- MATRIX address
  | Returns: N/A
  ----------------------*/
-void gte_saturn_set_matrix(int mx, const void *matrix)
+void gte_soft_set_matrix(int mx, const void *matrix)
 {
     int16_t (*target)[3] = mx == GTE_MX_RT ? lom_gte.rt : mx == GTE_MX_LLM ? lom_gte.llm : lom_gte.lcm;
 
@@ -783,7 +783,7 @@ void gte_saturn_set_matrix(int mx, const void *matrix)
 }
 
 /*----------------------
- | gte_saturn_set_trans
+ | gte_soft_set_trans
  | Description: Loads TRX, TRY, TRZ from the 32-bit t[] words at byte offset 20 of a MATRIX.
  | Author: suinevere
  | Dependencies: N/A
@@ -791,13 +791,13 @@ void gte_saturn_set_matrix(int mx, const void *matrix)
  | Params: matrix -- MATRIX address
  | Returns: N/A
  ----------------------*/
-void gte_saturn_set_trans(const void *matrix)
+void gte_soft_set_trans(const void *matrix)
 {
     memcpy(lom_gte.tr, (const uint8_t *)matrix + 20, sizeof(lom_gte.tr));
 }
 
 /*----------------------
- | gte_saturn_set_back_color
+ | gte_soft_set_back_color
  | Description: Loads RBK, GBK, BBK as each component shifted left by four.
  | Author: suinevere
  | Dependencies: N/A
@@ -805,7 +805,7 @@ void gte_saturn_set_trans(const void *matrix)
  | Params: r, g, b -- colour components
  | Returns: N/A
  ----------------------*/
-void gte_saturn_set_back_color(int32_t r, int32_t g, int32_t b)
+void gte_soft_set_back_color(int32_t r, int32_t g, int32_t b)
 {
     lom_gte.bk[0] = (int32_t)((uint32_t)r << 4);
     lom_gte.bk[1] = (int32_t)((uint32_t)g << 4);
@@ -904,7 +904,7 @@ static void gte_rtp_fast(int slot, int depth_cue)
 }
 
 /*----------------------
- | gte_saturn_rtps
+ | gte_soft_rtps
  | Description: RTPS (sf=1, lm=0): perspective-transforms V0 with depth cueing.
  | Author: suinevere
  | Dependencies: gte_tr_unchecked, gte_rtp_fast, gte_rtp
@@ -912,7 +912,7 @@ static void gte_rtp_fast(int slot, int depth_cue)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-void gte_saturn_rtps(void)
+void gte_soft_rtps(void)
 {
     gte_begin();
     if (gte_tr_unchecked())
@@ -927,7 +927,7 @@ void gte_saturn_rtps(void)
 }
 
 /*----------------------
- | gte_saturn_rtpt
+ | gte_soft_rtpt
  | Description: RTPT (sf=1, lm=0): perspective-transforms V0, V1, V2 in order, depth cueing only the last.
  | Author: suinevere
  | Dependencies: gte_tr_unchecked, gte_rtp_fast, gte_rtp
@@ -935,7 +935,7 @@ void gte_saturn_rtps(void)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-void gte_saturn_rtpt(void)
+void gte_soft_rtpt(void)
 {
     gte_begin();
     if (gte_tr_unchecked())
@@ -954,7 +954,7 @@ void gte_saturn_rtpt(void)
 }
 
 /*----------------------
- | gte_saturn_mvmva
+ | gte_soft_mvmva
  | Description: MVMVA: multiplies V0-V2 or IR by RT, LLM or LCM, adds TR, BK or nothing, and saturates into IR.
  | Author: suinevere
  | Dependencies: gte_matrix_vector
@@ -962,7 +962,7 @@ void gte_saturn_rtpt(void)
  | Params: sf -- shift flag, mx -- matrix, v -- vector (3 = IR), cv -- translation, lm -- clamp at 0
  | Returns: N/A
  ----------------------*/
-void gte_saturn_mvmva(int sf, int mx, int v, int cv, int lm)
+void gte_soft_mvmva(int sf, int mx, int v, int cv, int lm)
 {
     const int16_t (*matrix)[3] = mx == GTE_MX_RT ? lom_gte.rt : mx == GTE_MX_LLM ? lom_gte.llm : lom_gte.lcm;
     const int32_t *add = cv == GTE_CV_TR ? lom_gte.tr : cv == GTE_CV_BK ? lom_gte.bk : NULL;
@@ -982,7 +982,7 @@ void gte_saturn_mvmva(int sf, int mx, int v, int cv, int lm)
 }
 
 /*----------------------
- | gte_saturn_nclip
+ | gte_soft_nclip
  | Description: NCLIP: MAC0 = SX0*SY1 + SX1*SY2 + SX2*SY0 - SX0*SY2 - SX1*SY0 - SX2*SY1.
  | Author: suinevere
  | Dependencies: gte_mac0
@@ -990,7 +990,7 @@ void gte_saturn_mvmva(int sf, int mx, int v, int cv, int lm)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-void gte_saturn_nclip(void)
+void gte_soft_nclip(void)
 {
     const int16_t (*s)[2] = lom_gte.sxy;
     int64_t sum;
@@ -1025,7 +1025,7 @@ static void gte_push_color(void)
 }
 
 /*----------------------
- | gte_saturn_ncs
+ | gte_soft_ncs
  | Description: NCS (sf=1, lm=1): IR = LLM*V0, then IR = BK + LCM*IR, then pushes MAC/16 with the RGBC code onto the colour FIFO.
  | Author: suinevere
  | Dependencies: gte_matrix_vector, gte_clamp
@@ -1033,7 +1033,7 @@ static void gte_push_color(void)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-void gte_saturn_ncs(void)
+void gte_soft_ncs(void)
 {
     int16_t lit[3];
 
@@ -1046,7 +1046,7 @@ void gte_saturn_ncs(void)
 }
 
 /*----------------------
- | gte_saturn_sqr
+ | gte_soft_sqr
  | Description: SQR (lm=1): MAC1-MAC3 = IR1-IR3 squared, shifted right by sf*12, saturated into IR.
  | Author: suinevere
  | Dependencies: gte_mac44, gte_set_ir
@@ -1054,7 +1054,7 @@ void gte_saturn_ncs(void)
  | Params: sf -- shift flag
  | Returns: N/A
  ----------------------*/
-void gte_saturn_sqr(int sf)
+void gte_soft_sqr(int sf)
 {
     int i;
 
@@ -1070,7 +1070,7 @@ void gte_saturn_sqr(int sf)
 }
 
 /*----------------------
- | gte_saturn_gpf
+ | gte_soft_gpf
  | Description: GPF: MAC1-MAC3 = IR0*IR1-IR3 shifted right by sf*12, saturated into IR, and pushed onto the colour FIFO.
  | Author: suinevere
  | Dependencies: gte_mac44, gte_set_ir, gte_push_color
@@ -1078,7 +1078,7 @@ void gte_saturn_sqr(int sf)
  | Params: sf -- shift flag, lm -- clamp at 0
  | Returns: N/A
  ----------------------*/
-void gte_saturn_gpf(int sf, int lm)
+void gte_soft_gpf(int sf, int lm)
 {
     int i;
 
@@ -1119,7 +1119,7 @@ static int gte_lzc(int32_t value)
 }
 
 /*----------------------
- | gte_saturn_stsxy
+ | gte_soft_stsxy
  | Description: Stores one SXY FIFO entry as x then y shorts.
  | Author: suinevere
  | Dependencies: N/A
@@ -1127,13 +1127,13 @@ static int gte_lzc(int32_t value)
  | Params: index -- 0..2, out -- destination
  | Returns: N/A
  ----------------------*/
-void gte_saturn_stsxy(int index, void *out)
+void gte_soft_stsxy(int index, void *out)
 {
     memcpy(out, lom_gte.sxy[index], sizeof(lom_gte.sxy[index]));
 }
 
 /*----------------------
- | gte_saturn_stflg
+ | gte_soft_stflg
  | Description: Stores FLAG as a 32-bit word.
  | Author: suinevere
  | Dependencies: N/A
@@ -1141,13 +1141,13 @@ void gte_saturn_stsxy(int index, void *out)
  | Params: out -- destination
  | Returns: N/A
  ----------------------*/
-void gte_saturn_stflg(void *out)
+void gte_soft_stflg(void *out)
 {
     memcpy(out, &lom_gte.flag, sizeof(lom_gte.flag));
 }
 
 /*----------------------
- | gte_saturn_stszotz
+ | gte_soft_stszotz
  | Description: Stores SZ3 shifted right by two as a 32-bit word.
  | Author: suinevere
  | Dependencies: N/A
@@ -1155,7 +1155,7 @@ void gte_saturn_stflg(void *out)
  | Params: out -- destination
  | Returns: N/A
  ----------------------*/
-void gte_saturn_stszotz(void *out)
+void gte_soft_stszotz(void *out)
 {
     int32_t value = (int32_t)lom_gte.sz[3] >> 2;
 
@@ -1163,7 +1163,7 @@ void gte_saturn_stszotz(void *out)
 }
 
 /*----------------------
- | gte_saturn_stopz
+ | gte_soft_stopz
  | Description: Stores MAC0 as a 32-bit word.
  | Author: suinevere
  | Dependencies: N/A
@@ -1171,13 +1171,13 @@ void gte_saturn_stszotz(void *out)
  | Params: out -- destination
  | Returns: N/A
  ----------------------*/
-void gte_saturn_stopz(void *out)
+void gte_soft_stopz(void *out)
 {
     memcpy(out, &lom_gte.mac[0], sizeof(lom_gte.mac[0]));
 }
 
 /*----------------------
- | gte_saturn_stlvnl
+ | gte_soft_stlvnl
  | Description: Stores MAC1-MAC3 as three 32-bit words.
  | Author: suinevere
  | Dependencies: N/A
@@ -1185,13 +1185,13 @@ void gte_saturn_stopz(void *out)
  | Params: out -- destination
  | Returns: N/A
  ----------------------*/
-void gte_saturn_stlvnl(void *out)
+void gte_soft_stlvnl(void *out)
 {
     memcpy(out, &lom_gte.mac[1], 3 * sizeof(lom_gte.mac[1]));
 }
 
 /*----------------------
- | gte_saturn_stsv
+ | gte_soft_stsv
  | Description: Stores IR1-IR3 as three shorts.
  | Author: suinevere
  | Dependencies: N/A
@@ -1199,13 +1199,13 @@ void gte_saturn_stlvnl(void *out)
  | Params: out -- destination
  | Returns: N/A
  ----------------------*/
-void gte_saturn_stsv(void *out)
+void gte_soft_stsv(void *out)
 {
     memcpy(out, &lom_gte.ir[1], 3 * sizeof(lom_gte.ir[1]));
 }
 
 /*----------------------
- | gte_saturn_strgb
+ | gte_soft_strgb
  | Description: Stores the newest colour FIFO entry as r, g, b, code bytes.
  | Author: suinevere
  | Dependencies: N/A
@@ -1213,7 +1213,7 @@ void gte_saturn_stsv(void *out)
  | Params: out -- destination
  | Returns: N/A
  ----------------------*/
-void gte_saturn_strgb(void *out)
+void gte_soft_strgb(void *out)
 {
     memcpy(out, lom_gte.rgb[2], sizeof(lom_gte.rgb[2]));
 }
@@ -1251,28 +1251,28 @@ void SetGeomScreen(long h)
  | SetRotMatrix
  | Description: libgte: loads the rotation matrix.
  | Author: suinevere
- | Dependencies: gte_saturn_set_matrix
+ | Dependencies: gte_soft_set_matrix
  | Globals: lom_gte
  | Params: m -- matrix
  | Returns: N/A
  ----------------------*/
 void SetRotMatrix(MATRIX *m)
 {
-    gte_saturn_set_matrix(GTE_MX_RT, m);
+    gte_soft_set_matrix(GTE_MX_RT, m);
 }
 
 /*----------------------
  | SetTransMatrix
  | Description: libgte: loads the translation vector.
  | Author: suinevere
- | Dependencies: gte_saturn_set_trans
+ | Dependencies: gte_soft_set_trans
  | Globals: lom_gte
  | Params: m -- matrix whose t[] is used
  | Returns: N/A
  ----------------------*/
 void SetTransMatrix(MATRIX *m)
 {
-    gte_saturn_set_trans(m);
+    gte_soft_set_trans(m);
 }
 
 /*----------------------
@@ -1317,15 +1317,15 @@ void PopMatrix(void)
  | NormalClip
  | Description: libgte: loads three packed screen words into SXY0-SXY2 and runs NCLIP.
  | Author: suinevere
- | Dependencies: gte_saturn_ldsxy3, gte_saturn_nclip
+ | Dependencies: gte_soft_ldsxy3, gte_soft_nclip
  | Globals: lom_gte
  | Params: sxy0, sxy1, sxy2 -- packed screen words
  | Returns: MAC0
  ----------------------*/
 long NormalClip(long sxy0, long sxy1, long sxy2)
 {
-    gte_saturn_ldsxy3((uint32_t)sxy0, (uint32_t)sxy1, (uint32_t)sxy2);
-    gte_saturn_nclip();
+    gte_soft_ldsxy3((uint32_t)sxy0, (uint32_t)sxy1, (uint32_t)sxy2);
+    gte_soft_nclip();
     return lom_gte.mac[0];
 }
 
@@ -1743,7 +1743,7 @@ long SquareRoot0(long value)
  | gte_vector_normal
  | Description: libgte's shared VectorNormal core: SQR the 16-bit components, inverse-square-root the sum, GPF and shift back.
  | Author: suinevere
- | Dependencies: gte_saturn_sqr, gte_lzc, gte_root_entry, gte_root_shift, gte_saturn_gpf
+ | Dependencies: gte_soft_sqr, gte_lzc, gte_root_entry, gte_root_shift, gte_soft_gpf
  | Globals: lom_gte, lom_libgte_tables
  | Params: in -- three components, out -- unit vector in 4.12 fixed point
  | Returns: the sum of the squared 16-bit components, wrapped where the PS1 would trap
@@ -1759,7 +1759,7 @@ static int32_t gte_vector_normal(const int32_t in[3], int32_t out[3])
     {
         lom_gte.ir[i + 1] = (int16_t)(uint16_t)(uint32_t)in[i];
     }
-    gte_saturn_sqr(0);
+    gte_soft_sqr(0);
     sum = (int32_t)((uint32_t)lom_gte.mac[1] + (uint32_t)lom_gte.mac[2] + (uint32_t)lom_gte.mac[3]);
     lzcr = gte_lzc(sum);
     shift = gte_root_shift(lzcr);
@@ -1768,7 +1768,7 @@ static int32_t gte_vector_normal(const int32_t in[3], int32_t out[3])
     {
         lom_gte.ir[i + 1] = (int16_t)(uint16_t)(uint32_t)in[i];
     }
-    gte_saturn_gpf(0, 0);
+    gte_soft_gpf(0, 0);
     for (i = 0; i < 3; i++)
     {
         out[i] = lom_gte.mac[i + 1] >> (shift & 31);
@@ -1855,7 +1855,7 @@ static void gte_split_lv(int32_t value, int32_t *high, int32_t *low)
  | ApplyMatrixLV
  | Description: libgte: multiplies a 32-bit vector by a matrix on the GTE, as a high part (sf=0, scaled by 8) plus a 15-bit low part (sf=1).
  | Author: suinevere
- | Dependencies: gte_saturn_set_matrix, gte_split_lv, gte_saturn_mvmva
+ | Dependencies: gte_soft_set_matrix, gte_split_lv, gte_soft_mvmva
  | Globals: lom_gte
  | Params: m -- matrix (loaded into RT), v0 -- input, v1 -- output
  | Returns: v1
@@ -1868,19 +1868,19 @@ VECTOR *ApplyMatrixLV(MATRIX *m, VECTOR *v0, VECTOR *v1)
     uint32_t mac_high[3];
     int i;
 
-    gte_saturn_set_matrix(GTE_MX_RT, m);
+    gte_soft_set_matrix(GTE_MX_RT, m);
     for (i = 0; i < 3; i++)
     {
         gte_split_lv(in[i], &high[i], &low[i]);
         lom_gte.ir[i + 1] = (int16_t)(uint16_t)(uint32_t)high[i];
     }
-    gte_saturn_mvmva(0, GTE_MX_RT, GTE_V_IR, GTE_CV_NONE, 0);
+    gte_soft_mvmva(0, GTE_MX_RT, GTE_V_IR, GTE_CV_NONE, 0);
     for (i = 0; i < 3; i++)
     {
         mac_high[i] = (uint32_t)lom_gte.mac[i + 1];
         lom_gte.ir[i + 1] = (int16_t)low[i];
     }
-    gte_saturn_mvmva(1, GTE_MX_RT, GTE_V_IR, GTE_CV_NONE, 0);
+    gte_soft_mvmva(1, GTE_MX_RT, GTE_V_IR, GTE_CV_NONE, 0);
     v1->vx = (int32_t)((uint32_t)lom_gte.mac[1] + (mac_high[0] << GTE_LV_HIGH_SCALE));
     v1->vy = (int32_t)((uint32_t)lom_gte.mac[2] + (mac_high[1] << GTE_LV_HIGH_SCALE));
     v1->vz = (int32_t)((uint32_t)lom_gte.mac[3] + (mac_high[2] << GTE_LV_HIGH_SCALE));
@@ -1891,7 +1891,7 @@ VECTOR *ApplyMatrixLV(MATRIX *m, VECTOR *v0, VECTOR *v1)
  | CompMatrix
  | Description: libgte: m2 = m0*m1 by RT*V0 per column (IR-saturated) and t2 = m0*(16-bit m1.t) + m0.t; m2's pad gets the sign of m2[2][2]. An overflowing t2 wraps here where the PS1 add at 0x8001D0F8 traps.
  | Author: suinevere
- | Dependencies: gte_saturn_set_matrix, gte_saturn_ldv, gte_saturn_mvmva, gte_store_pad
+ | Dependencies: gte_soft_set_matrix, gte_soft_ldv, gte_soft_mvmva, gte_store_pad
  | Globals: lom_gte
  | Params: m0 -- left matrix (loaded into RT), m1 -- right matrix, m2 -- result, may alias either
  | Returns: m2
@@ -1914,18 +1914,18 @@ MATRIX *CompMatrix(MATRIX *m0, MATRIX *m1, MATRIX *m2)
         trans[c] = (int16_t)(uint16_t)(uint32_t)m1->t[c];
         base[c] = (int32_t)m0->t[c];
     }
-    gte_saturn_set_matrix(GTE_MX_RT, m0);
+    gte_soft_set_matrix(GTE_MX_RT, m0);
     for (c = 0; c < 3; c++)
     {
-        gte_saturn_ldv(0, column[c]);
-        gte_saturn_mvmva(1, GTE_MX_RT, 0, GTE_CV_NONE, 0);
+        gte_soft_ldv(0, column[c]);
+        gte_soft_mvmva(1, GTE_MX_RT, 0, GTE_CV_NONE, 0);
         for (r = 0; r < 3; r++)
         {
             result[r][c] = lom_gte.ir[r + 1];
         }
     }
-    gte_saturn_ldv(0, trans);
-    gte_saturn_mvmva(1, GTE_MX_RT, 0, GTE_CV_NONE, 0);
+    gte_soft_ldv(0, trans);
+    gte_soft_mvmva(1, GTE_MX_RT, 0, GTE_CV_NONE, 0);
     memcpy(m2->m, result, sizeof(result));
     gte_store_pad(m2, result[2][2] < 0 ? -1 : 0);
     for (r = 0; r < 3; r++)
@@ -2095,7 +2095,7 @@ MATRIX *RotMatrixZ(long r, MATRIX *m)
  | gte_gpf_ir
  | Description: Loads IR0-IR3 and runs GPF with sf=1, lm=0, as RotMatrix_gte does.
  | Author: suinevere
- | Dependencies: gte_saturn_gpf
+ | Dependencies: gte_soft_gpf
  | Globals: lom_gte
  | Params: ir0..ir3 -- register values, taken as 16-bit
  | Returns: N/A
@@ -2106,7 +2106,7 @@ static void gte_gpf_ir(int32_t ir0, int32_t ir1, int32_t ir2, int32_t ir3)
     lom_gte.ir[1] = (int16_t)ir1;
     lom_gte.ir[2] = (int16_t)ir2;
     lom_gte.ir[3] = (int16_t)ir3;
-    gte_saturn_gpf(1, 0);
+    gte_soft_gpf(1, 0);
 }
 
 /*----------------------

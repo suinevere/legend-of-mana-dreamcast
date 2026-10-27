@@ -1,6 +1,6 @@
 /*----------------------
  | vsync_pacer.h
- | Description: PS1 libetc VSync semantics on a vblank counter ticked by the Saturn vblank interrupt.
+ | Description: PS1 libetc VSync semantics on a vblank counter ticked by the vblank interrupt (vblank_dc.c).
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -16,7 +16,7 @@ extern "C" {
 
 /*----------------------
  | VsyncClock
- | Description: Reads the current vblank count; vsync_count on the Saturn, a fake counter in host tests.
+ | Description: Reads the current vblank count; vsync_count on the Dreamcast, a fake counter in host tests.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

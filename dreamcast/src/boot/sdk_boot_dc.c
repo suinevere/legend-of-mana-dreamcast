@@ -2,7 +2,7 @@
  | sdk_boot_dc.c
  | Description: No-op Dreamcast versions of the Psy-Q system, card and BIOS calls the PS1 boot path makes; libgpu_dc.c owns the graphics ones and port/sound/libspu_shim.c the sound ones.
  | Author: suinevere
- | Dependencies: lom_prefix.h, libapi.h, libetc.h, libmcx.h, saturn/src/boot/sdk_boot.c
+ | Dependencies: lom_prefix.h, libapi.h, libetc.h, libmcx.h
  | Globals: N/A
  | Params: N/A
  | Returns: N/A

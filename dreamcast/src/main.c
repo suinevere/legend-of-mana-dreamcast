@@ -26,6 +26,7 @@
 #include "cdrom_dc.h"
 #include "hang_watch.h"
 #include "frame_probe.h"
+#include "soft_reset.h"
 
 #if defined(LOM_PAD_SCRIPT) || defined(LOM_DEBUG_MENU)
 #include "watch.h"
@@ -68,9 +69,9 @@ void (*g_dc_wmap_landfx)(int land) = NULL;
 
 /*----------------------
  | vsync_hook
- | Description: Runs once per VSync: tells the hang check the game is alive when a scene that drew something closed since the last call, polls the state report and keeps the VMU screens on the party pet.
+ | Description: Runs once per VSync: tells the hang check the game is alive when a scene that drew something closed since the last call, polls the state report, keeps the VMU screens on the party pet and watches for the soft-reset chord.
  | Author: suinevere
- | Dependencies: frame_probe_drawn_total, hang_watch_feed, state_report_poll, vmu_screen_update, vmu_screen_party, card_store_kos_lcds
+ | Dependencies: frame_probe_drawn_total, hang_watch_feed, state_report_poll, vmu_screen_update, vmu_screen_party, card_store_kos_lcds, soft_reset_poll
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -87,6 +88,7 @@ static void vsync_hook(void)
     }
     state_report_poll();
     vmu_screen_update(vmu_screen_party(), card_store_kos_lcds());
+    soft_reset_poll();
 }
 
 /*----------------------

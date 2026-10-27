@@ -345,7 +345,7 @@ def parse_open(tokens, lineno):
 
 #----------------------
 # | MUSIC_RESOURCES / SFXSET_RESOURCES
-# | Description: CD resources the music and sfxset steps accept: convert_sound.SOUND_RESOURCES' music kind, and its effect_set, bank, sfx_set and weapon_sfx kinds.
+# | Description: CD resources the music and sfxset steps accept: sound_banks.SOUND_RESOURCES' music kind, and its effect_set, bank, sfx_set and weapon_sfx kinds.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A

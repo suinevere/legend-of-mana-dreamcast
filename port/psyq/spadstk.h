@@ -12,7 +12,7 @@
 
 /*----------------------
  | SetSpadStack
- | Description: No-op on Saturn; the PS1 macro moves SP into scratchpad RAM as a speed trick with no behavioural effect on the calls it brackets.
+ | Description: No-op on the Dreamcast; the PS1 macro moves SP into scratchpad RAM as a speed trick with no behavioural effect on the calls it brackets.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -23,7 +23,7 @@
 
 /*----------------------
  | ResetSpadStack
- | Description: No-op on Saturn, pairing with SetSpadStack.
+ | Description: No-op on the Dreamcast, pairing with SetSpadStack.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

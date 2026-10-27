@@ -20,7 +20,6 @@ sys.path.insert(0, TOOLS)
 import akao_data  # noqa: E402
 import main_data  # noqa: E402
 import overlay_rules  # noqa: E402
-import targets  # noqa: E402
 
 FORMER_TRAP_SYMBOLS = ("D_80051888", "D_80051C50", "D_80051CBC", "D_80051CE4", "D_80051EB4", "D_80051EC0", "D_80051ECC",
                        "D_80051ED8", "D_80051EF8", "D_80051F04", "g_field_marker_overlay_enabled", "g_field_marker_u_offsets",
@@ -33,7 +32,7 @@ def _address(name, by_name):
 
 
 def _field_dc_spec():
-    return overlay_rules.target_spec(overlay_rules.OVERLAYS[2], targets.DREAMCAST)
+    return overlay_rules.OVERLAYS[2]
 
 
 def test_every_former_trap_symbol_has_storage():
@@ -51,11 +50,6 @@ def test_main_spans_are_sized_and_disjoint():
     spans = sorted((addr, size) for _, addr, size in main_data.symbol_spans())
     assert all(size > 0 for _, size in spans)
     assert all(a + s <= b for (a, s), (b, _) in zip(spans, spans[1:]))
-
-
-def test_saturn_field_ranges_are_unchanged():
-    saturn = overlay_rules.target_spec(overlay_rules.OVERLAYS[2], targets.SATURN)
-    assert saturn.ranges == [(0x800CBF44, 0x80123FD8)]
 
 
 def test_dreamcast_field_packs_both_rodata_bins_before_its_data():

@@ -1,6 +1,6 @@
 /*----------------------
  | pad_dc_map.h
- | Description: One Maple controller sample (buttons, stick and triggers), its mapping onto the game's PAD_BTN_* layout and its encoding as the PS1 driver's held-button word.
+ | Description: One Maple controller sample (buttons, stick and triggers), its mapping onto the game's PAD_BTN_* layout, its encoding as the PS1 driver's held-button word, the soft-reset chord and the Jump Pack level.
  | Author: suinevere
  | Dependencies: stdint.h
  | Globals: N/A
@@ -51,5 +51,20 @@ typedef int (*PadDcWalkingQuery)(void);
 uint16_t pad_dc_logical_buttons(const DcPadSample *s);
 int pad_dc_dpad_as_buttons(unsigned game_state, int field_frame, PadDcWalkingQuery walking);
 uint16_t pad_dc_held_word(const DcPadSample *s);
+int pad_dc_soft_reset_chord(const DcPadSample *s);
+
+/*----------------------
+ | PAD_DC_RUMBLE_SMALL / PAD_DC_RUMBLE_MAX
+ | Description: The Jump Pack level the PS1's small motor alone gives, a light buzz, and the strongest level.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_DC_RUMBLE_SMALL 2
+#define PAD_DC_RUMBLE_MAX 7
+
+int pad_dc_rumble_level(int enabled, unsigned small_motor, unsigned large_motor);
 
 #endif

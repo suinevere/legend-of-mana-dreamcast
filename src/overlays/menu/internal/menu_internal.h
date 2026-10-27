@@ -187,6 +187,25 @@ s32 field_name_byte_length(u8* name);
 #define MENU_CONTENT_TYPE_SHIFT 12
 /** @brief Converts a content item's Y coordinate to the viewport origin. */
 #define MENU_CONTENT_VIEW_Y_OFFSET 8
+
+/*----------------------
+ | MENU_DC_BUTTON_FIRST / MENU_DC_BUTTON_COUNT / MENU_DC_BUTTON_LIFT / MENU_CONTENT_ICON_Y
+ | Description: On the Dreamcast the key configuration's four face buttons are 11-pixel discs, not 8-pixel tiles, so they draw this many pixels higher to sit level with their text.
+ | Author: suinevere
+ | Dependencies: port/tools/button_art.py (MENU_ICON_SPRITES)
+ | Globals: N/A
+ | Params: icon -- menu icon id; y -- the content item's sprite Y
+ | Returns: the sprite Y to draw at
+ ----------------------*/
+#if defined(LOM_DREAMCAST)
+#define MENU_DC_BUTTON_FIRST 34
+#define MENU_DC_BUTTON_COUNT 4
+#define MENU_DC_BUTTON_LIFT 2
+#define MENU_CONTENT_ICON_Y(icon, y) \
+    ((y) - ((u32)((icon) - MENU_DC_BUTTON_FIRST) < MENU_DC_BUTTON_COUNT ? MENU_DC_BUTTON_LIFT : 0))
+#else
+#define MENU_CONTENT_ICON_Y(icon, y) (y)
+#endif
 /** @brief High-nibble mask selecting a content item's action class. */
 #define MENU_CONTENT_ITEM_TYPE_MASK 0xF000
 /** @brief Content item class that opens a nested submenu. */

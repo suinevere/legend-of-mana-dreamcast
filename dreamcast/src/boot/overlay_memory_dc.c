@@ -1,6 +1,6 @@
 /*----------------------
  | overlay_memory_dc.c
- | Description: Dreamcast replacement for overlay_memory.c: overlays load into their own arena regions and per-state workspaces come from the render arena, as on the Saturn.
+ | Description: Dreamcast replacement for overlay_memory.c: overlays load into their own arena regions and per-state workspaces come from the render arena.
  | Author: suinevere
  | Dependencies: lom_prefix.h, main/overlay_memory.h, overlays/title/internal/title_internal.h, overlays/wsel/wsel.h, overlay_regions.h, common/render_context.h, lom_platform_memory.h
  | Globals: lom_render_arena

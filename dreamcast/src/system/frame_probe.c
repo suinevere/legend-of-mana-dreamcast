@@ -2,7 +2,7 @@
  | frame_probe.c
  | Description: Counts PowerVR scenes and primitives per probe period and logs "LOM: probe vbl ..." every 60 vblanks and the GPU census every 600.
  | Author: suinevere
- | Dependencies: frame_probe.h, vsync_pacer.h, dc_system.h, gpu_census.h, palette_bank.h, texture_cache.h, libgpu_dc.h, perf_hud.h, pvr_backend.h
+ | Dependencies: frame_probe.h, vsync_pacer.h, dc_system.h, gpu_census.h, palette_bank.h, texture_cache.h, libgpu_dc.h, pvr_backend.h
  | Globals: s_scenes, s_prims, s_period_start, s_census_next, s_started, s_last_wait_us, s_last_build_us, s_last_upload_us, s_scene_fill, s_fill_sum, s_fill_max
  | Params: N/A
  | Returns: N/A
@@ -14,7 +14,6 @@
 #include "palette_bank.h"
 #include "texture_cache.h"
 #include "libgpu_dc.h"
-#include "perf_hud.h"
 #include "pvr_backend.h"
 
 /*----------------------
@@ -204,9 +203,9 @@ static unsigned fill_k(int kind)
 
 /*----------------------
  | frame_probe_vblank
- | Description: Every 60 vblanks logs vblanks per scene to two decimals with prims, banks, expansions, flushes, subtractive uses, texture builds and the period's build, upload, VSync-wait, ordering-table and PowerVR-wait milliseconds and the longest render; every 600 logs the GPU census. In the debug build (LOM_DEBUG_MENU) each probe line also goes to the VMU readout, which the shipping build leaves to the pet screen.
+ | Description: Every 60 vblanks logs vblanks per scene to two decimals with prims, banks, expansions, flushes, subtractive uses, texture builds and the period's build, upload, VSync-wait, ordering-table and PowerVR-wait milliseconds and the longest render; every 600 logs the GPU census.
  | Author: suinevere
- | Dependencies: vsync_count, dc_log, palette_bank_in_use, texture_cache_expansions, texture_cache_flushes, texture_cache_builds, texture_cache_build_us, texture_cache_upload_us, vsync_wait_us, gpu_census_flag_count, gpu_census_report, perf_hud_report, dc_otag_us, pvr_backend_wait_us, pvr_backend_take_render_max_us, pvr_backend_take_flip_expired
+ | Dependencies: vsync_count, dc_log, palette_bank_in_use, texture_cache_expansions, texture_cache_flushes, texture_cache_builds, texture_cache_build_us, texture_cache_upload_us, vsync_wait_us, gpu_census_flag_count, gpu_census_report, dc_otag_us, pvr_backend_wait_us, pvr_backend_take_render_max_us, pvr_backend_take_flip_expired
  | Globals: s_scenes, s_prims, s_period_start, s_census_next, s_started, s_last_wait_us, s_last_build_us, s_last_upload_us
  | Params: N/A
  | Returns: N/A
@@ -239,11 +238,6 @@ void frame_probe_vblank(void)
            gpu_census_flag_count(CENSUS_SUBTRACT), texture_cache_builds(), (unsigned)((texture_cache_build_us() - s_last_build_us) / 1000u),
            (unsigned)((texture_cache_upload_us() - s_last_upload_us) / 1000u), (unsigned)((vsync_wait_us() - s_last_wait_us) / 1000u),
            (unsigned)((dc_otag_us() - s_last_otag_us) / 1000u), (unsigned)((pvr_backend_wait_us() - s_last_pvr_us) / 1000u), render_ms, flip_expired, fill_k(0), fill_k(1), fill_k(2), (unsigned)(s_fill_max / 1000.0f));
-#if defined(LOM_DEBUG_MENU)
-    perf_hud_report(hundredths, (unsigned)((vsync_wait_us() - s_last_wait_us) / 1000u),
-                    (unsigned)((texture_cache_build_us() - s_last_build_us + texture_cache_upload_us() - s_last_upload_us) / 1000u),
-                    (unsigned)((dc_otag_us() - s_last_otag_us) / 1000u), (unsigned)((pvr_backend_wait_us() - s_last_pvr_us) / 1000u), render_ms, flip_expired);
-#endif
     s_last_otag_us = dc_otag_us();
     s_last_pvr_us = pvr_backend_wait_us();
     s_last_build_us = texture_cache_build_us();

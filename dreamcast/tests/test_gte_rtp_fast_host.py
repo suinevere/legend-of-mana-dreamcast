@@ -1,8 +1,8 @@
 #----------------------
 # | test_gte_rtp_fast_host.py
-# | Description: Builds tests/host/test_gte_rtp_fast.c, which includes port/psyq/gte_saturn.c, with the Saturn GTE test's generated tables, and checks the fast RTP path matches the generic one.
+# | Description: Builds tests/host/test_gte_rtp_fast.c, which includes port/psyq/gte_soft.c, with the GTE host test's generated tables, and checks the fast RTP path matches the generic one.
 # | Author: suinevere
-# | Dependencies: gcc or cc, saturn/tests/test_gte_host.py (prepare_tables), port/psyq/gte_saturn.c
+# | Dependencies: gcc or cc, port/tests/test_gte_host.py (prepare_tables), port/psyq/gte_soft.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -17,7 +17,7 @@ import pytest
 
 DC = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 REPO = os.path.dirname(DC)
-sys.path.insert(0, os.path.join(REPO, "saturn", "tests"))
+sys.path.insert(0, os.path.join(REPO, "port", "tests"))
 
 import test_gte_host
 

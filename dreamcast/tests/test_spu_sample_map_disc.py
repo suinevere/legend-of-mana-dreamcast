@@ -2,7 +2,7 @@
 # | test_spu_sample_map_disc.py
 # | Description: Uploads every sound bank on the US disc through the C sample map and checks each sample decodes bit-exactly against port/tools/spu_adpcm.py, fits SPU RAM, and that the streamed-sample count holds.
 # | Author: suinevere
-# | Dependencies: tests/host/spu_decode_cli.c, ../port/sound/spu_sample_map.c, ../port/tools/convert_sound.py, ../port/tools/spu_adpcm.py, ../disc/us/LegendOfMana.bin
+# | Dependencies: tests/host/spu_decode_cli.c, ../port/sound/spu_sample_map.c, ../port/tools/sound_banks.py, ../port/tools/spu_adpcm.py, ../disc/us/LegendOfMana.bin
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(REPO, "port", "tools"))
 
 import akao  # noqa: E402
 import convert_disc  # noqa: E402
-import convert_sound  # noqa: E402
+import sound_banks  # noqa: E402
 import spu_adpcm  # noqa: E402
 
 STREAMED_SAMPLES = 56
@@ -32,13 +32,13 @@ def _banks():
     image = convert_disc.default_image()
     if not os.path.isfile(image):
         pytest.skip("no US disc image")
-    read = convert_sound.disc_reader(image)
+    read = sound_banks.disc_reader(image)
     report = {"banks": [], "songs": [], "programs": [], "missing": []}
-    for resource, kind in convert_sound.SOUND_RESOURCES:
+    for resource, kind in sound_banks.SOUND_RESOURCES:
         data = read(resource)
         if not data:
             continue
-        for _, offset, _ in convert_sound.resource_banks(data, resource, kind, report):
+        for _, offset, _ in sound_banks.resource_banks(data, resource, kind, report):
             yield resource, akao.parse_bank(data, offset)
 
 

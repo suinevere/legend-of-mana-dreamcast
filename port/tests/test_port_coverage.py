@@ -1,6 +1,6 @@
 #----------------------
 # | test_port_coverage.py
-# | Description: Every port/**/*.c file must be in the Dreamcast makefile's PORT_SOURCES or in SATURN_ONLY below, so a new port file can't silently join only one backend.
+# | Description: Every port/**/*.c file outside port/tests must be in the Dreamcast makefile's PORT_SOURCES, so a new port file can't silently go unbuilt.
 # | Author: suinevere
 # | Dependencies: dreamcast/makefile
 # | Globals: N/A
@@ -14,9 +14,6 @@ PORT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 REPO = os.path.normpath(os.path.join(PORT, ".."))
 DREAMCAST_DIR = os.path.join(REPO, "dreamcast")
 DREAMCAST_MAKEFILE = os.path.join(DREAMCAST_DIR, "makefile")
-
-SATURN_ONLY = {"boot/layout_pack.c", "stubs/akao_stubs.c"}
-
 
 def _dreamcast_port_sources():
     with open(DREAMCAST_MAKEFILE, "r", encoding="utf-8") as f:
@@ -33,7 +30,10 @@ def _dreamcast_port_sources():
 
 def _all_port_sources():
     found = set()
+    tests = os.path.join(PORT, "tests")
     for root, _, files in os.walk(PORT):
+        if os.path.commonpath([root, tests]) == tests:
+            continue
         for name in files:
             if name.endswith(".c"):
                 found.add(os.path.normpath(os.path.join(root, name)))
@@ -42,18 +42,10 @@ def _all_port_sources():
 
 def test_every_port_source_is_tracked_for_dreamcast():
     dreamcast_sources = _dreamcast_port_sources()
-    excluded = {os.path.normpath(os.path.join(PORT, rel)) for rel in SATURN_ONLY}
     untracked = sorted(
         path for path in _all_port_sources()
-        if path not in dreamcast_sources and path not in excluded
+        if path not in dreamcast_sources
     )
     assert not untracked, (
-        "port/ sources missing from dreamcast/makefile's PORT_SOURCES and not "
-        "declared Saturn-only in SATURN_ONLY: " + ", ".join(untracked)
+        "port/ sources missing from dreamcast/makefile's PORT_SOURCES: " + ", ".join(untracked)
     )
-
-
-def test_saturn_only_entries_still_exist():
-    for rel in SATURN_ONLY:
-        path = os.path.normpath(os.path.join(PORT, rel))
-        assert os.path.isfile(path), f"SATURN_ONLY lists a file that no longer exists: {rel}"

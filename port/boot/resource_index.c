@@ -1,6 +1,6 @@
 /*----------------------
  | resource_index.c
- | Description: Parses the big-endian RESINDEX.BIN table and names the Saturn file that holds each resource.
+ | Description: Parses the big-endian RESINDEX.BIN table and names the disc file that holds each resource.
  | Author: suinevere
  | Dependencies: resource_index.h
  | Globals: s_entries, s_count
@@ -11,8 +11,8 @@
 
 /*----------------------
  | RESOURCE_INDEX_MAX
- | Description: Most resources the index can hold; mirrors cdrom_saturn.c's CDROM_INDEX_BLOB_RESOURCE_MAX and convert_disc.py's RESOURCE_INDEX_MAX, which rejects a larger RESINDEX.BIN.
- |              The Dreamcast makefile overrides it with -D, since its disc carries every live PS1 resource; Saturn keeps this default.
+ | Description: Most resources the index can hold; mirrors convert_disc.py's DREAMCAST_RESOURCE_INDEX_MAX, which rejects a larger RESINDEX.BIN.
+ |              The Dreamcast makefile overrides it with -D (6144); host tests keep this default.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -89,7 +89,7 @@ int resource_index_load(const uint8_t *blob, int len)
  | Dependencies: N/A
  | Globals: s_entries, s_count
  | Params: index -- PS1 resource index
- | Returns: entry, or null when the Saturn disc does not carry it
+ | Returns: entry, or null when the disc does not carry it
  ----------------------*/
 const ResourceEntry *resource_index_find(int index)
 {
@@ -121,7 +121,7 @@ int resource_folder(int kind)
 
 /*----------------------
  | resource_file_name
- | Description: Builds the 8.3 Saturn file name for a resource: OVLnn.BIN for overlays, RESnnnn.BIN otherwise.
+ | Description: Builds the 8.3 file name for a resource: OVLnn.BIN for overlays, RESnnnn.BIN otherwise.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A

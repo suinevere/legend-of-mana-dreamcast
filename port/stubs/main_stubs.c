@@ -1,6 +1,6 @@
 /*----------------------
  | main_stubs.c
- | Description: Saturn and Dreamcast stand-ins for the PS1 main executable's libc copy; the Saturn's silent sound is in akao_stubs.c.
+ | Description: Dreamcast stand-ins for the PS1 main executable's libc copy.
  | Author: suinevere
  | Dependencies: lom_prefix.h, decomp main/ and common/ headers
  | Globals: N/A

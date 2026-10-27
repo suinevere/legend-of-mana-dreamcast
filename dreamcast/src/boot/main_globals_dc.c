@@ -3,7 +3,7 @@
  | Description: Dreamcast definitions of the PS1 fixed-address buffers lom_prefix.h redirects to, typed main-executable globals with their PS1 initial values, and the libc references real overlays resolve from main's ELF.
  |              Holds only the globals whose PS1 address is below 0x8004FC70 (main's range per shared_symbol_addrs.txt); FIELD's own globals live in src/overlays/field_globals_dc.c since Task 6 gave FIELD its own overlay.
  | Author: suinevere
- | Dependencies: lom_prefix.h, lom_platform_memory.h, main/main.h, main/game_state.h, main/audio/game_audio.h, main/field_runtime.h, stdlib.h, saturn/src/boot/main_globals.c
+ | Dependencies: lom_prefix.h, lom_platform_memory.h, main/main.h, main/game_state.h, main/audio/game_audio.h, main/field_runtime.h, stdlib.h
  | Globals: the lom_* fixed-address buffers, the g_* main state listed below, g_overlay_exit, g_overlay_abort, g_overlay_abs
  | Params: N/A
  | Returns: N/A
@@ -40,7 +40,7 @@ u8 lom_sound_bank[0x4000] __attribute__((aligned(32)));
 
 /*----------------------
  | lom_font_buffer / lom_scratchpad / lom_text_cache / lom_trap_buffer / lom_render_arena
- | Description: The remaining PS1 fixed-address buffers lom_prefix.h redirects to, sized as the Saturn's and 32-byte aligned for the SH4.
+ | Description: The remaining PS1 fixed-address buffers lom_prefix.h redirects to, 32-byte aligned for the SH4.
  | Author: suinevere
  | Dependencies: lom_prefix.h, lom_platform_memory.h
  | Globals: N/A
@@ -55,9 +55,9 @@ u8 lom_render_arena[LOM_RENDER_ARENA_SIZE] __attribute__((aligned(32)));
 
 /*----------------------
  | lom_field_cd_buffer / lom_field_actor_heap
- | Description: FIELD's own CD read buffer and actor heap, sized as the Saturn's; real storage once FIELD's actors load resources for real, instead of aliasing the tiny trap buffer.
+ | Description: FIELD's own CD read buffer and actor heap; real storage once FIELD's actors load resources for real, instead of aliasing the tiny trap buffer.
  | Author: suinevere
- | Dependencies: lom_prefix.h, lom_platform_memory.h, saturn/src/boot/overlay_loader.h
+ | Dependencies: lom_prefix.h, lom_platform_memory.h
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -105,7 +105,7 @@ __asm__(".global _g_field_movie_frame_width\n"
 
 /*----------------------
  | lom_primary_upper
- | Description: PRIMARY_OVERLAY_UPPER_ADDRESS for main, CHECKPS and TITLE, aliased to the render arena as saturn.linker does.
+ | Description: PRIMARY_OVERLAY_UPPER_ADDRESS for main, CHECKPS and TITLE, aliased to the render arena.
  | Author: suinevere
  | Dependencies: lom_render_arena
  | Globals: N/A

@@ -2,12 +2,12 @@
  | test_gte_rtp_fast.c
  | Description: Fuzzes gte_rtp_fast against the generic gte_rtp over random register files, comparing every register and FLAG bit after each RTP step.
  | Author: suinevere
- | Dependencies: port/psyq/gte_saturn.c (included for its static functions)
+ | Dependencies: port/psyq/gte_soft.c (included for its static functions)
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#include "gte_saturn.c"
+#include "gte_soft.c"
 
 #include <stdio.h>
 

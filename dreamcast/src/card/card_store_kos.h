@@ -15,5 +15,6 @@
 extern const card_store_ops card_store_kos;
 void card_store_kos_init(void);
 int card_store_kos_lcds(void);
+int card_store_kos_busy(void);
 
 #endif

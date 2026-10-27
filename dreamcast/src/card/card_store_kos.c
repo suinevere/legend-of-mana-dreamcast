@@ -714,6 +714,20 @@ static int kos_write_start(int slot, const char *ps1_name, const unsigned char *
     return 0;
 }
 
+/*----------------------
+ | card_store_kos_busy
+ | Description: Whether a background VMU write is still running, which the soft reset waits out so it never cuts a save short.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_job_state
+ | Params: N/A
+ | Returns: 1 while a write runs, else 0
+ ----------------------*/
+int card_store_kos_busy(void)
+{
+    return s_job_state == JOB_BUSY;
+}
+
 static int kos_job_poll(void)
 {
     int state = s_job_state;

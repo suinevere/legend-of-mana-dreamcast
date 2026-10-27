@@ -48,7 +48,7 @@
 /*----------------------
  | map_relocate
  | Description: Rebases every 4-aligned word before the texel block whose value lies inside the map's PS1 address span onto the map's real address.
- |              Matches the Saturn map converter's exact pointer set on maps 195 and 578, and leaves texels and the trailer untouched.
+ |              Relocates exactly the map's pointer fields on maps 195 and 578, and leaves texels and the trailer untouched.
  | Author: suinevere
  | Dependencies: MAP_RELOCATE_PS1_BASE, MAP_RELOCATE_TRAILER_SLACK
  | Globals: N/A

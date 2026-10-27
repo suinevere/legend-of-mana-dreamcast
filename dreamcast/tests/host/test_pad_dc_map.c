@@ -1,6 +1,6 @@
 /*----------------------
  | test_pad_dc_map.c
- | Description: Host checks for the Dreamcast Maple-to-PS1 button mapping, its L1/R1/L2/R2/Select thresholds, the C/Z alias buttons, and that pad_dc_script_fill's reverse mapping agrees with this forward mapping for every scripted button.
+ | Description: Host checks for the Dreamcast Maple-to-PS1 button mapping, the A+B+X+Y+Start soft-reset chord, the Jump Pack level from the PS1 motor commands, its L1/R1/L2/R2/Select thresholds, the C/Z alias buttons, and that pad_dc_script_fill's reverse mapping agrees with this forward mapping for every scripted button.
  | Author: suinevere
  | Dependencies: pad_dc_map.h, pad_dc_script_map.h, common/pad.h
  ----------------------*/
@@ -272,6 +272,39 @@ static void test_dpad_acts_as_buttons_only_while_walking(void)
     CHECK(pad_dc_dpad_as_buttons(2, 1, fake_walking) == 0 && s_walking_asked == 0);
 }
 
+static void test_soft_reset_needs_a_b_x_y_and_start(void)
+{
+    DcPadSample s = zero_sample();
+    unsigned all = DC_CONT_A | DC_CONT_B | DC_CONT_X | DC_CONT_Y | DC_CONT_START;
+    unsigned bit;
+
+    s.buttons = all;
+    CHECK(pad_dc_soft_reset_chord(&s));
+    s.buttons = all | DC_CONT_DPAD_UP | DC_CONT_C;
+    CHECK(pad_dc_soft_reset_chord(&s));
+    for (bit = 1; bit <= DC_CONT_X; bit <<= 1)
+    {
+        if (all & bit)
+        {
+            s.buttons = all & ~bit;
+            CHECK(!pad_dc_soft_reset_chord(&s));
+        }
+    }
+}
+
+static void test_rumble_level_follows_the_motors_and_the_option(void)
+{
+    CHECK(pad_dc_rumble_level(1, 0, 0) == 0);
+    CHECK(pad_dc_rumble_level(0, 1, 255) == 0);
+    CHECK(pad_dc_rumble_level(1, 1, 0) == PAD_DC_RUMBLE_SMALL);
+    CHECK(pad_dc_rumble_level(1, 2, 0) == 0);
+    CHECK(pad_dc_rumble_level(1, 0, 1) == 1);
+    CHECK(pad_dc_rumble_level(1, 0, 255) == 7);
+    CHECK(pad_dc_rumble_level(1, 1, 1) == PAD_DC_RUMBLE_SMALL);
+    CHECK(pad_dc_rumble_level(1, 1, 255) == 7);
+    CHECK(pad_dc_rumble_level(1, 0, 128) == 4);
+}
+
 int main(void)
 {
     test_all_zero_gives_nothing();
@@ -285,6 +318,8 @@ int main(void)
     test_stick_moves_and_dpad_steers_in_menus();
     test_walking_dpad_gives_l2_r2_select();
     test_dpad_acts_as_buttons_only_while_walking();
+    test_soft_reset_needs_a_b_x_y_and_start();
+    test_rumble_level_follows_the_motors_and_the_option();
     if (s_failures == 0)
     {
         printf("OK\n");

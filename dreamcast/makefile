@@ -34,6 +34,18 @@ CDI ?= lom.cdi
 GDI_DIR ?= gdi
 
 #----------------------
+# | PAIRED_DISCS / DISC_PAIR_MISSING
+# | Description: Whether the CDI and the GDI folder are built as a pair (1, the shipping and debug builds; test-image passes 0), and FORCE when paired and either is missing, so a missing one rebuilds both.
+# | Author: suinevere
+# | Dependencies: CDI, GDI_DIR, FORCE
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+PAIRED_DISCS ?= 1
+DISC_PAIR_MISSING := $(if $(filter 1,$(PAIRED_DISCS)),$(if $(and $(wildcard $(CDI)),$(wildcard $(GDI_DIR)/disc.gdi)),,FORCE))
+
+#----------------------
 # | EXTRA_CFLAGS
 # | Description: Extra defines test-image passes through a submake, e.g. -DLOM_PAD_SCRIPT; empty for the shipping build. Checked below (SOURCES) and folded into CFLAGS further down.
 # | Author: suinevere
@@ -79,7 +91,7 @@ endif
 # | Returns: N/A
 #----------------------
 KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/hang_watch.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c \
-	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/system/perf_hud.c src/movie/movie_decode_kos.c
+	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/movie/movie_decode_kos.c src/system/soft_reset.c src/system/boot_descramble.c src/input/rumble_dc.c
 
 #----------------------
 # | PORT_SOURCES
@@ -91,7 +103,7 @@ KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/sys
 # | Returns: N/A
 #----------------------
 PORT_SOURCES = ../port/boot/overlay_header.c ../port/boot/resource_index.c ../port/input/pad_publish.c \
-	../port/system/vsync_pacer.c ../port/psyq/gte_saturn.c ../port/psyq/libgte_tables.c ../port/psyq/libc_rand.c ../port/stubs/main_stubs.c \
+	../port/system/vsync_pacer.c ../port/psyq/gte_soft.c ../port/psyq/libgte_tables.c ../port/psyq/libc_rand.c ../port/stubs/main_stubs.c \
 	../port/sound/spu_shadow.c \
 	../port/sound/spu_sample_map.c \
 	../port/sound/aica_convert.c \
@@ -102,9 +114,9 @@ PORT_SOURCES = ../port/boot/overlay_header.c ../port/boot/resource_index.c ../po
 
 #----------------------
 # | DECOMP_MAIN
-# | Description: The decomp main-executable files the Saturn main link compiles (saturn/src/mainexe/*_unit.c), plus the PS1 stream decompressor cdrom_dc.c runs on raw resources and card_callbacks.c for CARDA's pet transfer.
+# | Description: The decomp main-executable files, plus the PS1 stream decompressor cdrom_dc.c runs on raw resources and card_callbacks.c for CARDA's pet transfer.
 # | Author: suinevere
-# | Dependencies: saturn/src/mainexe
+# | Dependencies: ../src/main
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -200,9 +212,9 @@ FIELD_TEST_OBJS = build/overlays/field_watch_unit.o
 
 #----------------------
 # | DECOMP_CHECKPS
-# | Description: The decomp CHECKPS files saturn/src/checkps/*_unit.c compile; init.c goes through src/overlays/checkps_init_unit.c for its render-state size check.
+# | Description: The decomp CHECKPS files; init.c goes through src/overlays/checkps_init_unit.c for its render-state size check.
 # | Author: suinevere
-# | Dependencies: saturn/src/checkps, src/overlays/checkps_init_unit.c
+# | Dependencies: ../src/overlays/checkps, src/overlays/checkps_init_unit.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -211,9 +223,9 @@ DECOMP_CHECKPS = ../src/overlays/checkps/cdrom.c ../src/overlays/checkps/font.c 
 
 #----------------------
 # | DECOMP_TITLE
-# | Description: The decomp TITLE files saturn/src/title/*_unit.c compile; the Dreamcast keeps title.c's own song loaders.
+# | Description: The decomp TITLE files; the Dreamcast keeps title.c's own song loaders.
 # | Author: suinevere
-# | Dependencies: saturn/src/title
+# | Dependencies: ../src/overlays/title
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -222,9 +234,9 @@ DECOMP_TITLE = ../src/overlays/title/title.c ../src/overlays/title/title_save.c
 
 #----------------------
 # | DECOMP_GNAME
-# | Description: The decomp GNAME file saturn/src/gname/gname_unit.c compiles; the Dreamcast links it alone, so its fade globals keep their names.
+# | Description: The decomp GNAME files; the Dreamcast links it alone, so its fade globals keep their names.
 # | Author: suinevere
-# | Dependencies: saturn/src/gname
+# | Dependencies: ../src/overlays/gname
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -264,9 +276,9 @@ DECOMP_GOSUB = ../src/overlays/gosub/gosub.c ../src/overlays/gosub/gosub_dialogs
 
 #----------------------
 # | DECOMP_WMAP
-# | Description: The decomp WMAP files saturn/src/wmap/*_unit.c compile, compiled here by path.
+# | Description: The decomp WMAP files, compiled here by path.
 # | Author: suinevere
-# | Dependencies: saturn/src/wmap
+# | Dependencies: ../src/overlays/wmap
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -385,8 +397,7 @@ OVERLAY_CODE = $(OBJDIR)/ovl/OVL15C.BIN $(OBJDIR)/ovl/OVL04C.BIN $(OBJDIR)/ovl/O
 
 #----------------------
 # | CFLAGS
-# | Description: US region and Dreamcast-target defines, plus an include path for every src subfolder, the port/ folders, the decomp's include, the generated gen/ headers and EXTRA_CFLAGS.
-# |              Raises RESOURCE_INDEX_MAX past Saturn's 256 default to 6144, covering the table's 5811 entries.
+# | Description: US region and Dreamcast-target defines, RESOURCE_INDEX_MAX for the table's 5811 live entries, plus an include path for every src subfolder, the port/ folders, the decomp's include, the generated gen/ headers and EXTRA_CFLAGS.
 # |              -fno-strict-aliasing because the decomp type-puns like the PS1's GCC allowed: field_build_render_records read a stale scene->seqs past its FieldLink* store.
 # | Author: suinevere
 # | Dependencies: N/A
@@ -398,10 +409,10 @@ CFLAGS += -std=gnu11 -O2 -fno-strict-aliasing -Wall -DVERSION_US -DLOM_DREAMCAST
 
 #----------------------
 # | DECOMP_FLAGS / DECOMP_STD
-# | Description: The decomp prefix and include paths (the Psy-Q headers after newlib's, so its <strings.h> keeps libc's prototypes), and the Saturn DECOMP_STD warning set minus -Wreturn-mismatch, which GCC 13 lacks, for every source that sees PS1 types.
+# | Description: The decomp prefix and include paths (the Psy-Q headers after newlib's, so its <strings.h> keeps libc's prototypes), and the DECOMP_STD warning set for every source that sees PS1 types.
 # |              Those sources build with -MD, not -MMD, because -idirafter makes include/sdk a system directory whose headers -MMD leaves out of the dependency files.
 # | Author: suinevere
-# | Dependencies: ../port/psyq/lom_prefix.h, saturn/makefile (DECOMP_STD)
+# | Dependencies: ../port/psyq/lom_prefix.h
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
@@ -423,8 +434,8 @@ include $(KOS_BASE)/Makefile.rules
 export KOS_LDFLAGS := $(filter-out -T%,$(KOS_LDFLAGS)) -Tdreamcast.ld
 
 #----------------------
-# | KOS_CDROM_PATCH_DIR / KOS_CDROM_PATCH_MEMBERS / KOS_CDROM_PATCH_OBJS / KOS_LIBKALLISTI
-# | Description: The decomp's cdrom_init (src/cd/cdrom_dc.c) collides by name with libkallisti's own GD-ROM bring-up; these are local, renamed copies of the two libkallisti members that define or call it, linked ahead of -lkallisti so KallistiOS's real hardware init keeps running under its own symbol instead of being shadowed by ours.
+# | KOS_CDROM_PATCH_DIR / KOS_CDROM_PATCH_MEMBERS / KOS_CDROM_PATCH_OBJS / KOS_LIBKALLISTI / KOS_STARTUP_OBJ
+# | Description: The decomp's cdrom_init (src/cd/cdrom_dc.c) collides by name with libkallisti's own GD-ROM bring-up; these are local, renamed copies of the two libkallisti members that define or call it, linked ahead of -lkallisti so KallistiOS's real hardware init keeps running under its own symbol instead of being shadowed by ours. KOS_STARTUP_OBJ is the start code kos-cc links in, which defines the BIOS registers soft_reset.c restores.
 # | Author: suinevere
 # | Dependencies: src/cd/cdrom_dc.c
 # | Globals: N/A
@@ -435,6 +446,7 @@ KOS_CDROM_PATCH_DIR = build/kos_patch
 KOS_CDROM_PATCH_MEMBERS = cdrom.o hardware.o
 KOS_CDROM_PATCH_OBJS = $(patsubst %,$(KOS_CDROM_PATCH_DIR)/%,$(KOS_CDROM_PATCH_MEMBERS))
 KOS_LIBKALLISTI = $(KOS_BASE)/lib/dreamcast/libkallisti.a
+KOS_STARTUP_OBJ = $(KOS_BASE)/kernel/arch/dreamcast/kernel/startup.o
 
 #----------------------
 # | TOOLCHAIN_LIBS
@@ -447,18 +459,29 @@ KOS_LIBKALLISTI = $(KOS_BASE)/lib/dreamcast/libkallisti.a
 #----------------------
 TOOLCHAIN_LIBS = $(shell kos-cc -print-file-name=libc.a) $(shell kos-cc -print-file-name=libm.a) $(shell kos-cc -print-libgcc-file-name)
 
-.PHONY: all clean pending test-image gdi
+.PHONY: all clean pending test-image gdi FORCE
 
 #----------------------
 # | all
-# | Description: Builds the bootable disc image.
+# | Description: Builds the GD-ROM folder GDEMU and MODE load, the main target, and the CDI beside it.
 # | Author: suinevere
-# | Dependencies: $(CDI)
+# | Dependencies: $(GDI_DIR)/disc.gdi, $(CDI)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-all: $(CDI)
+all: $(GDI_DIR)/disc.gdi $(CDI)
+
+#----------------------
+# | FORCE
+# | Description: Never up to date; DISC_PAIR_MISSING names it to rebuild both discs when either is missing.
+# | Author: suinevere
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: N/A
+# | Returns: N/A
+#----------------------
+FORCE:
 
 include pre.makefile
 
@@ -491,19 +514,19 @@ $(OBJDIR)/port/%.o: ../port/%.c
 	kos-cc $(CFLAGS) $(DECOMP_FLAGS) $(DECOMP_STD) -MD -MP -c $< -o $@
 
 #----------------------
-# | build/port/psyq/gte_saturn.o
-# | Description: Strict C11 hides newlib's BSD <strings.h> from gte_saturn.c's <string.h>, whose bcopy prototype clashes with the Psy-Q one lom_prefix.h declares.
+# | build/port/psyq/gte_soft.o
+# | Description: Strict C11 hides newlib's BSD <strings.h> from gte_soft.c's <string.h>, whose bcopy prototype clashes with the Psy-Q one lom_prefix.h declares.
 # | Author: suinevere
-# | Dependencies: ../port/psyq/gte_saturn.c, ../port/psyq/lom_prefix.h
+# | Dependencies: ../port/psyq/gte_soft.c, ../port/psyq/lom_prefix.h
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-$(OBJDIR)/port/psyq/gte_saturn.o: DECOMP_STD += -std=c11
+$(OBJDIR)/port/psyq/gte_soft.o: DECOMP_STD += -std=c11
 
 #----------------------
 # | build/port/sound/%.o
-# | Description: The shared sound sources include <string.h> too, so they take gte_saturn.o's strict C11 for the same bcopy clash.
+# | Description: The shared sound sources include <string.h> too, so they take gte_soft.o's strict C11 for the same bcopy clash.
 # | Author: suinevere
 # | Dependencies: ../port/sound, ../port/psyq/lom_prefix.h
 # | Globals: N/A
@@ -526,7 +549,7 @@ $(call DECOMP_OBJ,$(DECOMP_AUDIO)): DECOMP_STD += -DSetRCnt=lom_SetRCnt -DStartR
 
 #----------------------
 # | build/cd/cdrom_dc.o
-# | Description: Strict C11 hides newlib's BSD <strings.h> from cdrom_dc.c's <string.h>, whose bcopy prototype clashes with the Psy-Q one lom_prefix.h declares; same fix as gte_saturn.o.
+# | Description: Strict C11 hides newlib's BSD <strings.h> from cdrom_dc.c's <string.h>, whose bcopy prototype clashes with the Psy-Q one lom_prefix.h declares; same fix as gte_soft.o.
 # | Author: suinevere
 # | Dependencies: src/cd/cdrom_dc.c, ../port/psyq/lom_prefix.h
 # | Globals: N/A
@@ -769,7 +792,7 @@ gen/main_data.c: | $(PRE_BUILD_STAMP)
 
 #----------------------
 # | DEPFILES
-# | Description: Pulls in every object's -MMD -MP dependency file, so editing a header these objects include (lom_prefix.h, gpu_tag.h, lom_platform_memory.h, …) rebuilds them; mirrors saturn/makefile's -include of C_OBJECTS/PORT_OBJECTS .d files.
+# | Description: Pulls in every object's -MMD -MP dependency file, so editing a header these objects include (lom_prefix.h, gpu_tag.h, lom_platform_memory.h, …) rebuilds them.
 # | Author: suinevere
 # | Dependencies: OBJS, OVERLAY_OBJS
 # | Globals: N/A
@@ -846,7 +869,7 @@ $(OBJDIR)/ovl/overlay_externs.ld: $(OVERLAY_OBJS) $(OVERLAY_SYMBOLS)
 #----------------------
 # | $(OBJDIR)/ovl/OVL15C.BIN / $(OBJDIR)/ovl/OVL04C.BIN / $(OBJDIR)/ovl/OVL02C.BIN / $(OBJDIR)/ovl/OVL05C.BIN / $(OBJDIR)/ovl/OVL14C.BIN / $(OBJDIR)/ovl/OVL03C.BIN
 # | Description: Links CHECKPS, TITLE, FIELD, GNAME, WSEL, WMAP, MENU, SHOP, GOLEM and ZUKAN at their arena code regions against $(TARGET), per-OBJDIR since lom.elf and lom_test.elf differ.
-# |              GNAME links after FIELD and also against FIELD's own elf (--links field), as saturn/makefile's OVERLAY_LINKS_gname = field does.
+# |              GNAME links after FIELD and also against FIELD's own elf (--links field).
 # | Author: suinevere
 # | Dependencies: ../port/tools/overlay_link.py, gen/checkps.ld, gen/title.ld, gen/field.ld, gen/gname.ld, gen/wsel.ld, gen/wmap.ld
 # | Globals: N/A
@@ -956,27 +979,31 @@ $(OBJDIR)/cd-data/.stamp: $(PRE_BUILD_STAMP) $(OVERLAY_CODE) $(wildcard $(VMU_GA
 # | Description: Packs the linked ELF and this build's staged cd-data tree into a bootable MIL-CD image, so KallistiOS sees them under /cd (overlays in /cd/OVL).
 # |              -N drops mkdcdisc's data-track padding, which only speeds up loading on real GD-ROM drives and costs nothing this build needs.
 # | Author: suinevere
-# | Dependencies: $(TARGET), mkdcdisc, $(OBJDIR)/cd-data/.stamp
+# | Dependencies: $(TARGET), mkdcdisc, $(OBJDIR)/cd-data/.stamp, DISC_PAIR_MISSING
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-$(CDI): $(TARGET) $(OBJDIR)/cd-data/.stamp
+$(CDI): $(TARGET) $(OBJDIR)/cd-data/.stamp $(DISC_PAIR_MISSING)
 	mkdcdisc -e $(TARGET) -o $(CDI) -D $(OBJDIR)/cd-data -n "Legend of Mana" -N --allow-overwrite
 
 #----------------------
-# | gdi
-# | Description: Packs the same ELF and cd-data tree into a GD-ROM image in gdi/ (disc.gdi plus its tracks), the folder layout GDEMU and MODE load.
+# | $(GDI_DIR)/disc.gdi / gdi
+# | Description: Packs the same ELF and cd-data tree into a GD-ROM image (disc.gdi plus its tracks), the folder layout GDEMU and MODE load. It is written to $(GDI_DIR).tmp and moved into place only once mkdcdisc succeeds, so a stopped build never leaves a half-written folder that looks done. gdi builds both discs, as all does.
 # | Author: suinevere
-# | Dependencies: $(TARGET), mkdcdisc, $(OBJDIR)/cd-data/.stamp
+# | Dependencies: $(TARGET), mkdcdisc, $(OBJDIR)/cd-data/.stamp, DISC_PAIR_MISSING, all
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-gdi: $(TARGET) $(OBJDIR)/cd-data/.stamp
+$(GDI_DIR)/disc.gdi: $(TARGET) $(OBJDIR)/cd-data/.stamp $(DISC_PAIR_MISSING)
+	rm -rf $(GDI_DIR).tmp
+	mkdir -p $(GDI_DIR).tmp
+	mkdcdisc -e $(TARGET) -o $(GDI_DIR).tmp/disc.gdi -D $(OBJDIR)/cd-data -n "Legend of Mana" --allow-overwrite
 	rm -rf $(GDI_DIR)
-	mkdir -p $(GDI_DIR)
-	mkdcdisc -e $(TARGET) -o $(GDI_DIR)/disc.gdi -D $(OBJDIR)/cd-data -n "Legend of Mana" --allow-overwrite
+	mv $(GDI_DIR).tmp $(GDI_DIR)
+
+gdi: all
 
 #----------------------
 # | debug-gdi
@@ -988,7 +1015,7 @@ gdi: $(TARGET) $(OBJDIR)/cd-data/.stamp
 # | Returns: N/A
 #----------------------
 debug-gdi:
-	$(MAKE) OBJDIR=build-debug TARGET=lom_debug.elf CDI=lom_debug.cdi GDI_DIR=gdi-debug EXTRA_CFLAGS=-DLOM_DEBUG_MENU all gdi
+	$(MAKE) OBJDIR=build-debug TARGET=lom_debug.elf CDI=lom_debug.cdi GDI_DIR=gdi-debug EXTRA_CFLAGS=-DLOM_DEBUG_MENU all
 
 #----------------------
 # | clean
@@ -1000,7 +1027,7 @@ debug-gdi:
 # | Returns: N/A
 #----------------------
 clean:
-	rm -rf build build-test gdi
+	rm -rf build build-test gdi gdi.tmp
 	rm -f lom.elf lom.cdi lom_test.elf lom_test.cdi $(PADSEL_IMAGES) cd/data/OVL/OVL*C.BIN
 
 #----------------------
@@ -1019,14 +1046,14 @@ gen/pad_script_table.h: $(PAD_SCRIPTS) tools/gen_pad_script.py
 
 #----------------------
 # | PADSEL_IMAGES / lom_<script>_test.cdi
-# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the land effect ranking disc, the card save and load discs, the pet send, declined send, return and ranch discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc, the PAL 50 Hz boot disc and the FIELD scene sweep disc.
+# | Description: Extra scripted discs from lom_test.elf and its disc data, each with a root PADSEL.TXT naming the pad script to run: the soft reset disc, the land effect ranking disc, the card save and load discs, the pet send, declined send, return and ranch discs, the sound sweep and sound effects discs, the movie probe and intro discs, the FIELD movie disc, the PAL 50 Hz boot disc and the FIELD scene sweep disc.
 # | Author: suinevere
 # | Dependencies: test-image, mkdcdisc, src/input/pad_dc.c (PADSEL.TXT)
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PADSEL_SCRIPTS = landfx_rank exit_map card_save card_load movie_skip pet_send pet_send_decline pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
+PADSEL_SCRIPTS = soft_reset landfx_rank exit_map card_save card_load movie_skip pet_send pet_send_decline pet_return pet_ranch sound_sweep sound_effects movie_probe movie_intro field_movie pal_50hz scene_sweep
 PADSEL_IMAGES = $(patsubst %,lom_%_test.cdi,$(PADSEL_SCRIPTS))
 lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 	@mkdir -p build-test/padsel/$*
@@ -1043,19 +1070,19 @@ lom_%_test.cdi: lom_test.elf build-test/cd-data/.stamp
 # | Returns: N/A
 #----------------------
 test-image: gen/pad_script_table.h
-	$(MAKE) OBJDIR=build-test TARGET=lom_test.elf CDI=lom_test.cdi EXTRA_CFLAGS=-DLOM_PAD_SCRIPT all
+	$(MAKE) OBJDIR=build-test TARGET=lom_test.elf CDI=lom_test.cdi PAIRED_DISCS=0 EXTRA_CFLAGS=-DLOM_PAD_SCRIPT lom_test.cdi
 	$(MAKE) $(PADSEL_IMAGES)
 
 #----------------------
 # | PENDING_DEFINED
 # | Description: What defines symbols for main's link outside the compiled objects: the toolchain and patched KallistiOS libraries and main's linker scripts.
 # | Author: suinevere
-# | Dependencies: TOOLCHAIN_LIBS, KOS_LIBKALLISTI, KOS_CDROM_PATCH_OBJS, dreamcast.ld, gen/overlay_entries.ld
+# | Dependencies: TOOLCHAIN_LIBS, KOS_LIBKALLISTI, KOS_STARTUP_OBJ, KOS_CDROM_PATCH_OBJS, dreamcast.ld, gen/overlay_entries.ld
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PENDING_DEFINED = $(KOS_LIBKALLISTI) $(KOS_CDROM_PATCH_OBJS) $(TOOLCHAIN_LIBS) dreamcast.ld gen/overlay_entries.ld
+PENDING_DEFINED = $(KOS_LIBKALLISTI) $(KOS_STARTUP_OBJ) $(KOS_CDROM_PATCH_OBJS) $(TOOLCHAIN_LIBS) dreamcast.ld gen/overlay_entries.ld
 
 #----------------------
 # | pending

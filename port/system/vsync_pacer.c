@@ -1,6 +1,6 @@
 /*----------------------
  | vsync_pacer.c
- | Description: PS1 libetc VSync semantics on a vblank counter ticked by the Saturn vblank interrupt.
+ | Description: PS1 libetc VSync semantics on a vblank counter ticked by the vblank interrupt (vblank_dc.c).
  | Author: suinevere
  | Dependencies: vsync_pacer.h
  | Globals: s_vblanks, s_last_vsync
@@ -33,7 +33,7 @@ static unsigned s_last_vsync;
 
 /*----------------------
  | vsync_tick
- | Description: Counts one vblank; registered on the SaturnRingLib vblank event.
+ | Description: Counts one vblank; vblank_dc.c calls it from the KallistiOS vblank handler.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: s_vblanks

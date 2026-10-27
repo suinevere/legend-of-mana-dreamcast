@@ -1,6 +1,6 @@
 # PS1 reference screenshots
 
-The user's DuckStation captures of the US new-game path, in play order; both ports diff against these and nobody should ask for them again.
+The user's DuckStation captures of the US new-game path, in play order; the Dreamcast tests diff against these and nobody should ask for them again.
 
 | File | Screen |
 |---|---|
@@ -22,7 +22,7 @@ The user's DuckStation captures of the US new-game path, in play order; both por
 | 16-wmap-board-home.png | WMAP board with Home |
 | 17-field-battle.png | FIELD battle: hero and ally against two bees in a rocky canyon land, both HP bars 100% (822x570 window capture) |
 
-These are 2424x1080 screen captures with black pillarboxes, not native 320x240 frames, so a diff must crop the 4:3 picture and scale it down first. `saturn/reference/ps1-*.png` holds an older subset of the same screens.
+These are 2424x1080 screen captures with black pillarboxes, not native 320x240 frames, so a diff must crop the 4:3 picture and scale it down first.
 
 `crops.json` holds each screenshot's detected 4:3 crop box; regenerate it with `python dreamcast/tools/frame_diff.py detect` (no screenshot needed its fallback crop). 04 leaves its own left columns black, so it takes 03's box (`CROP_SIBLINGS`).
 

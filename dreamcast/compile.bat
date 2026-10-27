@@ -5,7 +5,7 @@ REM  | Description: Builds the Legend of Mana Dreamcast port inside the lom-dc D
 REM  | Author: suinevere
 REM  | Dependencies: compile-vmu.bat, dockerfiles/dreamcast.Dockerfile, makefile
 REM  | Globals: N/A
-REM  | Params: %1 -- "clean" to clean, "pending" to regenerate pending stubs, "gdi" for the GDEMU folder gdi/, "test-image" to build the scripted lom_test.cdi, otherwise builds lom.elf and lom.cdi
+REM  | Params: %1 -- "clean" to clean, "pending" to regenerate pending stubs, "test-image" to build the scripted lom_test.cdi, otherwise ("gdi" too) builds lom.elf, the GDEMU folder gdi/ and lom.cdi, rebuilding both discs when either is missing
 REM  | Returns: make's exit code
 REM ----------------------
 SETLOCAL

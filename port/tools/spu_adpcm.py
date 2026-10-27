@@ -1,3 +1,4 @@
+
 #----------------------
 # | spu_adpcm.py
 # | Description: Decodes PS1 SPU ADPCM sample data to 16-bit PCM and reports the loop points its block flags describe.
@@ -88,29 +89,6 @@ FILTERS = ((0, 0), (60, 0), (115, -52), (98, -55), (122, -60))
 Sample = collections.namedtuple("Sample", "pcm loop_start loop_end loops blocks hist truncated")
 
 #----------------------
-# | LoopBody
-# | Description: A loop region decoded with carried history: its PCM, whether it settled, passes decoded, and how many passes one cycle spans.
-# | Author: suinevere
-# | Dependencies: N/A
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-LoopBody = collections.namedtuple("LoopBody", "pcm converged passes period")
-
-#----------------------
-# | LOOP_PASS_LIMIT
-# | Description: Most loop passes steady_loop decodes before reporting non-convergence.
-# | Author: suinevere
-# | Dependencies: N/A
-# | Globals: N/A
-# | Params: N/A
-# | Returns: N/A
-#----------------------
-LOOP_PASS_LIMIT = 64
-
-
-#----------------------
 # | clamp16
 # | Description: Saturates a value to the signed 16-bit range.
 # | Author: suinevere
@@ -182,58 +160,3 @@ def decode(data, offset=0):
             break
     return Sample(pcm, loop_start, len(pcm), loops, blocks, hist, truncated)
 
-
-#----------------------
-# | steady_loop
-# | Description: Re-decodes a loop region with the history the SPU carries back to the loop start until a pass's start history repeats.
-# | Author: suinevere
-# | Dependencies: decode_block, LoopBody, LOOP_PASS_LIMIT
-# | Globals: N/A
-# | Params: data -- ADPCM bytes, offset -- sample byte offset, sample -- its first-pass Sample, loop_index -- block-aligned loop start, max_passes -- pass cap
-# | Returns: LoopBody whose pcm unrolls the cycle of period passes, rotated so its first pass lines up with PS1 pass 1; pass 1 is the first-pass decode
-#----------------------
-def steady_loop(data, offset, sample, loop_index, max_passes=LOOP_PASS_LIMIT):
-    start = offset + loop_index // SAMPLES_PER_BLOCK * BLOCK_SIZE
-    end = offset + sample.blocks * BLOCK_SIZE
-    outputs = []
-    seen = {}
-    hist = sample.hist
-    for passes in range(2, max_passes + 1):
-        seen[hist] = len(outputs)
-        pcm = []
-        for pos in range(start, end, BLOCK_SIZE):
-            out, hist = decode_block(data[pos:pos + BLOCK_SIZE], hist)
-            pcm.extend(out)
-        outputs.append(pcm)
-        if hist in seen:
-            cycle = outputs[seen[hist]:]
-            shift = -passes % len(cycle)
-            cycle = cycle[shift:] + cycle[:shift]
-            return LoopBody([value for body in cycle for value in body], True, passes, len(cycle))
-    return LoopBody(outputs[-1] if outputs else sample.pcm[loop_index:], False, max_passes, 1)
-
-
-#----------------------
-# | to_pcm16_be
-# | Description: Packs samples as signed 16-bit big-endian PCM for the SCSP.
-# | Author: suinevere
-# | Dependencies: N/A
-# | Globals: N/A
-# | Params: pcm -- list of samples
-# | Returns: bytes
-#----------------------
-def to_pcm16_be(pcm):
-    return struct.pack(">%dh" % len(pcm), *pcm)
-
-
-#----------------------
-# | to_pcm8
-# | Description: Packs samples as signed 8-bit PCM for the SCSP, rounding to the nearest step and saturating at -128 and 127.
-# | Author: suinevere
-# | Dependencies: N/A
-# | Globals: N/A
-# | Params: pcm -- list of samples
-# | Returns: bytes
-#----------------------
-def to_pcm8(pcm):
-    return bytes(max(-128, min(127, (value + 128) >> 8)) & 0xFF for value in pcm)
