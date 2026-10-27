@@ -15,7 +15,7 @@ import struct
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
+REPO = getattr(sys, "_MEIPASS", None) or os.path.normpath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "tools", "splat_ext"))
 
 import disc_image  # noqa: E402

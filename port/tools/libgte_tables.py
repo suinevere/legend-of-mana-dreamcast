@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
+REPO = getattr(sys, "_MEIPASS", None) or os.path.normpath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE)
 
 import disc_image  # noqa: E402
