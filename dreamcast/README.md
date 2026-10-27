@@ -5,6 +5,18 @@
 `dreamcast\compile.bat` builds `dreamcast/lom.elf` and `dreamcast/lom.cdi` inside the `lom-dc` Docker image
 (`docker build -t lom-dc -f dockerfiles/dreamcast.Dockerfile dockerfiles`).
 
+## Making your disc with the release kit
+
+Each release has a `lom-dc-kit` zip for Windows x64, Linux x64 and macOS arm64. It holds no game data: it makes the GDI from your own Legend of Mana (USA, SLUS-01013) disc image, so you need neither Docker nor Python.
+
+1. Dump your disc as a `.cue` and `.bin` (a redump-style dump; the kit checks the `.bin`'s SHA-1 and names the one it expects if yours differs).
+2. Unzip the kit and run `lom-dc-kit` with your `.cue`, or on Windows drag the `.cue` onto `lom-dc-kit.exe`. On macOS run `xattr -d com.apple.quarantine lom-dc-kit` first.
+3. It writes `Legend of Mana (Dreamcast)/` beside your disc: `disc.gdi` and three tracks, byte for byte the release's build, for GDEMU, MODE or an emulator. About 1.3 GB of free space is needed.
+
+The kit makes the GDI only; build from source for the CDI.
+
+Maintainers: publishing a release runs `.github/workflows/release-kit.yml`, which needs `LOM_URL`, a repository secret (or variable) pointing at a zip of the PS1 `.cue` and `.bin`. A secret is better, since a variable is readable by anyone who can read the repository. `port/kit/make_template.py`, `port/kit/leak_check.py` and `port/kit/lom_dc_kit.py` are the same steps run by hand.
+
 ## Run in Flycast (automated)
 
 Build the headless emulator image once (Flycast v2.7 built from source, a few minutes; it also has the GDB server and `gdb-multiarch` for debugging):
