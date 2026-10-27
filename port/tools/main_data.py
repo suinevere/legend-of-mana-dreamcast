@@ -162,6 +162,19 @@ def block_bytes(exe, start, end):
 
 
 #----------------------
+# | block_from_exe
+# | Description: The bytes of lom_main_data: each of ranges' blocks of the SLUS, back to back.
+# | Author: suinevere
+# | Dependencies: ranges, block_bytes
+# | Globals: N/A
+# | Params: exe -- SLUS bytes
+# | Returns: bytes
+#----------------------
+def block_from_exe(exe):
+    return b"".join(block_bytes(exe, start, end) for start, end in ranges())
+
+
+#----------------------
 # | generate_from_exe
 # | Description: The text of gen/main_data.c for an executable.
 # | Author: suinevere
@@ -171,7 +184,7 @@ def block_bytes(exe, start, end):
 # | Returns: C source text
 #----------------------
 def generate_from_exe(exe):
-    data = b"".join(block_bytes(exe, start, end) for start, end in ranges())
+    data = block_from_exe(exe)
     lines = [
         "/*----------------------",
         " | main_data.c",

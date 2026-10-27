@@ -530,6 +530,19 @@ def page_kinds(data):
 
 
 """----------------------
+ | kept_pages
+ | Description: The GAME_PAGES pages of RES1506.BIN in the order app_tb_pages holds them, which the release kit refills from the user's disc.
+ | Author: suinevere
+ | Dependencies: GAME_PAGES
+ | Globals: N/A
+ | Params: data -- RES1506.BIN's bytes
+ | Returns: bytes
+ ----------------------"""
+def kept_pages(data):
+    return b"".join(data[p << 8:(p + 1) << 8] for p in sorted(GAME_PAGES))
+
+
+"""----------------------
  | write_tables
  | Description: Writes HEADER, app_tb_map (each mapped page's GAME page), app_hi, app_tables (rt_rom8's base) and an app_tb_PP base for every kept page PP, app_tb_first, app_tb_count, then app_tb_pages and g_bit_rot right after them, both 256-aligned.
  | Author: suinevere

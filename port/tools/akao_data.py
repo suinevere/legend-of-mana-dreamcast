@@ -131,6 +131,26 @@ def pointer_word(value, by_address, functions):
 
 
 #----------------------
+# | data_block
+# | Description: AKAO's raw PS1 data block from the user's SLUS and the indices of its words that hold pointers, which the build relocates.
+# | Author: suinevere
+# | Dependencies: libgte_tables.read_iso_file, libgte_tables.exe_slice, disc_image, load_symbols, POINTER_TABLES
+# | Globals: DATA_START, DATA_END
+# | Params: image_path -- the user's PS1 .bin
+# | Returns: (bytes, sorted list of word indices)
+#----------------------
+def data_block(image_path):
+    exe = libgte_tables.read_iso_file(disc_image.DiscImage(image_path), libgte_tables.EXE_NAME)
+    data = libgte_tables.exe_slice(exe, DATA_START, DATA_END - DATA_START)
+    by_name, _ = load_symbols()
+    pointer_words = set()
+    for name, count in POINTER_TABLES:
+        start = (by_name[name] - DATA_START) // 4
+        pointer_words.update(range(start, start + count))
+    return data, sorted(pointer_words)
+
+
+#----------------------
 # | generate
 # | Description: The text of gen/akao_data.c for a disc image.
 # | Author: suinevere
@@ -140,13 +160,9 @@ def pointer_word(value, by_address, functions):
 # | Returns: C source text
 #----------------------
 def generate(image_path):
-    exe = libgte_tables.read_iso_file(disc_image.DiscImage(image_path), libgte_tables.EXE_NAME)
-    data = libgte_tables.exe_slice(exe, DATA_START, DATA_END - DATA_START)
-    by_name, by_address = load_symbols()
-    pointer_words = set()
-    for name, count in POINTER_TABLES:
-        start = (by_name[name] - DATA_START) // 4
-        pointer_words.update(range(start, start + count))
+    data, pointer_list = data_block(image_path)
+    _, by_address = load_symbols()
+    pointer_words = set(pointer_list)
     functions = set()
     words = []
     for index in range(len(data) // 4):
