@@ -34,6 +34,45 @@ typedef struct
 
 #endif
 
+#ifdef LOM_DREAMCAST
+/*----------------------
+ | card_family_first_species / CARD_LAST_FAMILY_SPECIES
+ | Description: First species of each of the twelve egg families, as the disc's egg templates group them, and the last species any family holds.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const u8 card_family_first_species[] = {0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 48, 53};
+#define CARD_LAST_FAMILY_SPECIES 57
+
+/*----------------------
+ | card_pet_kind
+ | Description: The kind Ring Ring Land draws for a pet: an egg's egg species, or the family of a hatched pet's species, since a hatched pet keeps the egg species of whatever egg it came from.
+ | Author: suinevere
+ | Dependencies: card_family_first_species, CARD_LAST_FAMILY_SPECIES
+ | Globals: N/A
+ | Params: pet -- the pet being sent
+ | Returns: egg family 0 to 11, or the pet's egg species for a species outside the families
+ ----------------------*/
+static u8 card_pet_kind(PetRecord* pet)
+{
+    s32 family;
+
+    if (pet->status.bits.egg || pet->species > CARD_LAST_FAMILY_SPECIES)
+    {
+        return pet->egg_species;
+    }
+    family = sizeof(card_family_first_species) - 1;
+    while (card_family_first_species[family] > pet->species)
+    {
+        family--;
+    }
+    return (u8)family;
+}
+#endif
+
 /**
  * @brief Fill the PocketStation pet-transfer resource: the pet record, cleared
  *        rewards, and the placed-land and maxed-mana masks.
@@ -61,7 +100,11 @@ void card_prepare_pet_transfer(u8* resource, PetRecord* pet)
     u32 mana_mask;
 
     transfer = &((CardPetResource*)resource)->transfer;
+#ifdef LOM_DREAMCAST
+    transfer->egg_species = card_pet_kind(pet);
+#else
     transfer->egg_species = pet->egg_species;
+#endif
     transfer->level = pet->progress.level;
     transfer->growth_delta = 0;
     transfer->reward_count = 0;
