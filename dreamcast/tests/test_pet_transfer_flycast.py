@@ -27,8 +27,8 @@ import stale_image  # noqa: E402
 import vmu_image  # noqa: E402
 
 #----------------------
-# | RRL_NAME / RES1506 / PET / PLACED_LANDS / MAXED_MANA / REWARDS / GROWTH
-# | Description: The Ring Ring Land file name, its CD resource, the pet and land state field_watch_unit.c plants, and the rewards and growth the return test writes.
+# | RRL_NAME / RES1506 / PET / PLACED_LANDS / MAXED_MANA / PET_KIND / REWARDS / GROWTH
+# | Description: The Ring Ring Land file name, its CD resource, the pet and land state field_watch_unit.c plants, the kind sent for that pet (species 1 is in the Beast family 0, whatever its egg species 7), and the rewards and growth the return test writes.
 # | Author: suinevere
 # | Dependencies: N/A
 # | Globals: N/A
@@ -40,6 +40,7 @@ RES1506 = os.path.join(DC, "build-test", "cd-data", "RES", "05", "RES1506.BIN")
 PET = b"Rabi" + psk_file.REFERENCE_PET[4:0x16] + bytes([7]) + psk_file.REFERENCE_PET[0x17:0x18] + bytes([9]) + psk_file.REFERENCE_PET[0x19:]
 PLACED_LANDS = frozenset({1, 2, 3, 5, 6, 7, 9, 15, 24, 31})
 MAXED_MANA = {9: 0x85, 10: 0x02, 31: 0xFF}
+PET_KIND = 0
 REWARDS = (0x10, 0x11)
 GROWTH = 50
 
@@ -126,7 +127,7 @@ def test_send_writes_ring_ring_land_as_the_jp_game_fills_it(send_run):
     with open(RES1506, "rb") as f:
         res = f.read()
     kept = vmu_image.PET_KEPT_BYTES
-    assert sent[:kept] == psk_file.pet_transfer(res, 7, 9, PET, PLACED_LANDS, MAXED_MANA)[:kept]
+    assert sent[:kept] == psk_file.pet_transfer(res, PET_KIND, 9, PET, PLACED_LANDS, MAXED_MANA)[:kept]
     assert sent[kept:] == bytes(0xC000 - kept)
     assert len(vmu_image.chain(img, vmu_image.vmu_name_for_ps1(RRL_NAME))) <= 5
 
