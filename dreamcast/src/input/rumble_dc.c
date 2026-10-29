@@ -1,8 +1,8 @@
 /*----------------------
  | rumble_dc.c
- | Description: Drives the Jump Pack on each controller's Maple port: a continuous effect at the level the game asks for, sent when the level changes and again once a second in case the pack was plugged in since, and a stop at level 0.
+ | Description: Drives the Jump Pack on each controller's Maple port: a continuous vibration at the level the game asks for, sent when the level changes and re-sent while it holds so the pack's auto-stop never ends it, and a stop at level 0.
  | Author: suinevere
- | Dependencies: dc/maple.h, dc/maple/purupuru.h, rumble_dc.h, pad_dc_map.h (PAD_DC_RUMBLE_MAX)
+ | Dependencies: dc/maple.h, dc/maple/purupuru.h, rumble_dc.h, pad_dc_map.h (PAD_DC_RUMBLE_MAX, pad_dc_rumble_due, pad_dc_rumble_effect)
  | Globals: s_sent, s_age
  | Params: N/A
  | Returns: N/A
@@ -14,8 +14,8 @@
 #include "pad_dc_map.h"
 
 /*----------------------
- | RUMBLE_PORTS / RUMBLE_UNITS / RUMBLE_REFRESH / RUMBLE_STOP
- | Description: The two Maple ports the game's two controllers sit on, the expansion units a pad has, the frames between re-sends of a running effect, and the raw effect that stops the motor.
+ | RUMBLE_PORTS / RUMBLE_UNITS / RUMBLE_STOP
+ | Description: The two Maple ports the game's two controllers sit on, the expansion units a pad has, and the raw effect that stops the motor.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -24,7 +24,6 @@
  ----------------------*/
 #define RUMBLE_PORTS 2
 #define RUMBLE_UNITS 2
-#define RUMBLE_REFRESH 60
 #define RUMBLE_STOP 0u
 
 /*----------------------
@@ -65,24 +64,10 @@ static maple_device_t *rumble_dc_pack(int port)
 }
 
 /*----------------------
- | rumble_dc_effect
- | Description: The raw continuous effect for a level: no duration, the level as both intensity nibbles, motor 1.
- | Author: suinevere
- | Dependencies: N/A
- | Globals: N/A
- | Params: level -- 1 to PAD_DC_RUMBLE_MAX
- | Returns: the raw effect word
- ----------------------*/
-static uint32 rumble_dc_effect(int level)
-{
-    return ((uint32)PURUPURU_EFFECT2_LINTENSITY(level) << 16) | ((uint32)PURUPURU_EFFECT1_INTENSITY(level) << 8) | PURUPURU_SPECIAL_MOTOR1;
-}
-
-/*----------------------
  | rumble_dc_update
- | Description: Once a frame per port: sends the level's effect, or a stop at 0, when it differs from the last sent or a running effect is RUMBLE_REFRESH frames old; a busy Maple bus leaves it for the next frame, and a missing pack forgets what was sent.
+ | Description: Once a frame per port: sends the level's effect, or a stop at 0, when pad_dc_rumble_due says so; a busy Maple bus leaves it for the next frame, and a missing pack forgets what was sent.
  | Author: suinevere
- | Dependencies: rumble_dc_pack, rumble_dc_effect, purupuru_rumble_raw
+ | Dependencies: rumble_dc_pack, pad_dc_rumble_due, pad_dc_rumble_effect, purupuru_rumble_raw
  | Globals: s_sent, s_age
  | Params: port -- 0 or 1, level -- 0 to PAD_DC_RUMBLE_MAX
  | Returns: N/A
@@ -100,7 +85,7 @@ void rumble_dc_update(int port, int level)
         level = PAD_DC_RUMBLE_MAX;
     }
     s_age[port]++;
-    if (level == s_sent[port] && (level == 0 || s_age[port] < RUMBLE_REFRESH))
+    if (!pad_dc_rumble_due(level, s_sent[port], s_age[port]))
     {
         return;
     }
@@ -110,7 +95,7 @@ void rumble_dc_update(int port, int level)
         s_sent[port] = -1;
         return;
     }
-    if (purupuru_rumble_raw(dev, level == 0 ? RUMBLE_STOP : rumble_dc_effect(level)) == MAPLE_EOK)
+    if (purupuru_rumble_raw(dev, level == 0 ? RUMBLE_STOP : pad_dc_rumble_effect(level)) == MAPLE_EOK)
     {
         s_sent[port] = level;
         s_age[port] = 0;

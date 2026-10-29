@@ -305,6 +305,51 @@ static void test_rumble_level_follows_the_motors_and_the_option(void)
     CHECK(pad_dc_rumble_level(1, 0, 128) == 4);
 }
 
+static void flycast_decode(unsigned v, int *continuous, int *power, unsigned *freq, int *runs_to_auto_stop)
+{
+    unsigned inc = (v >> 24) & 0xFF;
+    if (!(v & 0x8000) && !(v & 0x0800))
+    {
+        inc = 0;
+    }
+    *continuous = (int)(v & 1);
+    *power = (int)(((v >> 8) & 7) + ((v >> 12) & 7));
+    *freq = (v >> 16) & 0xFF;
+    *runs_to_auto_stop = !(*freq > 0 && (!*continuous || inc));
+}
+
+static void test_rumble_effect_is_a_continuous_vibration_at_the_level(void)
+{
+    int level;
+
+    for (level = 1; level <= PAD_DC_RUMBLE_MAX; level++)
+    {
+        unsigned v = pad_dc_rumble_effect(level);
+        int continuous, power, runs;
+        unsigned freq;
+
+        flycast_decode(v, &continuous, &power, &freq, &runs);
+        CHECK(continuous);
+        CHECK(v & 0x10);
+        CHECK(power == level);
+        CHECK(freq >= 4 && freq <= 30);
+        CHECK(runs);
+    }
+}
+
+static void test_rumble_is_resent_before_the_pack_stops_it(void)
+{
+    CHECK(PAD_DC_RUMBLE_REFRESH > 0 && PAD_DC_RUMBLE_REFRESH * 1000 / 60 < 250);
+    CHECK(!pad_dc_rumble_due(0, 0, 1000));
+    CHECK(pad_dc_rumble_due(0, 3, 0));
+    CHECK(pad_dc_rumble_due(3, 0, 0));
+    CHECK(pad_dc_rumble_due(3, -1, 0));
+    CHECK(pad_dc_rumble_due(5, 3, 0));
+    CHECK(!pad_dc_rumble_due(3, 3, PAD_DC_RUMBLE_REFRESH - 1));
+    CHECK(pad_dc_rumble_due(3, 3, PAD_DC_RUMBLE_REFRESH));
+    CHECK(pad_dc_rumble_due(0, -1, 0));
+}
+
 int main(void)
 {
     test_all_zero_gives_nothing();
@@ -320,6 +365,8 @@ int main(void)
     test_dpad_acts_as_buttons_only_while_walking();
     test_soft_reset_needs_a_b_x_y_and_start();
     test_rumble_level_follows_the_motors_and_the_option();
+    test_rumble_effect_is_a_continuous_vibration_at_the_level();
+    test_rumble_is_resent_before_the_pack_stops_it();
     if (s_failures == 0)
     {
         printf("OK\n");

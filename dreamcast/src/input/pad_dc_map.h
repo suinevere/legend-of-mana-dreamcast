@@ -65,6 +65,20 @@ int pad_dc_soft_reset_chord(const DcPadSample *s);
 #define PAD_DC_RUMBLE_SMALL 2
 #define PAD_DC_RUMBLE_MAX 7
 
+/*----------------------
+ | PAD_DC_RUMBLE_REFRESH / PAD_DC_RUMBLE_FREQ
+ | Description: Frames between re-sends of a held vibration, under the Jump Pack's shortest auto-stop of 250 ms, and the vibration frequency sent, inside the pack's 4-30 Hz range.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define PAD_DC_RUMBLE_REFRESH 10
+#define PAD_DC_RUMBLE_FREQ 0x1A
+
 int pad_dc_rumble_level(int enabled, unsigned small_motor, unsigned large_motor);
+unsigned pad_dc_rumble_effect(int level);
+int pad_dc_rumble_due(int level, int sent, int age);
 
 #endif
