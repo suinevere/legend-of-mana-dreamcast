@@ -1,8 +1,10 @@
 # 聖剣伝説 LEGEND OF MANA（PS版）デコンパイル
 
+> これはドリームキャスト移植版の土台である [celophi/lom-decomp](https://github.com/celophi/lom-decomp) のデコンパイルの手引きです。バッジと進捗は上流のものです。移植版については[プロジェクトのREADME](../../README.md)（英語）をご覧ください。
+
 （Legend of Mana PSX Decompilation）
 
-**言語:** [English](README.md) | 日本語
+**言語:** [English](../en/decompilation.md) | 日本語
 
 [![US Progress]][us progress site]
 [![JP Progress]][jp progress site]
@@ -320,7 +322,7 @@ make diff-text
 
 ちなみに、この複数のツールチェーンへの対応にはかなり「楽しませてもらいました」。特にGNU版はなかなか強敵でした。
 
-ビルドでは、4種類の古いコンパイラビルドを使い、合計7種類のパイプラインを定義しています。コンパイラとアセンブラのフラグは [`mk/toolchains.mk`](mk/toolchains.mk) にあります。ソースの振り分けとファイル単位のオーバーライドは [`mk/main.mk`](mk/main.mk) と [`mk/overlay-registry.mk`](mk/overlay-registry.mk) にあり、[`mk/overlays.mk`](mk/overlays.mk) がオーバーレイ用の各バリアントを適用します。
+ビルドでは、4種類の古いコンパイラビルドを使い、合計7種類のパイプラインを定義しています。コンパイラとアセンブラのフラグは [`mk/toolchains.mk`](../../mk/toolchains.mk) にあります。ソースの振り分けとファイル単位のオーバーライドは [`mk/main.mk`](../../mk/main.mk) と [`mk/overlay-registry.mk`](../../mk/overlay-registry.mk) にあり、[`mk/overlays.mk`](../../mk/overlays.mk) がオーバーレイ用の各バリアントを適用します。
 
 | パイプライン | コンパイラフラグ | アセンブル経路 |
 |---|---|---|
@@ -355,7 +357,7 @@ make diff-text
 |---|---|
 | `src/`、`include/`、`mk/`、`tools/`、`docs/` | `disc/<version>/`、`config/<version>/`、および生成される `asm/<version>/`、`linker/<version>/`、`assets/<version>/`、`build/<version>/` |
 
-リリース間でコードが異なる箇所は、共通のCソース内で `#if defined(VERSION_JP)` / `#if defined(VERSION_US)` を使って書き分けます。ビルドはどちらか一方だけを定義します（[`mk/version.mk`](mk/version.mk) と [`include/version.h`](include/version.h) を参照）。シンボル名は共通ですがアドレスは異なるため、`config/<version>/symbols/` はバージョンごとに用意します。
+リリース間でコードが異なる箇所は、共通のCソース内で `#if defined(VERSION_JP)` / `#if defined(VERSION_US)` を使って書き分けます。ビルドはどちらか一方だけを定義します（[`mk/version.mk`](../../mk/version.mk) と [`include/version.h`](../../include/version.h) を参照）。シンボル名は共通ですがアドレスは異なるため、`config/<version>/symbols/` はバージョンごとに用意します。
 
 進捗レポートはバージョンごとに生成され、CIは両方をビルドします（`SLUS_010.13_report` と `SLPS_021.70_report`）。どちらのバージョンでも、すべてのモジュールが共通のCソースからビルドされます。`config/jp/asm_units.txt` を使えば、コードが異なるユニットを移植している途中などに、日本版だけアセンブリから取り込むこともできますが、現在は空です。
 
@@ -391,9 +393,9 @@ lom-decomp/
 
 ## ドキュメント
 
-[日本語ドキュメント一覧](docs/jp/README.md)に、ゲームの仕組みの解説と関連資料をまとめています。
+[日本語ドキュメント一覧](../../docs/jp/README.md)に、ゲームの仕組みの解説と関連資料をまとめています。
 
-- [`tools/compressor/README.md`](tools/compressor/README.md)
+- [`tools/compressor/README.md`](../../tools/compressor/README.md)
 
 ## トラブルシューティング
 
@@ -439,7 +441,7 @@ data / rodata内のジャンプテーブルやcaseのターゲット、relocatio
 
 ## 法的事項
 
-ライセンスの詳細は、[LICENSE](LICENSE) と [第三者に関する通知](THIRD_PARTY_NOTICES.md) を参照してください。
+ライセンスの詳細は、[LICENSE](../../LICENSE) と [第三者に関する通知](../../THIRD_PARTY_NOTICES.md) を参照してください。
 
 MITライセンスは、本プロジェクトのために独自に作成された成果物に対し、貢献者がその成果物をライセンスするために必要な権利を有する範囲で適用されます。このライセンスは、オリジナルのゲームや第三者のSDK、ライブラリ、開発用ソフトウェアに由来する既存の著作物に対する権利を許諾するものではありません。
 
