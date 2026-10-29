@@ -201,3 +201,35 @@ int pad_dc_rumble_level(int enabled, unsigned small_motor, unsigned large_motor)
     }
     return level;
 }
+
+/*----------------------
+ | pad_dc_rumble_effect
+ | Description: The Jump Pack condition word for a level: continuous on motor 1, the level as its power, PAD_DC_RUMBLE_FREQ and no ramp, so it runs at that strength until stopped or the pack's auto-stop.
+ | Author: suinevere
+ | Dependencies: PAD_DC_RUMBLE_FREQ
+ | Globals: N/A
+ | Params: level -- 1 to PAD_DC_RUMBLE_MAX
+ | Returns: the condition word, bit 0 continuous, bits 4-7 motor, bits 12-14 power, bits 16-23 frequency
+ ----------------------*/
+unsigned pad_dc_rumble_effect(int level)
+{
+    return ((unsigned)PAD_DC_RUMBLE_FREQ << 16) | ((unsigned)(level & 7) << 12) | 0x10u | 0x01u;
+}
+
+/*----------------------
+ | pad_dc_rumble_due
+ | Description: Whether a port's Jump Pack needs a send this frame: a level other than the one last sent, or a held level last sent PAD_DC_RUMBLE_REFRESH frames ago, before the pack's auto-stop ends it.
+ | Author: suinevere
+ | Dependencies: PAD_DC_RUMBLE_REFRESH
+ | Globals: N/A
+ | Params: level -- the level wanted, sent -- the level last sent or -1 for none, age -- frames since that send
+ | Returns: 1 to send, else 0
+ ----------------------*/
+int pad_dc_rumble_due(int level, int sent, int age)
+{
+    if (level != sent)
+    {
+        return 1;
+    }
+    return level != 0 && age >= PAD_DC_RUMBLE_REFRESH;
+}
