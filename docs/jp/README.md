@@ -1,6 +1,6 @@
 # 日本語ドキュメント
 
-[ドキュメント一覧](../README.md) | [プロジェクトのREADME](../../README_JP.md) | [English](../en/README.md)
+[ドキュメント一覧](../README.md) | [デコンパイルの手引き](decompilation.md) | [プロジェクトのREADME](../../README.md) | [English](../en/README.md)
 
 ゲームの仕組みを、具体例とソースコードを使って説明します。
 

@@ -1,6 +1,6 @@
 # English documentation
 
-[Documentation index](../README.md) | [Project README](../../README.md)
+[Documentation index](../README.md) | [Project README](../../README.md) | [Decompilation guide](decompilation.md) | [Dreamcast port](../../dreamcast/README.md)
 
 ## Technical architecture
 

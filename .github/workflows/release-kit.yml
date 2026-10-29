@@ -72,16 +72,17 @@ jobs:
           LOM_URL: ${{ secrets.LOM_URL }}
         run: |
           set -eu
-          test -n "$LOM_URL" || { echo "add LOM_URL as a repository secret holding the URL of the PS1 .cue/.bin zip"; exit 1; }
+          test -n "$LOM_URL" || { echo "add LOM_URL as a repository secret holding the URL of the PS1 .bin"; exit 1; }
           echo "::add-mask::$LOM_URL"
           mkdir -p "$RUNNER_TEMP/ps1" disc/us
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/ps1/disc.zip" "$LOM_URL"
-          unzip -q "$RUNNER_TEMP/ps1/disc.zip" -d "$RUNNER_TEMP/ps1"
-          rm "$RUNNER_TEMP/ps1/disc.zip"
-          cue=$(find "$RUNNER_TEMP/ps1" -iname '*.cue' | head -n1)
-          test -n "$cue" || { echo "no .cue in the LOM_URL zip"; exit 1; }
-          bin=$(python3 -c "import sys; sys.path.insert(0, '.'); from port.kit import disc_input; print(disc_input.resolve(sys.argv[1]))" "$cue")
-          mv "$bin" disc/us/LegendOfMana.bin
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/ps1/disc.bin" "$LOM_URL"
+          #unzip -q "$RUNNER_TEMP/ps1/disc.zip" -d "$RUNNER_TEMP/ps1"
+          #rm "$RUNNER_TEMP/ps1/disc.zip"
+          #cue=$(find "$RUNNER_TEMP/ps1" -iname '*.cue' | head -n1)
+          #test -n "$cue" || { echo "no .cue in the LOM_URL zip"; exit 1; }
+          #bin=$(python3 -c "import sys; sys.path.insert(0, '.'); from port.kit import disc_input; print(disc_input.resolve(sys.argv[1]))" "$cue")
+          #mv "$bin" disc/us/LegendOfMana.bin
+          mv "$RUNNER_TEMP/ps1/disc.bin" disc/us/LegendOfMana.bin
           rm -r "$RUNNER_TEMP/ps1"
 
       - name: Build the GDI
