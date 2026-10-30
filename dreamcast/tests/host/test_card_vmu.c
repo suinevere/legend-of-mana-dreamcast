@@ -1,6 +1,6 @@
 /*----------------------
  | test_card_vmu.c
- | Description: Host test for card_vmu.c over an in-memory store: absent and empty slots, the temp-file-then-rename save, overwrite, load, title patch, card header, card full, a pulled card, erase, libmcx answers and the GAME calls CARDA makes.
+ | Description: Host test for card_vmu.c over an in-memory store: absent and empty slots, the temp-file-then-rename save, overwrite, load, title patch, card header, card full, a pulled card, erase, the VMU store's single background save and kept reads, libmcx answers and the GAME calls CARDA makes.
  | Author: suinevere
  | Dependencies: card_vmu.c, vmu_format.c, card_store.h, vmu_game.h, libapi.h, libmcx.h
  ----------------------*/
@@ -156,7 +156,7 @@ static int fake_free_blocks(int slot)
 
 /*----------------------
  | s_job / s_busy_polls / s_rewrites / fake_write_start / fake_job_poll / fake_rewrite
- | Description: A background write that reports busy for s_busy_polls polls before landing through fake_write, and a rewrite that renames and refreshes a stored file in place.
+ | Description: A background write that reports busy for s_busy_polls polls before landing through fake_write and removing the file it replaces, and a rewrite that renames and refreshes a stored file in place.
  | Author: suinevere
  | Dependencies: fake_find, fake_write, fake_remove
  | Globals: s_job, s_busy_polls, s_rewrites, s_files
@@ -168,13 +168,14 @@ static struct
     int active;
     int slot;
     char name[CARD_STORE_NAME_BYTES];
+    char replaced[CARD_STORE_NAME_BYTES];
     const unsigned char *buf;
     unsigned int size;
 } s_job;
 static int s_busy_polls;
 static int s_rewrites;
 
-static int fake_write_start(int slot, const char *name, const unsigned char *buf, unsigned int size)
+static int fake_write_start(int slot, const char *name, const unsigned char *buf, unsigned int size, const char *replaced)
 {
     if (s_job.active || !s_present[slot])
     {
@@ -183,6 +184,7 @@ static int fake_write_start(int slot, const char *name, const unsigned char *buf
     s_job.active = 1;
     s_job.slot = slot;
     strcpy(s_job.name, name);
+    strcpy(s_job.replaced, replaced != NULL ? replaced : "");
     s_job.buf = buf;
     s_job.size = size;
     return 0;
@@ -200,7 +202,15 @@ static int fake_job_poll(void)
         return 1;
     }
     s_job.active = 0;
-    return fake_write(s_job.slot, s_job.name, s_job.buf, s_job.size);
+    if (fake_write(s_job.slot, s_job.name, s_job.buf, s_job.size) != 0)
+    {
+        return -1;
+    }
+    if (s_job.replaced[0] != 0)
+    {
+        fake_remove(s_job.slot, s_job.replaced);
+    }
+    return 0;
 }
 
 static int fake_rewrite(int slot, const char *old_name, const char *new_name, const unsigned char *buf, unsigned int size, unsigned int offset, unsigned int len)
@@ -224,6 +234,17 @@ static int fake_rewrite(int slot, const char *old_name, const char *new_name, co
 }
 
 static const card_store_ops s_fake = {fake_present, fake_list, fake_read, fake_write, fake_remove, fake_free_blocks, fake_write_start, fake_job_poll, fake_rewrite};
+
+/*----------------------
+ | s_vmu_fake
+ | Description: The fake store as the VMU store is: background whole-file writes, no in-place rewrite.
+ | Author: suinevere
+ | Dependencies: s_fake's operations
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static const card_store_ops s_vmu_fake = {fake_present, fake_list, fake_read, fake_write, fake_remove, fake_free_blocks, fake_write_start, fake_job_poll, NULL};
 
 static int s_game_state = VMU_GAME_MISSING;
 static int s_game_allowed[2];
@@ -268,7 +289,7 @@ static int save(unsigned char fill)
     {
         return 3;
     }
-    if (lom_card_rename("bu00:BASLUS-01013DUMMY", "bu00:BASLUS-01013LOM00") != 0)
+    if (lom_card_rename("bu00:BASLUS-01013DUMMY", "bu00:BASLUS-01013LOM00") != 1)
     {
         return 4;
     }
@@ -387,9 +408,9 @@ int main(void)
     CHECK(_card_info(0) == 1 && TestEvent(sw_tmo) == 1);
     s_present[0] = 1;
 
-    CHECK(lom_card_rename("bu00:BASLUS-01013LOM00", "bu00:BASLUS-01013LOM01") == 0);
+    CHECK(lom_card_rename("bu00:BASLUS-01013LOM00", "bu00:BASLUS-01013LOM01") == 1);
     CHECK(fake_count(0) == 1 && fake_find(0, "BASLUS-01013LOM01") >= 0);
-    CHECK(lom_card_rename("bu00:BASLUS-01013LOM00", "bu00:BASLUS-01013LOM02") == -1);
+    CHECK(lom_card_rename("bu00:BASLUS-01013LOM00", "bu00:BASLUS-01013LOM02") == 0);
 
     CHECK(erase("bu00:BASLUS-01013LOM01") == 1 && fake_count(0) == 0);
     CHECK(erase("bu00:BASLUS-01013LOM01") == 0);
@@ -408,6 +429,7 @@ int main(void)
     fd = lom_card_open("bu00:BASLUS-01013LOM00", F_READ);
     CHECK(fd >= 0 && lom_card_read(fd, back, 4) == 4 && back[0] == 0x5A && lom_card_close(fd) == 0);
     s_files[fake_find(0, "BASLUS-01013LOM00")].corrupt = 1;
+    CHECK(_card_load(0) == 1 && TestEvent(sw_ioe) == 1);
     CHECK(lom_card_open("bu00:BASLUS-01013LOM00", F_READ) == -1);
     CHECK(erase("bu00:BASLUS-01013LOM00") == 1 && fake_count(0) == 0);
 
@@ -461,7 +483,7 @@ int main(void)
         CHECK(TestEvent(ioe) == 1 && s_writes == writes + 1);
         CHECK(lom_card_close(fd) == 0 && s_writes == writes + 1);
         rewrites = s_rewrites;
-        CHECK(lom_card_rename("bu00:BASLUS-01013DUMMY", "bu00:BASLUS-01013LOM03") == 0);
+        CHECK(lom_card_rename("bu00:BASLUS-01013DUMMY", "bu00:BASLUS-01013LOM03") == 1);
         CHECK(s_writes == writes + 1 && s_rewrites == rewrites + 1);
         CHECK(fake_find(0, "BASLUS-01013DUMMY") < 0 && fake_find(0, "BASLUS-01013LOM03") >= 0);
         CHECK(firstfile("bu00:BASLUS-01013LOM03", &entry) == &entry);
@@ -477,6 +499,59 @@ int main(void)
         CHECK(lom_card_close(fd) == 0 && s_job.active == 0 && s_writes == writes + 2);
         CHECK(TestEvent(ioe) == 1);
         CHECK(erase("bu00:BASLUS-01013LOM03") == 1 && fake_find(0, "BASLUS-01013LOM03") < 0);
+    }
+    {
+        long ioe = OpenEvent(SwCARD, EvSpIOE, EvMdNOINTR, 0);
+        int writes;
+        int reads;
+        int temp_writes;
+
+        card_vmu_set_store(&s_vmu_fake);
+        for (i = 0; i < (int)sizeof s_blob; i++)
+        {
+            s_blob[i] = (unsigned char)(i * 3);
+        }
+        fd = lom_card_open("bu00:BASLUS-01013DUMMY", F_CREAT | F_BLOCKS(2));
+        CHECK(fd >= 0 && lom_card_close(fd) == 0);
+        fd = lom_card_open("bu00:BASLUS-01013DUMMY", F_ASYNC | F_WRITE);
+        writes = s_writes;
+        s_busy_polls = 2;
+        CHECK(fd >= 0 && lom_card_write(fd, s_blob, sizeof s_blob) == (long)sizeof s_blob);
+        CHECK(TestEvent(ioe) == 0 && TestEvent(ioe) == 0 && TestEvent(ioe) == 1);
+        temp_writes = s_writes;
+        CHECK(temp_writes == writes + 1 && fake_find(0, "BASLUS-01013DUMMY") >= 0);
+        CHECK(lom_card_rename("bu00:BASLUS-01013DUMMY", "bu00:BASLUS-01013LOM04") == 1);
+        CHECK(lom_card_rename("bu00:BASLUS-01013DUMMY", "bu00:BASLUS-01013LOM04") == 0);
+        CHECK(s_writes == temp_writes && !s_job.active);
+        CHECK(firstfile("bu00:BASLUS-01013LOM04", &entry) == &entry);
+        CHECK(_card_read(0, entry.head, frame) == 1 && TestEvent(hw_ioe) == 1 && frame[3] == 9);
+        frame[4] = 0x99;
+        CHECK(_card_write(0, entry.head, frame) == 1 && TestEvent(hw_ioe) == 1);
+        CHECK(s_writes == temp_writes && !s_job.active);
+        s_busy_polls = 3;
+        CHECK(lom_card_close(fd) == 0 && s_job.active && s_writes == temp_writes);
+        CHECK(_card_info(0) == 1);
+        CHECK(TestEvent(ioe) == 0 && TestEvent(hw_ioe) == 0 && TestEvent(ioe) == 0);
+        CHECK(s_writes == temp_writes);
+        CHECK(TestEvent(ioe) == 1 && TestEvent(hw_ioe) == 1);
+        CHECK(s_writes == temp_writes + 1 && fake_find(0, "BASLUS-01013DUMMY") < 0);
+        i = fake_find(0, "BASLUS-01013LOM04");
+        CHECK(i >= 0 && s_files[i].bytes[4] == 0x99 && s_files[i].bytes[5] == 15);
+        CHECK(_card_load(0) == 1 && TestEvent(ioe) == 1);
+
+        reads = s_reads;
+        fd = lom_card_open("bu00:BASLUS-01013LOM04", F_ASYNC | F_READ);
+        CHECK(fd >= 0 && lom_card_read(fd, back, 0x80) == 0x80 && TestEvent(ioe) == 1 && lom_card_close(fd) == 0);
+        fd = lom_card_open("bu00:BASLUS-01013LOM04", F_ASYNC | F_READ);
+        CHECK(fd >= 0 && lom_card_read(fd, back, 0x80) == 0x80 && TestEvent(ioe) == 1 && lom_card_close(fd) == 0);
+        CHECK(s_reads == reads + 1 && back[4] == 0x99);
+        s_busy_polls = 2;
+        CHECK(lom_card_rename("bu00:BASLUS-01013LOM04", "bu00:BASLUS-01013LOM05") == 1 && s_job.active);
+        CHECK(_card_info(0) == 1 && firstfile("bu00:BASLUS-01013*", &entry) == &entry && strcmp(entry.name, "BASLUS-01013LOM05") == 0);
+        CHECK(nextfile(&entry) == NULL && TestEvent(ioe) == 1 && TestEvent(hw_ioe) == 1);
+        CHECK(fake_find(0, "BASLUS-01013LOM04") < 0 && fake_find(0, "BASLUS-01013LOM05") >= 0);
+        CHECK(erase("bu00:BASLUS-01013LOM05") == 1 && fake_find(0, "BASLUS-01013LOM05") < 0);
+        card_vmu_set_store(&s_fake);
     }
     memset(time, 0x77, sizeof(time));
     CHECK(McxCardType(0) == MCX_COMMAND_ISSUED);

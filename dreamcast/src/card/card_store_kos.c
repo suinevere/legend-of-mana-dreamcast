@@ -664,16 +664,19 @@ static struct
 {
     int slot;
     char ps1_name[CARD_STORE_NAME_BYTES];
+    char replaced[CARD_STORE_NAME_BYTES];
     const unsigned char *buf;
     unsigned int size;
 } s_job;
 static volatile int s_job_state;
 
+static int kos_remove(int slot, const char *ps1_name);
+
 /*----------------------
  | run_job
- | Description: The background thread: runs kos_write for s_job, leaving the game thread to draw while the Maple bus carries the blocks.
+ | Description: The background thread: runs kos_write for s_job, then removes the file it replaces, leaving the game thread to draw while the Maple bus carries the blocks.
  | Author: suinevere
- | Dependencies: kos_write
+ | Dependencies: kos_write, kos_remove
  | Globals: s_job, s_job_state
  | Params: param -- unused
  | Returns: NULL
@@ -681,20 +684,29 @@ static volatile int s_job_state;
 static void *run_job(void *param)
 {
     (void)param;
-    s_job_state = kos_write(s_job.slot, s_job.ps1_name, s_job.buf, s_job.size) == 0 ? JOB_DONE : JOB_FAILED;
+    if (kos_write(s_job.slot, s_job.ps1_name, s_job.buf, s_job.size) != 0)
+    {
+        s_job_state = JOB_FAILED;
+        return NULL;
+    }
+    if (s_job.replaced[0] != 0)
+    {
+        kos_remove(s_job.slot, s_job.replaced);
+    }
+    s_job_state = JOB_DONE;
     return NULL;
 }
 
 /*----------------------
  | kos_write_start / kos_job_poll
- | Description: Start kos_write on a detached thread, one at a time, and report it: 1 while busy (yielding to it), then 0 or -1 once.
+ | Description: Start kos_write, then the removal of the file it replaces, on a detached thread, one at a time, and report it: 1 while busy (yielding to it), then 0 or -1 once.
  | Author: suinevere
  | Dependencies: thd_create, thd_pass, run_job
  | Globals: s_job, s_job_state
- | Params: slot, ps1_name, buf, size -- as kos_write; buf must stay put until the poll stops returning 1
+ | Params: slot, ps1_name, buf, size -- as kos_write; buf must stay put until the poll stops returning 1; replaced -- PS1 name to remove after the write, or NULL
  | Returns: kos_write_start -- 0 once started, -1 when busy or no thread; kos_job_poll -- 1, 0 or -1
  ----------------------*/
-static int kos_write_start(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size)
+static int kos_write_start(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size, const char *replaced)
 {
     if (s_job_state != JOB_IDLE || slot_device(slot) == NULL)
     {
@@ -703,6 +715,12 @@ static int kos_write_start(int slot, const char *ps1_name, const unsigned char *
     s_job.slot = slot;
     strncpy(s_job.ps1_name, ps1_name, sizeof s_job.ps1_name - 1);
     s_job.ps1_name[sizeof s_job.ps1_name - 1] = 0;
+    s_job.replaced[0] = 0;
+    if (replaced != NULL && strcmp(replaced, ps1_name) != 0)
+    {
+        strncpy(s_job.replaced, replaced, sizeof s_job.replaced - 1);
+        s_job.replaced[sizeof s_job.replaced - 1] = 0;
+    }
     s_job.buf = buf;
     s_job.size = size;
     s_job_state = JOB_BUSY;

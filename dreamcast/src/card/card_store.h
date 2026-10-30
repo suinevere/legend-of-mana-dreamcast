@@ -40,7 +40,7 @@ typedef struct card_store_entry
  | card_store_ops
  | Description: A store for each of the two card slots: presence, listing, whole-file read, write and remove, and free space in VMU blocks.
  |              list returns a count or -1, read returns bytes or -1, write and remove return 0 or -1.
- |              Optional: write_start begins a background whole-file write, one at a time, whose buffer must stay put until job_poll stops returning 1 (then 0, or -1 on failure);
+ |              Optional: write_start begins a background whole-file write, one at a time, that then removes replaced (when not NULL), whose buffer must stay put until job_poll stops returning 1 (then 0, or -1 on failure);
  |              rewrite renames a stored file and refreshes the blocks holding bytes [offset, offset + len) of its unchanged-size data.
  |              game_state reports what the slot holds for Ring Ring Land's VMU GAME (a VMU_GAME_* value); game_allow_replace lets the next pet write replace another minigame.
  | Author: suinevere
@@ -57,7 +57,7 @@ typedef struct card_store_ops
     int (*write)(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size);
     int (*remove)(int slot, const char *ps1_name);
     int (*free_blocks)(int slot);
-    int (*write_start)(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size);
+    int (*write_start)(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size, const char *replaced);
     int (*job_poll)(void);
     int (*rewrite)(int slot, const char *old_name, const char *new_name, const unsigned char *buf, unsigned int size, unsigned int offset, unsigned int len);
     int (*game_state)(int slot);
