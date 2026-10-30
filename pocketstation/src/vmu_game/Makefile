@@ -1,8 +1,8 @@
 #----------------------
 # | Makefile
-# | Description: Builds the --call test image and callimg.bin with R2's pet save, the real GAME, link maps, gen_ram.py hw's equates and JSON, tables.s with tables.txt, and the test fixtures; the two images go through vmu_relax.py, which shrinks far calls and jumps that reach. Each rule deletes its output first and checks it exists, as Waterbear exits 0 on failure; the game rule also fails past flash bank 0's 64 KB.
+# | Description: Builds the --call test image and callimg.bin with R2's pet save, the real GAME, link maps, gen_ram.py hw's equates and JSON, tables.s with tables.txt, rrl_icon.bin, and the test fixtures; the two images go through vmu_relax.py, which shrinks far calls and jumps that reach. Each rule deletes its output first and checks it exists, as Waterbear exits 0 on failure; the game rule also fails past flash bank 0's 64 KB.
 # | Author: suinevere
-# | Dependencies: callimg.s, callbase.inc, game.s, game.inc, routines.inc, *.s, ../vmu_rt/*.s, ../vmu_rt/*.inc, ../game/ram_map.txt, ../../tools/gen_ram.py, ../../tools/gen_tables.py, ../../tools/vmu_map.py, ../../tools/vmu_flash.py, ../../tools/vmu_relax.py, ../../tests/asm/{stray,wrong_hw,poison,entry_cy,undeclared}.s, dreamcast/cd/data/RES/05/RES1506.BIN (the Dreamcast converter's output; RES1506= overrides it)
+# | Dependencies: callimg.s, callbase.inc, game.s, game.inc, routines.inc, *.s, ../vmu_rt/*.s, ../vmu_rt/*.inc, ../game/ram_map.txt, ../../tools/gen_ram.py, ../../tools/gen_tables.py, ../../tools/gen_icon.py, ../../tools/vmu_map.py, ../../tools/vmu_flash.py, ../../tools/vmu_relax.py, ../../tests/asm/{stray,wrong_hw,poison,entry_cy,undeclared}.s, dreamcast/cd/data/RES/05/RES1506.BIN (the Dreamcast converter's output; RES1506= overrides it)
 # | Globals: N/A
 # | Params: target -- call (default: callimg.vms, callimg.map, callimg.bin, hw.json), game (rrl.vms, rrl.map), fixtures, clean
 # | Returns: N/A
@@ -13,6 +13,7 @@ WATERBEAR  := waterbear assemble
 MAP        := python3 ../../tools/vmu_map.py
 GEN_RAM    := python3 ../../tools/gen_ram.py
 GEN_TABLES := python3 ../../tools/gen_tables.py
+GEN_ICON   := python3 ../../tools/gen_icon.py
 VMU_FLASH  := python3 ../../tools/vmu_flash.py
 RELAX      := cd ../../.. && python3 pocketstation/tools/vmu_relax.py
 MIRROR     := pocketstation/build/vmu_game/relaxed
@@ -46,6 +47,12 @@ $(BUILD)/tables.s: $(RES1506) ../../tools/gen_tables.py
 	test -s $@
 	test -s $(BUILD)/tables.txt
 
+$(BUILD)/rrl_icon.bin: $(RES1506) ../../tools/gen_icon.py
+	mkdir -p $(BUILD)
+	rm -f $@
+	$(GEN_ICON) $(RES1506) $@
+	test -s $@
+
 $(BUILD)/callimg.vms: callimg.s $(GAME_SRC) $(RT_SRC) $(BUILD)/rrl_ram.inc ../../tools/vmu_relax.py
 	rm -f $@
 	$(RELAX) pocketstation/src/vmu_game/callimg.s $(MIRROR)/callimg pocketstation/build/vmu_game/callimg.vms
@@ -61,7 +68,7 @@ $(BUILD)/callimg.map: $(BUILD)/callimg.vms ../../tools/vmu_map.py
 	$(MAP) $(BUILD)/relaxed/callimg/pocketstation/src/vmu_game/callimg.s $< $@ $(BUILD)/map_probe
 	test -s $@
 
-$(BUILD)/rrl.vms: game.s $(GAME_SRC) $(RT_SRC) $(BUILD)/rrl_ram.inc ../../tools/vmu_relax.py
+$(BUILD)/rrl.vms: game.s $(GAME_SRC) $(RT_SRC) $(BUILD)/rrl_ram.inc $(BUILD)/rrl_icon.bin ../../tools/vmu_relax.py
 	rm -f $@
 	$(RELAX) pocketstation/src/vmu_game/game.s $(MIRROR)/game pocketstation/build/vmu_game/rrl.vms
 	test -s $@

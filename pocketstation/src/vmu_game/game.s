@@ -1,8 +1,8 @@
 ;----------------------
 ; | game.s
-; | Description: Ring Ring Land's GAME: the runtime, a VMS header with R2's short description, the game's name and one blank icon, and the tables the GAME keeps from RES1506.BIN (tables.s). App_main leaves through rt_power without a pet save (g_pet_check), else runs the game through g_entry.
+; | Description: Ring Ring Land's GAME: the runtime, a VMS header with R2's short description, the game's name and Ring Ring Land's PS1 save icon, and the tables the GAME keeps from RES1506.BIN (tables.s). App_main leaves through rt_power without a pet save (g_pet_check), else runs the game through g_entry.
 ; | Author: suinevere
-; | Dependencies: pocketstation/src/vmu_rt/{sfr.inc,rt.inc,rt_vectors.s,rt_ram.s,rt_events.s,rt_input.s,rt_lcd.s,rt_file.s,rt_sound.s,rt_power.s}, pocketstation/build/vmu_game/{rrl_ram.inc,tables.s}, pocketstation/src/vmu_game/{game.inc,routines.inc,Makefile}
+; | Dependencies: pocketstation/src/vmu_rt/{sfr.inc,rt.inc,rt_vectors.s,rt_ram.s,rt_events.s,rt_input.s,rt_lcd.s,rt_file.s,rt_sound.s,rt_power.s}, pocketstation/build/vmu_game/{rrl_ram.inc,tables.s,rrl_icon.bin}, pocketstation/src/vmu_game/{game.inc,routines.inc,Makefile}
 ; | Globals: N/A
 ; | Params: N/A
 ; | Returns: N/A
@@ -13,7 +13,7 @@
 
 ;----------------------
 ; | rrl_header
-; | Description: The VMS GAME header at 0x200: R2's own short description (dreamcast/src/card/card_store_kos.c's KOS_VMU_SHORT_DESC), Ring Ring Land's name as the long description and identifier, one blank icon (R2b has not drawn the real one yet).
+; | Description: The VMS GAME header at 0x200: R2's own short description (dreamcast/src/card/card_store_kos.c's KOS_VMU_SHORT_DESC), Ring Ring Land's name as the long description and identifier, and one icon gen_icon.py takes from RES1506.BIN.
 ; | Author: suinevere
 ; | Dependencies: N/A
 ; | Globals: N/A
@@ -27,6 +27,9 @@ rrl_header:
 	.byte "RING RING LAND  "
 	.word 1, 8, 0, 0
 	.word 0, 0
+
+	.org $0260
+	.include bytes "../../build/vmu_game/rrl_icon.bin"
 
 	.org $0480
 	.include "../../build/vmu_game/rrl_ram.inc"
