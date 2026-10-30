@@ -3,7 +3,7 @@
  | Description: KallistiOS PowerVR backend for pvr_submit: one autosort-off translucent list, recorded in RAM and copied to the TA when the scene closes, the texture and palette memory hooks, and the displayed framebuffer for readback.
  | Author: suinevere
  | Dependencies: kos.h, pvr_submit.h, pvr_backend.h, texture_cache.h, palette_bank.h, blend.h, dc_system.h
- | Globals: s_flip_base, s_settle_closed, s_settled, s_dr, s_dr_active, s_blend_factor, s_texture_ops, s_palette_ops, s_kos_backend
+ | Globals: s_flip_base, s_settle_closed, s_settled, s_older_settled, s_dr, s_dr_active, s_blend_factor, s_texture_ops, s_palette_ops, s_kos_backend
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -93,7 +93,19 @@ static unsigned s_settle_closed;
  ----------------------*/
 static int s_settled = 1;
 
+/*----------------------
+ | s_older_settled
+ | Description: Set once the open scene has confirmed or given up waiting for every closed scene but the last to reach the screen, so it waits at most once.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_older_settled = 1;
+
 static void settle_previous_scene(void);
+static void settle_older_scenes(void);
 
 /*----------------------
  | s_flip_expired
@@ -318,6 +330,21 @@ static void texture_upload(void *dst, const void *src, unsigned bytes)
 }
 
 /*----------------------
+ | texture_write_old
+ | Description: TextureOps.write_old: waits until every closed scene but the last reached the screen, since pvr_wait_ready returned once the older one only started rendering, then copies as texture_write does.
+ | Author: suinevere
+ | Dependencies: settle_older_scenes, texture_write
+ | Globals: N/A
+ | Params: dst -- texture memory, src -- bytes, bytes -- count
+ | Returns: N/A
+ ----------------------*/
+static void texture_write_old(void *dst, const void *src, unsigned bytes)
+{
+    settle_older_scenes();
+    texture_write(dst, src, bytes);
+}
+
+/*----------------------
  | kos_frame_texture
  | Description: PvrBackend.frame_texture: loads a 24-bit display frame into its own texture, flushing the texture cache once if texture memory is full.
  | Author: suinevere
@@ -437,12 +464,12 @@ static void palette_set_entry(unsigned index, uint32_t argb8888)
  | s_texture_ops
  | Description: Texture memory backend handed to texture_cache_init.
  | Author: suinevere
- | Dependencies: texture_alloc, texture_free_all, texture_upload, texture_write, texture_free
+ | Dependencies: texture_alloc, texture_free_all, texture_upload, texture_write, texture_free, texture_write_old
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-static const TextureOps s_texture_ops = { texture_alloc, texture_free_all, texture_upload, texture_write, texture_free };
+static const TextureOps s_texture_ops = { texture_alloc, texture_free_all, texture_upload, texture_write, texture_free, texture_write_old };
 
 /*----------------------
  | s_palette_ops
@@ -513,10 +540,34 @@ static void settle_previous_scene(void)
         return;
     }
     s_settled = 1;
+    s_older_settled = 1;
     if (!wait_previous_flip(s_settle_closed))
     {
         s_flip_expired++;
         dc_log("PVR: flip wait expired");
+    }
+}
+
+/*----------------------
+ | settle_older_scenes
+ | Description: Before the open scene's first write to memory a scene before the last read, waits once for those scenes to reach the screen; settling the previous scene covers it.
+ | Author: suinevere
+ | Dependencies: wait_previous_flip, dc_log
+ | Globals: s_settle_closed, s_settled, s_older_settled
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static void settle_older_scenes(void)
+{
+    if (s_settled || s_older_settled)
+    {
+        return;
+    }
+    s_older_settled = 1;
+    if (!wait_previous_flip(s_settle_closed - 1u))
+    {
+        s_flip_expired++;
+        dc_log("PVR: older flip wait expired");
     }
 }
 
@@ -599,12 +650,14 @@ static int kos_scene_begin(unsigned scenes_closed)
 
     s_settle_closed = scenes_closed;
     s_settled = 1;
+    s_older_settled = 1;
     s_begin_closed = scenes_closed;
     s_cmd_words = 0;
     s_streaming = 0;
     if (scenes_closed != 0)
     {
         s_settled = 0;
+        s_older_settled = scenes_closed < 2;
         if (texture_cache_flush_pending())
         {
             settle_previous_scene();

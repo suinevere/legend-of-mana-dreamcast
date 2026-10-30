@@ -696,19 +696,36 @@ static unsigned build_texture(const TextureEntry *e)
 #define SQUARE_TEXELS 16
 
 /*----------------------
+ | SETTLE_NONE / SETTLE_PREVIOUS / SETTLE_OLDER
+ | Description: Who may still read the memory copy_texture writes: no submitted scene, the previous one, or only scenes before it, as a spare buffer last read two scenes back.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SETTLE_NONE 0
+#define SETTLE_PREVIOUS 1
+#define SETTLE_OLDER 2
+
+/*----------------------
  | copy_texture
- | Description: Copies built bytes into texture memory, through the backend's waiting upload when a submitted scene may still read the target, else through its write.
+ | Description: Copies built bytes into texture memory, through the backend's waiting upload when the previous scene may still read the target, its write_old when only older scenes may, else through its write.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: s_texture_ops
- | Params: dst -- texture memory, src -- bytes, bytes -- count, settle -- nonzero when a submitted scene may read dst
+ | Params: dst -- texture memory, src -- bytes, bytes -- count, settle -- SETTLE_NONE, SETTLE_PREVIOUS or SETTLE_OLDER
  | Returns: N/A
  ----------------------*/
 static void copy_texture(void *dst, const void *src, unsigned bytes, int settle)
 {
-    if (!settle && s_texture_ops->write != 0)
+    if (settle == SETTLE_NONE && s_texture_ops->write != 0)
     {
         s_texture_ops->write(dst, src, bytes);
+    }
+    else if (settle == SETTLE_OLDER && s_texture_ops->write_old != 0)
+    {
+        s_texture_ops->write_old(dst, src, bytes);
     }
     else if (s_texture_ops->upload != 0)
     {
@@ -914,7 +931,7 @@ static TextureEntry *find_or_create(int kind, int tpage_x, int tpage_y, int dept
 
 /*----------------------
  | update_through_spare
- | Description: Brings a built entry up to page_gen without waiting on the screen: the changed squares go into its spare buffer, last read two scenes back, which then swaps in; a spare that is new or outdated by a whole rebuild is built whole, and with no memory for one the squares are rewritten in place after the wait.
+ | Description: Brings a built entry up to page_gen without waiting on the previous scene: the changed squares go into its spare buffer, last read two scenes back and written once that scene reached the screen, which then swaps in; a spare that is new or outdated by a whole rebuild is built whole, and with no memory for one the squares are rewritten in place after the wait.
  | Author: suinevere
  | Dependencies: rebuild_dirty, build_texture, copy_texture, entry_bytes, dc_time_us
  | Globals: s_texture_ops, s_scratch, s_builds, s_build_us, s_upload_us
@@ -932,7 +949,7 @@ static int update_through_spare(TextureEntry *e, uint32_t page_gen)
         e->spare = s_texture_ops->alloc(entry_bytes(e->kind, e->depth));
         if (e->spare == 0)
         {
-            rebuild_dirty(e, e->texture, e->page_gen, 1);
+            rebuild_dirty(e, e->texture, e->page_gen, SETTLE_PREVIOUS);
             e->page_gen = page_gen;
             return 1;
         }
@@ -944,12 +961,12 @@ static int update_through_spare(TextureEntry *e, uint32_t page_gen)
         s_builds++;
         s_build_us += dc_time_us() - t0;
         t0 = dc_time_us();
-        copy_texture(e->spare, s_scratch, bytes, 0);
+        copy_texture(e->spare, s_scratch, bytes, SETTLE_OLDER);
         s_upload_us += dc_time_us() - t0;
     }
     else
     {
-        rebuild_dirty(e, e->spare, e->spare_gen, 0);
+        rebuild_dirty(e, e->spare, e->spare_gen, SETTLE_OLDER);
     }
     e->texture = e->spare;
     e->spare = previous;
@@ -1000,7 +1017,7 @@ static int ensure_built(TextureEntry *e, uint32_t page_gen, uint32_t clut_gen, u
     s_builds++;
     s_build_us += dc_time_us() - t0;
     t0 = dc_time_us();
-    copy_texture(e->texture, s_scratch, bytes, in_place);
+    copy_texture(e->texture, s_scratch, bytes, in_place ? SETTLE_PREVIOUS : SETTLE_NONE);
     s_upload_us += dc_time_us() - t0;
     e->page_gen = page_gen;
     e->clut_gen = clut_gen;

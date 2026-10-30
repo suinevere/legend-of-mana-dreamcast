@@ -1,6 +1,6 @@
 /*----------------------
  | test_texture_cache.c
- | Description: Host tests for VRAM generations, LRU palette banks with pinning, colour conversion, twiddling, wrapped page reads and texture cache reuse, invalidation, expansion, deferred flush and mid-frame change paths, built pages matching the mirror texel for texel at every depth, and page changes reaching a spare buffer as only the changed squares.
+ | Description: Host tests for VRAM generations, LRU palette banks with pinning, colour conversion, twiddling, wrapped page reads and texture cache reuse, invalidation, expansion, deferred flush and mid-frame change paths, built pages matching the mirror texel for texel at every depth, page changes reaching a spare buffer as only the changed squares, written once older scenes reached the screen, and a page changing every frame staying current.
  | Author: suinevere
  | Dependencies: vram_mirror.h, palette_bank.h, texture_cache.h, gpu_decode.h, vram_mirror.c, palette_bank.c, texture_cache.c
  | Globals: N/A
@@ -36,6 +36,7 @@ static unsigned s_uploads;
 static unsigned s_upload_bytes;
 static unsigned s_upload_total;
 static unsigned s_settled_uploads;
+static unsigned s_old_writes;
 static uint32_t s_palette[1024];
 static unsigned s_palette_writes;
 static unsigned s_palette_max_index;
@@ -85,6 +86,12 @@ static void fake_upload(void *dst, const void *src, unsigned bytes)
     s_settled_uploads++;
 }
 
+static void fake_write_old(void *dst, const void *src, unsigned bytes)
+{
+    fake_write(dst, src, bytes);
+    s_old_writes++;
+}
+
 static void fake_set_entry(unsigned index, uint32_t argb8888)
 {
     if (index < 1024)
@@ -99,7 +106,7 @@ static void fake_set_entry(unsigned index, uint32_t argb8888)
 }
 
 static const PaletteOps s_palette_ops = { fake_set_entry };
-static const TextureOps s_texture_ops = { fake_alloc, fake_free_all, fake_upload, fake_write, fake_free };
+static const TextureOps s_texture_ops = { fake_alloc, fake_free_all, fake_upload, fake_write, fake_free, fake_write_old };
 
 static void reset_all(void)
 {
@@ -110,6 +117,7 @@ static void reset_all(void)
     s_uploads = 0;
     s_upload_bytes = 0;
     s_settled_uploads = 0;
+    s_old_writes = 0;
     s_palette_writes = 0;
     s_palette_max_index = 0;
     memset(s_palette, 0, sizeof(s_palette));
@@ -697,13 +705,14 @@ static int dirty_rebuild_uploads_squares(int tpage_x, int tpage_y, int depth, in
 
     memset(&first, 0, sizeof(first));
     ok &= texture_cache_lookup(tpage_x, tpage_y, clut_x, clut_y, depth, PAL_OPAQUE, frame, &first) == 0;
+    s_old_writes = 0;
     ok &= change_and_look_up(tpage_x, tpage_y, depth, clut_x, clut_y, expand, frame + 1, &second);
     ok &= second.texture != first.texture;
-    ok &= s_uploads == 1 && s_upload_total == page_bytes && s_settled_uploads == 0;
+    ok &= s_uploads == 1 && s_upload_total == page_bytes && s_settled_uploads == 0 && s_old_writes == 1;
     ok &= page_matches(tpage_x, tpage_y, depth, clut_x, clut_y, expand, frame + 1);
     ok &= change_and_look_up(tpage_x, tpage_y, depth, clut_x, clut_y, expand, frame + 2, &third);
     ok &= third.texture == first.texture;
-    ok &= s_uploads == squares && s_upload_total == squares * square_bytes && s_settled_uploads == 0;
+    ok &= s_uploads == squares && s_upload_total == squares * square_bytes && s_settled_uploads == 0 && s_old_writes == 1 + squares;
     ok &= page_matches(tpage_x, tpage_y, depth, clut_x, clut_y, expand, frame + 2);
     return ok;
 }
@@ -737,6 +746,69 @@ static void test_clut_change_outdates_the_spare(void)
     CHECK(page_matches(1000, 0, DC_DEPTH_4, 1016, 441, 1, 5));
 }
 
+static unsigned s_rand_state = 12345u;
+
+static unsigned next_rand(void)
+{
+    s_rand_state = s_rand_state * 1103515245u + 12345u;
+    return (s_rand_state >> 16) & 0x7FFFu;
+}
+
+static void scribble_span(int tpage_x, int tpage_y)
+{
+    static u_long words[64 * 12];
+    RECT rect;
+    int i;
+
+    rect.x = (short)(tpage_x + (int)(next_rand() % 64u));
+    rect.y = (short)(tpage_y + (int)(next_rand() % 244u));
+    rect.w = (short)(1 + (int)(next_rand() % (unsigned)(64 - (rect.x - tpage_x))));
+    rect.h = 12;
+    for (i = 0; i < rect.w * rect.h; i++)
+    {
+        ((unsigned short *)words)[i] = (unsigned short)next_rand();
+    }
+    vram_mirror_load(&rect, words);
+}
+
+static void test_text_page_changing_every_frame_stays_current(void)
+{
+    static uint8_t shown[256 * 128];
+    const void *shown_texture = NULL;
+    DcSurfaceTexture out;
+    unsigned frame;
+    int changes;
+    int bad_current = 0;
+    int bad_shown = 0;
+
+    reset_all();
+    fill_random_vram();
+    for (frame = 1; frame < 400; frame++)
+    {
+        texture_cache_begin_frame();
+        for (changes = (int)(next_rand() % 4u); changes > 0; changes--)
+        {
+            scribble_span(512, 256);
+        }
+        bad_current |= !page_matches(512, 256, DC_DEPTH_4, 0, 480, 0, frame);
+        if (next_rand() % 3u == 0)
+        {
+            scribble_span(512, 256);
+            bad_current |= !page_matches(512, 256, DC_DEPTH_4, 0, 480, 0, frame);
+        }
+        if (shown_texture != NULL)
+        {
+            bad_shown |= memcmp(shown_texture, shown, sizeof(shown)) != 0;
+        }
+        memset(&out, 0, sizeof(out));
+        CHECK(texture_cache_lookup(512, 256, 0, 480, DC_DEPTH_4, PAL_OPAQUE, frame, &out) == 0);
+        shown_texture = out.texture;
+        memcpy(shown, out.texture, sizeof(shown));
+    }
+    CHECK(bad_current == 0);
+    CHECK(bad_shown == 0);
+}
+
 int main(void)
 {
     test_palette_convert();
@@ -760,6 +832,7 @@ int main(void)
     test_built_pages_match_the_mirror_at_every_depth();
     test_page_change_rebuilds_only_dirty_squares();
     test_clut_change_outdates_the_spare();
+    test_text_page_changing_every_frame_stays_current();
 
     if (failures != 0)
     {
