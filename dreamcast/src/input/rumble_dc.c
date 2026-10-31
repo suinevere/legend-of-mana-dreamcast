@@ -2,7 +2,7 @@
  | rumble_dc.c
  | Description: Drives the Jump Pack on each controller's Maple port: a continuous vibration at the level the game asks for, sent when the level changes and re-sent while it holds so the pack's auto-stop never ends it, and a stop at level 0.
  | Author: suinevere
- | Dependencies: dc/maple.h, dc/maple/purupuru.h, rumble_dc.h, pad_dc_map.h (PAD_DC_RUMBLE_MAX, pad_dc_rumble_due, pad_dc_rumble_effect)
+ | Dependencies: dc/maple.h, dc/maple/purupuru.h, rumble_dc.h, pad_dc_map.h (PAD_DC_RUMBLE_MAX, pad_dc_rumble_due, pad_dc_rumble_effect), heap_probe.h
  | Globals: s_sent, s_age
  | Params: N/A
  | Returns: N/A
@@ -12,6 +12,7 @@
 
 #include "rumble_dc.h"
 #include "pad_dc_map.h"
+#include "heap_probe.h"
 
 /*----------------------
  | RUMBLE_PORTS / RUMBLE_UNITS / RUMBLE_STOP
@@ -67,7 +68,7 @@ static maple_device_t *rumble_dc_pack(int port)
  | rumble_dc_update
  | Description: Once a frame per port: sends the level's effect, or a stop at 0, when pad_dc_rumble_due says so; a busy Maple bus leaves it for the next frame, and a missing pack forgets what was sent.
  | Author: suinevere
- | Dependencies: rumble_dc_pack, pad_dc_rumble_due, pad_dc_rumble_effect, purupuru_rumble_raw
+ | Dependencies: rumble_dc_pack, pad_dc_rumble_due, pad_dc_rumble_effect, purupuru_rumble_raw, heap_probe
  | Globals: s_sent, s_age
  | Params: port -- 0 or 1, level -- 0 to PAD_DC_RUMBLE_MAX
  | Returns: N/A
@@ -95,9 +96,11 @@ void rumble_dc_update(int port, int level)
         s_sent[port] = -1;
         return;
     }
+    heap_probe("rumble in");
     if (purupuru_rumble_raw(dev, level == 0 ? RUMBLE_STOP : pad_dc_rumble_effect(level)) == MAPLE_EOK)
     {
         s_sent[port] = level;
         s_age[port] = 0;
     }
+    heap_probe("rumble out");
 }

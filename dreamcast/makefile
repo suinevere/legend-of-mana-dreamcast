@@ -91,7 +91,7 @@ endif
 # | Returns: N/A
 #----------------------
 KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/hang_watch.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c \
-	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/movie/movie_decode_kos.c src/system/soft_reset.c src/system/boot_descramble.c src/input/rumble_dc.c
+	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/movie/movie_decode_kos.c src/system/soft_reset.c src/system/boot_descramble.c src/input/rumble_dc.c src/system/heap_probe.c
 
 #----------------------
 # | PORT_SOURCES
@@ -1007,7 +1007,7 @@ gdi: all
 
 #----------------------
 # | debug-gdi
-# | Description: Builds gdi-debug/ from a separate build-debug/ object tree with -DLOM_DEBUG_MENU, whose title menu shows the hidden debug start, leaving the shipping gdi/ and its objects alone.
+# | Description: Builds gdi-debug/ from a separate build-debug/ object tree with -DLOM_DEBUG_MENU, whose title menu shows the hidden debug start, and -DLOM_HEAP_PROBE, whose heap checkpoints name the code that corrupts the heap, leaving the shipping gdi/ and its objects alone.
 # | Author: suinevere
 # | Dependencies: gdi, OBJDIR, TARGET, CDI, GDI_DIR, EXTRA_CFLAGS
 # | Globals: N/A
@@ -1015,7 +1015,7 @@ gdi: all
 # | Returns: N/A
 #----------------------
 debug-gdi:
-	$(MAKE) OBJDIR=build-debug TARGET=lom_debug.elf CDI=lom_debug.cdi GDI_DIR=gdi-debug EXTRA_CFLAGS=-DLOM_DEBUG_MENU all
+	$(MAKE) OBJDIR=build-debug TARGET=lom_debug.elf CDI=lom_debug.cdi GDI_DIR=gdi-debug EXTRA_CFLAGS="-DLOM_DEBUG_MENU -DLOM_HEAP_PROBE" all
 
 #----------------------
 # | clean

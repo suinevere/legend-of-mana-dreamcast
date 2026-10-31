@@ -2,7 +2,7 @@
  | libgpu_dc.c
  | Description: Dreamcast backend for the Psy-Q libgpu calls the ported game code makes: mirrors VRAM, decodes ordering tables into the PowerVR submitter, and paces frames on the shared VSync pacer. Also reads back the finished PowerVR frame for StoreImage and MoveImage.
  | Author: suinevere
- | Dependencies: lom_prefix.h, gpu_tag.h, vram_mirror.h, gpu_decode.h, pvr_submit.h, pvr_backend.h, frame_readback.h, vsync_pacer.h, libgpu_dc.h
+ | Dependencies: lom_prefix.h, gpu_tag.h, vram_mirror.h, gpu_decode.h, pvr_submit.h, pvr_backend.h, frame_readback.h, vsync_pacer.h, libgpu_dc.h, heap_probe.h
  | Globals: s_draw_env, s_disp_env, s_disp_seen, s_disp_mask, s_frame_primitives, s_vsync_hook, s_gpu_state, s_readback_line, s_draw_matches_disp, s_immediate_scene
  | Params: N/A
  | Returns: N/A
@@ -18,6 +18,7 @@
 #include "cdrom_dc.h"
 #include "rgb24_display.h"
 #include "dc_system.h"
+#include "heap_probe.h"
 
 /*----------------------
  | s_vsync_hook
@@ -456,7 +457,7 @@ int DrawSync(int mode)
  | VSync(0) under a 24-bit display returns at once when a vblank has passed since the last wait, since a movie frame's software decode runs close to its four vblanks and the extra wait pushed most frames to five.
  | Then delivers due CD stream sectors and runs the hook unless this was a counter read; VSync(1) returns at once on the PS1 and games call it mid-frame, so it never flips.
  | Author: suinevere
- | Dependencies: pvr_submit_flip, vsync_wait, vsync_wait_after, idle_count, s_async_poll, cdrom_dc_vsync_tick
+ | Dependencies: heap_probe, pvr_submit_flip, vsync_wait, vsync_wait_after, idle_count, s_async_poll, cdrom_dc_vsync_tick
  | Globals: s_vsync_hook, s_async_poll, s_disp_env
  | Params: mode -- PS1 VSync mode
  | Returns: vblank count for mode < 0, else 0
@@ -466,6 +467,7 @@ int VSync(int mode)
     int result;
     unsigned long long t0;
 
+    heap_probe("vsync");
     if (mode == 0 || mode > 1)
     {
         pvr_submit_flip();

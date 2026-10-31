@@ -2,7 +2,7 @@
  | dc_exception.c
  | Description: Installs an SH-4 exception trap that reports the fault and halts, for address-error and illegal-instruction exceptions.
  | Author: suinevere
- | Dependencies: dc_exception.h, dc_system.h, dc_exception_format.h, arch/irq.h, stdio.h
+ | Dependencies: dc_exception.h, dc_system.h, dc_exception_format.h, heap_probe.h, arch/irq.h, stdio.h
  | Globals: N/A
  | Params: N/A
  | Returns: N/A
@@ -12,6 +12,7 @@
 #include "dc_exception.h"
 #include "dc_exception_format.h"
 #include "dc_system.h"
+#include "heap_probe.h"
 
 /*----------------------
  | DC_EXCEPTION_TEA_ADDR
@@ -28,7 +29,7 @@
  | dc_exception_handler
  | Description: Formats the faulting exception's name, PC, PR and address, the build's date and time, and r0..r15, then halts.
  | Author: suinevere
- | Dependencies: dc_exception_format_halt, dc_exception_format_registers, dc_halt
+ | Dependencies: dc_exception_format_halt, dc_exception_format_registers, heap_probe_last (LOM_HEAP_PROBE), dc_halt
  | Globals: N/A
  | Params: source -- exception code that fired, context -- CPU state at the fault, data -- unused
  | Returns: N/A
@@ -67,7 +68,11 @@ static void dc_exception_handler(irq_t source, irq_context_t *context, void *dat
         r[i] = context->r[i];
     dc_exception_format_halt(head, sizeof head, name, context->pc, context->pr, address);
     dc_exception_format_registers(registers, sizeof registers, r);
+#ifdef LOM_HEAP_PROBE
+    snprintf(message, sizeof message, "%s\nBUILD " __DATE__ " " __TIME__ "\n%s\n%s", head, heap_probe_last(), registers);
+#else
     snprintf(message, sizeof message, "%s\nBUILD " __DATE__ " " __TIME__ "\n%s", head, registers);
+#endif
     dc_halt(message);
 }
 

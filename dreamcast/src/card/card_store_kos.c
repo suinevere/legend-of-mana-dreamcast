@@ -2,7 +2,7 @@
  | card_store_kos.c
  | Description: Keeps each PS1 card file as one LZSS-compressed VMS package on a VMU through KallistiOS vmufs: slot n is the nth VMU found, a file's VMU name comes from vmu_name_for_ps1 and its long description holds the full PS1 name; the pet transfer also puts Ring Ring Land's VMU GAME at block 0.
  | Author: suinevere
- | Dependencies: kos.h, dc/vmufs.h, dc/vmu_pkg.h, dc/maple/vmu.h, card_store_kos.h, card_vmu.c, vmu_format.h, vmu_game.h, save_pack.h
+ | Dependencies: kos.h, dc/vmufs.h, dc/vmu_pkg.h, dc/maple/vmu.h, card_store_kos.h, card_vmu.c, vmu_format.h, vmu_game.h, save_pack.h, heap_probe.h
  | Globals: s_job, s_job_state, s_game, s_game_size, s_replace_ok, s_root, s_fat, s_dir, s_dirents, s_dirent_count, s_pet_present
  | Params: N/A
  | Returns: N/A
@@ -18,6 +18,7 @@
 #include "vmu_game.h"
 #include "vmu_screen.h"
 #include "save_pack.h"
+#include "heap_probe.h"
 
 /*----------------------
  | KOS_VMU_HASH_PREFIX / KOS_VMU_SHORT_DESC / KOS_VMU_APP_ID
@@ -676,7 +677,7 @@ static int kos_remove(int slot, const char *ps1_name);
  | run_job
  | Description: The background thread: runs kos_write for s_job, then removes the file it replaces, leaving the game thread to draw while the Maple bus carries the blocks.
  | Author: suinevere
- | Dependencies: kos_write, kos_remove
+ | Dependencies: kos_write, kos_remove, heap_probe
  | Globals: s_job, s_job_state
  | Params: param -- unused
  | Returns: NULL
@@ -684,6 +685,7 @@ static int kos_remove(int slot, const char *ps1_name);
 static void *run_job(void *param)
 {
     (void)param;
+    heap_probe("job write");
     if (kos_write(s_job.slot, s_job.ps1_name, s_job.buf, s_job.size) != 0)
     {
         s_job_state = JOB_FAILED;
@@ -693,6 +695,7 @@ static void *run_job(void *param)
     {
         kos_remove(s_job.slot, s_job.replaced);
     }
+    heap_probe("job done");
     s_job_state = JOB_DONE;
     return NULL;
 }
@@ -820,13 +823,44 @@ static int kos_free_blocks(int slot)
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#ifdef LOM_HEAP_PROBE
+/*----------------------
+ | probe_present / probe_list / probe_read / probe_write / probe_remove / probe_free_blocks / probe_write_start / probe_job_poll / probe_game_state / probe_game_allow_replace
+ | Description: The store's operations with a heap checkpoint on entry and on return, so a fault names the operation that damaged the heap.
+ | Author: suinevere
+ | Dependencies: heap_probe, kos_present, kos_list, kos_read, kos_write, kos_remove, kos_free_blocks, kos_write_start, kos_job_poll, kos_game_state, kos_game_allow_replace
+ | Globals: N/A
+ | Params: as the wrapped operation
+ | Returns: as the wrapped operation
+ ----------------------*/
+#define PROBED(name, call)     do     {         int result_;         heap_probe(name " in");         result_ = (call);         heap_probe(name " out");         return result_;     } while (0)
+
+static int probe_present(int slot) { PROBED("present", kos_present(slot)); }
+static int probe_list(int slot, card_store_entry *out, int max) { PROBED("list", kos_list(slot, out, max)); }
+static int probe_read(int slot, const char *ps1_name, unsigned char *buf, unsigned int max) { PROBED("read", kos_read(slot, ps1_name, buf, max)); }
+static int probe_write(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size) { PROBED("write", kos_write(slot, ps1_name, buf, size)); }
+static int probe_remove(int slot, const char *ps1_name) { PROBED("remove", kos_remove(slot, ps1_name)); }
+static int probe_free_blocks(int slot) { PROBED("free", kos_free_blocks(slot)); }
+static int probe_write_start(int slot, const char *ps1_name, const unsigned char *buf, unsigned int size, const char *replaced) { PROBED("start", kos_write_start(slot, ps1_name, buf, size, replaced)); }
+static int probe_job_poll(void) { PROBED("poll", kos_job_poll()); }
+static int probe_game_state(int slot) { PROBED("game", kos_game_state(slot)); }
+
+static void probe_game_allow_replace(int slot)
+{
+    heap_probe("allow");
+    kos_game_allow_replace(slot);
+}
+
+const card_store_ops card_store_kos = {probe_present, probe_list, probe_read, probe_write, probe_remove, probe_free_blocks, probe_write_start, probe_job_poll, NULL, probe_game_state, probe_game_allow_replace};
+#else
 const card_store_ops card_store_kos = {kos_present, kos_list, kos_read, kos_write, kos_remove, kos_free_blocks, kos_write_start, kos_job_poll, NULL, kos_game_state, kos_game_allow_replace};
+#endif
 
 /*----------------------
  | kos_lcd_draw
  | Description: vmu_screen's draw hook: puts a screen on every VMU, or reports busy while the background thread writes a file, so the LCD command never shares the bus with a transfer, and when a VMU refuses the frame (its maple frame still taken), so the next VSync tries again.
  | Author: suinevere
- | Dependencies: maple_enum_type, vmu_draw_lcd_rotated
+ | Dependencies: maple_enum_type, vmu_draw_lcd_rotated, heap_probe
  | Globals: s_job_state
  | Params: lcd -- 192 bytes, 4-byte aligned
  | Returns: 0 once drawn on every VMU, 1 when busy
@@ -841,6 +875,7 @@ static int kos_lcd_draw(const unsigned char *lcd)
     {
         return 1;
     }
+    heap_probe("lcd in");
     for (i = 0; (dev = maple_enum_type(i, MAPLE_FUNC_LCD)) != NULL; i++)
     {
         if (vmu_draw_lcd_rotated(dev, (void *)lcd) < 0)
@@ -848,6 +883,7 @@ static int kos_lcd_draw(const unsigned char *lcd)
             busy = 1;
         }
     }
+    heap_probe("lcd out");
     return busy;
 }
 
