@@ -331,3 +331,61 @@ void vmu_lcd_wordmark(unsigned char out[192])
         }
     }
 }
+
+/*----------------------
+ | VMU_ROOT_FAT_LOC / VMU_ROOT_FAT_SIZE / VMU_ROOT_DIR_LOC / VMU_ROOT_DIR_SIZE / VMU_ROOT_BLK_CNT / VMU_ROOT_DIR_MAX / VMU_ROOT_BLOCKS
+ | Description: Byte offsets of the root block's little-endian FAT, directory and user-block fields, the largest directory in blocks vmu_root_usable accepts, and the blocks a VMU addresses.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define VMU_ROOT_FAT_LOC 70
+#define VMU_ROOT_FAT_SIZE 72
+#define VMU_ROOT_DIR_LOC 74
+#define VMU_ROOT_DIR_SIZE 76
+#define VMU_ROOT_BLK_CNT 80
+#define VMU_ROOT_DIR_MAX 16
+#define VMU_ROOT_BLOCKS 256
+
+/*----------------------
+ | root_word
+ | Description: Reads a little-endian 16-bit field of a root block.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: root -- root block, offset -- byte offset
+ | Returns: the field
+ ----------------------*/
+static unsigned int root_word(const unsigned char *root, int offset)
+{
+    return (unsigned int)root[offset] | ((unsigned int)root[offset + 1] << 8);
+}
+
+/*----------------------
+ | vmu_root_usable
+ | Description: Whether a root block describes a formatted VMU whose one-block FAT and directory fit inside it, since KOS's vmufs sizes its buffers from these fields and a blank card's zero FAT size overruns the heap.
+ | Author: suinevere
+ | Dependencies: root_word
+ | Globals: N/A
+ | Params: root -- the VMU's block 255
+ | Returns: nonzero when vmufs may use the card
+ ----------------------*/
+int vmu_root_usable(const unsigned char root[VMU_BLOCK_BYTES])
+{
+    unsigned int dir_size = root_word(root, VMU_ROOT_DIR_SIZE);
+    unsigned int dir_loc = root_word(root, VMU_ROOT_DIR_LOC);
+    unsigned int blk_cnt = root_word(root, VMU_ROOT_BLK_CNT);
+    int i;
+
+    for (i = 0; i < 16; i++)
+    {
+        if (root[i] != 0x55)
+        {
+            return 0;
+        }
+    }
+    return root_word(root, VMU_ROOT_FAT_SIZE) == 1 && root_word(root, VMU_ROOT_FAT_LOC) < VMU_ROOT_BLOCKS && dir_size >= 1 && dir_size <= VMU_ROOT_DIR_MAX
+        && dir_loc < VMU_ROOT_BLOCKS && dir_loc + 1 >= dir_size && blk_cnt >= 1 && blk_cnt <= VMU_ROOT_BLOCKS;
+}

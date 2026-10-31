@@ -105,6 +105,49 @@ int main(void)
         vmu_ps1_name_from_desc(desc, sizeof desc, name);
         CHECK(strlen(name) == 20);
     }
+    {
+        unsigned char root[VMU_BLOCK_BYTES];
+
+        memset(root, 0, sizeof root);
+        memset(root, 0x55, 16);
+        root[70] = 254;
+        root[72] = 1;
+        root[74] = 253;
+        root[76] = 13;
+        root[80] = 200;
+        CHECK(vmu_root_usable(root));
+        root[72] = 0;
+        CHECK(!vmu_root_usable(root));
+        root[72] = 2;
+        CHECK(!vmu_root_usable(root));
+        root[72] = 1;
+        root[76] = 0;
+        CHECK(!vmu_root_usable(root));
+        root[76] = 17;
+        CHECK(!vmu_root_usable(root));
+        root[76] = 13;
+        root[80] = 0;
+        CHECK(!vmu_root_usable(root));
+        root[80] = 1;
+        root[81] = 1;
+        CHECK(!vmu_root_usable(root));
+        root[81] = 0;
+        root[80] = 200;
+        root[71] = 1;
+        CHECK(!vmu_root_usable(root));
+        root[71] = 0;
+        root[75] = 1;
+        CHECK(!vmu_root_usable(root));
+        root[75] = 0;
+        root[3] = 0;
+        CHECK(!vmu_root_usable(root));
+        root[3] = 0x55;
+        CHECK(vmu_root_usable(root));
+        memset(root, 0, sizeof root);
+        CHECK(!vmu_root_usable(root));
+        memset(root, 0xA5, sizeof root);
+        CHECK(!vmu_root_usable(root));
+    }
     puts("OK");
     return 0;
 }

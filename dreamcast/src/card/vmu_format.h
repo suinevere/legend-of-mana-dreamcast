@@ -33,5 +33,6 @@ unsigned int vmu_blocks_for_file(unsigned int data_bytes, int icon_frames);
 unsigned short vmu_pkg_crc(const unsigned char *buf, int size);
 int ps1_blocks_free(int vmu_free_blocks, int ps1_used_blocks);
 void vmu_lcd_wordmark(unsigned char out[192]);
+int vmu_root_usable(const unsigned char root[VMU_BLOCK_BYTES]);
 
 #endif

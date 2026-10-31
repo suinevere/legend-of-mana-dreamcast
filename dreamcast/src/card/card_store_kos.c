@@ -121,6 +121,41 @@ static int kos_present(int slot)
 }
 
 /*----------------------
+ | card_usable
+ | Description: Reads a VMU's root block and says whether vmufs may touch the card, since vmufs sizes its FAT buffer from the root and a blank card's zero FAT size would overrun the heap.
+ | Author: suinevere
+ | Dependencies: vmufs_mutex_lock, vmufs_root_read, vmufs_mutex_unlock, vmu_retry, vmu_root_usable
+ | Globals: N/A
+ | Params: dev -- VMU, or NULL
+ | Returns: nonzero when the card is formatted with tables vmufs can hold
+ ----------------------*/
+static int card_usable(maple_device_t *dev)
+{
+    vmu_root_t root;
+    int attempt = 0;
+    int rv;
+
+    if (dev == NULL)
+    {
+        return 0;
+    }
+    for (;;)
+    {
+        vmufs_mutex_lock();
+        rv = vmufs_root_read(dev, &root);
+        vmufs_mutex_unlock();
+        if (rv >= 0)
+        {
+            return vmu_root_usable((const unsigned char *)&root);
+        }
+        if (!vmu_retry(&attempt))
+        {
+            return 0;
+        }
+    }
+}
+
+/*----------------------
  | read_package
  | Description: Reads a VMU file and parses its VMS package, checking its CRC.
  | Author: suinevere
@@ -155,7 +190,7 @@ static int read_package(maple_device_t *dev, const char *vmu_name, vmu_pkg_t *pk
  | kos_list
  | Description: Lists the slot's Legend of Mana files, reading only each package's header block for its uncompressed size, and for hashed names its long description, so a listing never pulls whole packages over the Maple bus.
  | Author: suinevere
- | Dependencies: slot_device, vmufs_readdir, vmu_block_read, vmu_retry, vmu_ps1_name_from_desc
+ | Dependencies: slot_device, card_usable, vmufs_readdir, vmu_block_read, vmu_retry, vmu_ps1_name_from_desc
  | Globals: N/A
  | Params: slot -- 0 or 1, out -- entries out, max -- capacity of out
  | Returns: entry count, or -1 when the VMU is gone or cannot be read
@@ -169,7 +204,7 @@ static int kos_list(int slot, card_store_entry *out, int max)
     int attempt = 0;
     int i;
 
-    if (dev == NULL)
+    if (!card_usable(dev))
     {
         return -1;
     }
@@ -226,7 +261,7 @@ static int kos_list(int slot, card_store_entry *out, int max)
  | kos_read
  | Description: Reads a PS1 file's bytes out of its VMS package, decompressing them; a kept prefix (Ring Ring Land) comes back zero-filled to the file's size.
  | Author: suinevere
- | Dependencies: slot_device, vmu_name_for_ps1, read_package, vmu_kept_bytes, save_unpack
+ | Dependencies: slot_device, card_usable, vmu_name_for_ps1, read_package, vmu_kept_bytes, save_unpack
  | Globals: N/A
  | Params: slot -- 0 or 1, ps1_name -- PS1 file name, buf -- destination, max -- capacity of buf
  | Returns: bytes copied, or -1 when missing or corrupt
@@ -243,7 +278,7 @@ static int kos_read(int slot, const char *ps1_name, unsigned char *buf, unsigned
     unsigned int kept;
     int result;
 
-    if (dev == NULL)
+    if (!card_usable(dev))
     {
         return -1;
     }
@@ -401,7 +436,7 @@ static int game_image(void)
  | read_tables
  | Description: One try at a VMU's root, directory and FAT under vmufs's mutex, which vmufs_dir_read and vmufs_fat_read expect held; vmufs_dir_blocks and vmufs_fat_blocks give bytes, not blocks.
  | Author: suinevere
- | Dependencies: vmufs_mutex_lock, vmufs_root_read, vmufs_dir_blocks, vmufs_fat_blocks, vmufs_dir_read, vmufs_fat_read, vmufs_mutex_unlock
+ | Dependencies: vmufs_mutex_lock, vmufs_root_read, vmu_root_usable, vmufs_dir_blocks, vmufs_fat_blocks, vmufs_dir_read, vmufs_fat_read, vmufs_mutex_unlock
  | Globals: s_root, s_dir, s_fat
  | Params: dev -- VMU
  | Returns: 0, or -1 when a read fails or the tables are larger than a VMU's
@@ -411,7 +446,7 @@ static int read_tables(maple_device_t *dev)
     int rv = -1;
 
     vmufs_mutex_lock();
-    if (vmufs_root_read(dev, &s_root) >= 0 && vmufs_dir_blocks(&s_root) <= (int)sizeof s_dir && vmufs_fat_blocks(&s_root) <= (int)sizeof s_fat
+    if (vmufs_root_read(dev, &s_root) >= 0 && vmu_root_usable((const unsigned char *)&s_root) && vmufs_dir_blocks(&s_root) <= (int)sizeof s_dir && vmufs_fat_blocks(&s_root) <= (int)sizeof s_fat
         && s_root.blk_cnt <= KOS_FAT_WORDS && vmufs_dir_read(dev, &s_root, s_dir) >= 0 && vmufs_fat_read(dev, &s_root, s_fat) >= 0)
     {
         rv = 0;
@@ -625,7 +660,7 @@ static int game_prepare(int slot, maple_device_t *dev)
  | kos_write
  | Description: Stores a PS1 file as a VMS package, replacing any file of the same name; the pet transfer file goes only after game_prepare has put Ring Ring Land's GAME on the VMU.
  | Author: suinevere
- | Dependencies: slot_device, game_prepare, vmu_name_for_ps1, build_package, vmufs_write, vmu_retry
+ | Dependencies: slot_device, card_usable, game_prepare, vmu_name_for_ps1, build_package, vmufs_write, vmu_retry
  | Globals: N/A
  | Params: slot -- 0 or 1, ps1_name -- PS1 file name, buf -- file bytes, size -- byte count
  | Returns: 0 on success, -1 on failure
@@ -639,7 +674,7 @@ static int kos_write(int slot, const char *ps1_name, const unsigned char *buf, u
     int attempt = 0;
     int result;
 
-    if (dev == NULL || (strcmp(ps1_name, KOS_PET_PS1_NAME) == 0 && game_prepare(slot, dev) != 0) || build_package(ps1_name, buf, size, &out, &out_size) != 0)
+    if (!card_usable(dev) || (strcmp(ps1_name, KOS_PET_PS1_NAME) == 0 && game_prepare(slot, dev) != 0) || build_package(ps1_name, buf, size, &out, &out_size) != 0)
     {
         return -1;
     }
@@ -766,7 +801,7 @@ static int kos_job_poll(void)
  | kos_remove
  | Description: Deletes a PS1 file's VMU file.
  | Author: suinevere
- | Dependencies: slot_device, vmu_name_for_ps1, vmufs_delete, vmu_retry
+ | Dependencies: slot_device, card_usable, vmu_name_for_ps1, vmufs_delete, vmu_retry
  | Globals: N/A
  | Params: slot -- 0 or 1, ps1_name -- PS1 file name
  | Returns: 0 on success, -1 on failure
@@ -778,7 +813,7 @@ static int kos_remove(int slot, const char *ps1_name)
     int attempt = 0;
     int result;
 
-    if (dev == NULL)
+    if (!card_usable(dev))
     {
         return -1;
     }
@@ -791,27 +826,39 @@ static int kos_remove(int slot, const char *ps1_name)
 
 /*----------------------
  | kos_free_blocks
- | Description: Free user blocks on the slot's VMU.
+ | Description: Free user blocks on the slot's VMU, read from its root and FAT here rather than through vmufs_free_blocks, so a card whose root vmufs cannot hold counts as full instead of overrunning the heap.
  | Author: suinevere
- | Dependencies: slot_device, vmufs_free_blocks, vmu_retry
+ | Dependencies: slot_device, vmufs_mutex_lock, vmufs_root_read, vmu_root_usable, vmufs_fat_read, vmufs_fat_free, vmufs_mutex_unlock, vmu_retry
  | Globals: N/A
  | Params: slot -- 0 or 1
- | Returns: free blocks, 0 with no VMU
+ | Returns: free blocks, 0 with no usable VMU
  ----------------------*/
 static int kos_free_blocks(int slot)
 {
+    static uint16 fat[KOS_FAT_WORDS];
     maple_device_t *dev = slot_device(slot);
-    int blocks;
+    vmu_root_t root;
     int attempt = 0;
+    int blocks;
 
     if (dev == NULL)
     {
         return 0;
     }
-    while ((blocks = vmufs_free_blocks(dev)) < 0 && vmu_retry(&attempt))
+    for (;;)
     {
+        vmufs_mutex_lock();
+        blocks = -1;
+        if (vmufs_root_read(dev, &root) >= 0)
+        {
+            blocks = !vmu_root_usable((const unsigned char *)&root) ? 0 : vmufs_fat_read(dev, &root, fat) >= 0 ? vmufs_fat_free(&root, fat) : -1;
+        }
+        vmufs_mutex_unlock();
+        if (blocks >= 0 || !vmu_retry(&attempt))
+        {
+            return blocks < 0 ? 0 : blocks;
+        }
     }
-    return blocks < 0 ? 0 : blocks;
 }
 
 /*----------------------
