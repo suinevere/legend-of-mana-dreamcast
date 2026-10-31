@@ -1,6 +1,6 @@
 /*----------------------
  | test_dc_video.c
- | Description: Host tests for the Dreamcast VRAM mirror, ordering-table walker and libgpu wiring: wraparound, MoveImage overlap, ClearImage backgrounds and rects, DrawOTag/DrawPrim submission, SetPolyFT4, VSync flips, GP0 fill and frame readback into StoreImage/MoveImage2.
+ | Description: Host tests for the Dreamcast VRAM mirror, ordering-table walker and libgpu wiring: wraparound, MoveImage overlap, ClearImage backgrounds and rects, DrawOTag/DrawPrim submission, SetPolyFT4, SetPolyG4, VSync flips, GP0 fill and frame readback into StoreImage/MoveImage2.
  | Author: suinevere
  | Dependencies: vram_mirror.h, ot_walk.h, gpu_tag.h, gpu_decode.h, pvr_submit.h, pvr_backend.h, frame_readback.c, libgpu_dc.c, gpu_decode.c, gpu_census.c, lom_prefix.h (forced include)
  | Globals: N/A
@@ -1086,6 +1086,19 @@ static void test_set_poly_ft4_marks_a_nine_word_textured_quad_and_keeps_its_link
     CHECK(prim.r0 == 0xAB && prim.u0 == 0xAB);
 }
 
+static void test_set_poly_g4_marks_an_eight_word_gouraud_quad_and_keeps_its_link(void)
+{
+    POLY_G4 prim;
+
+    memset(&prim, 0xAB, sizeof(prim));
+    ((u_long *)&prim)[0] = 0x00123456u;
+    SetPolyG4(&prim);
+    CHECK(gpu_tag_len(((u_long *)&prim)[0]) == 8);
+    CHECK((((u_long *)&prim)[0] & 0x00FFFFFFu) == 0x00123456u);
+    CHECK(prim.code == 0x38);
+    CHECK(prim.r0 == 0xAB && prim.r3 == 0xAB);
+}
+
 int main(void)
 {
     fill_frame_pixels();
@@ -1129,6 +1142,7 @@ int main(void)
     test_origin_follows_the_display_showing_the_draw_area();
     test_draw_area_packet_moves_the_origin_for_later_prims();
     test_set_poly_ft4_marks_a_nine_word_textured_quad_and_keeps_its_link();
+    test_set_poly_g4_marks_an_eight_word_gouraud_quad_and_keeps_its_link();
 
     if (failures != 0)
     {

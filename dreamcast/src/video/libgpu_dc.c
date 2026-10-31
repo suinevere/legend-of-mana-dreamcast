@@ -399,6 +399,21 @@ void SetPolyFT4(POLY_FT4 *prim)
 }
 
 /*----------------------
+ | SetPolyG4
+ | Description: Marks a packet as a Gouraud-shaded quad, eight words long with GPU code 0x38, leaving its link address and other fields untouched.
+ | Author: suinevere
+ | Dependencies: lom_prefix.h setlen, setcode
+ | Globals: N/A
+ | Params: prim -- packet to initialise
+ | Returns: N/A
+ ----------------------*/
+void SetPolyG4(POLY_G4 *prim)
+{
+    setlen(prim, 8);
+    setcode(prim, 0x38);
+}
+
+/*----------------------
  | dc_frame_primitives
  | Description: Returns the primitives DrawOTag and DrawPrim decoded since the last call and resets the count to zero.
  | Author: suinevere
