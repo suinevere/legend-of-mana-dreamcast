@@ -1,0 +1,18 @@
+# mute.scn: B mutes the buzzer and a second press brings it back, shared by scenario_host and rt_test (pocketstation/tools/scenario.py).
+# Author: suinevere
+# The game asks for the same tone before, during and after the mute; muted calls reach the buzzer as silence.
+enable 0x0100
+tick 1
+buzz 96
+idle 1
+press 0x80 1
+buzz 96
+idle 1
+release 0x80 2
+buzz 96
+idle 1
+press 0x80 3
+buzz 96
+idle 1
+release 0x80 4
+buzz 0

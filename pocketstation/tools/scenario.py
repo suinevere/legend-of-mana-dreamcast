@@ -92,14 +92,14 @@ PET_ICONS = 2
 
 #----------------------
 # | PORT3
-# | Description: Scenario button bits (VMU_BTN_* plus Mode 0x20 and Sleep 0x40) and the port 3 bits the harness takes for them: A, right, left, down, up, Mode, Sleep.
+# | Description: Scenario button bits (VMU_BTN_* plus Mode 0x20, Sleep 0x40 and B 0x80) and the port 3 bits the harness takes for them: A, right, left, down, up, Mode, Sleep, B.
 # | Author: suinevere
 # | Dependencies: pocketstation/harness/vmu_harness.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-PORT3 = ((0x01, 0x10), (0x02, 0x08), (0x04, 0x04), (0x08, 0x02), (0x10, 0x01), (0x20, 0x40), (0x40, 0x80))
+PORT3 = ((0x01, 0x10), (0x02, 0x08), (0x04, 0x04), (0x08, 0x02), (0x10, 0x01), (0x20, 0x40), (0x40, 0x80), (0x80, 0x20))
 
 #----------------------
 # | EVENTS

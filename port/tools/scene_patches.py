@@ -80,10 +80,26 @@ def add_scene_strings(data, lines):
 
 
 #----------------------
-# | patch_ranch
-# | Description: Clears option 10 from both ranch ring-menu masks and fills strings 33, 61, 62 and 63.
+# | ring_cancel_after_unmask
+# | Description: A ring menu's cancel entry is a position among the icons its mask keeps, so showing one more icon ahead of the cancel icon moves that position one along.
 # | Author: suinevere
-# | Dependencies: add_scene_strings, overlay_text.load_lines, struct
+# | Dependencies: N/A
+# | Globals: N/A
+# | Params: mask -- excluded-icon mask before, cancel -- cancel position before (0xFF for none), option -- the icon bit being shown
+# | Returns: the cancel position after
+#----------------------
+def ring_cancel_after_unmask(mask, cancel, option):
+    if cancel == 0xFF:
+        return cancel
+    kept = [icon for icon in range(16) if not mask & (1 << icon)]
+    return cancel + 1 if cancel < len(kept) and option < (1 << kept[cancel]) else cancel
+
+
+#----------------------
+# | patch_ranch
+# | Description: Clears option 10 from both ranch ring-menu masks, moves their cancel position past it, and fills strings 33, 61, 62 and 63.
+# | Author: suinevere
+# | Dependencies: ring_cancel_after_unmask, add_scene_strings, overlay_text.load_lines, struct
 # | Globals: RANCH_RING_MENUS, RANCH_RING_RING_LAND_OPTION
 # | Params: data -- original ranch scene bytes
 # | Returns: patched bytes; raises ValueError when the commands are not where the US disc has them
@@ -94,6 +110,7 @@ def patch_ranch(data):
         if buf[offset:offset + 3] != b"\x28\x64\x06" or struct.unpack_from("<H", buf, offset + 3)[0] != mask:
             raise ValueError("ranch ring menu at 0x%X is not the US one" % offset)
         struct.pack_into("<H", buf, offset + 3, mask & ~RANCH_RING_RING_LAND_OPTION)
+        buf[offset + 5] = ring_cancel_after_unmask(mask, buf[offset + 5], RANCH_RING_RING_LAND_OPTION)
     return add_scene_strings(bytes(buf), overlay_text.load_lines()["scene_mhm_alc2"])
 
 

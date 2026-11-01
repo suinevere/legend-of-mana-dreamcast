@@ -78,6 +78,10 @@ extern const CardaCardPathTemplate g_carda_card_path_prefix;
 extern const CardaCardPathTemplate g_carda_card_search_path;
 
 static s32 carda_rank_entries(void);
+#if defined(LOM_DREAMCAST)
+/** @brief Set once a PocketStation save is renamed, while CARDA waits for the VMU write the rename handed off. */
+static s32 s_carda_vmu_landing;
+#endif
 static s32 carda_has_known_entry_type(void);
 static s32 carda_begin_entry_scan(s32 page);
 static s32 carda_scan_next_entry(s32 page);
@@ -345,6 +349,9 @@ s32 carda_advance_card_sequence(void)
     u8 title_frame[0x80];
     struct DIRENTRY dir_entry;
     s32 attempts;
+#if defined(LOM_DREAMCAST)
+    s32 landing;
+#endif
     s32 check_attempts;
     s32 rank_index;
     s32 rank_fill;
@@ -1131,6 +1138,27 @@ s32 carda_advance_card_sequence(void)
             break;
 
         case CARDA_STEP_POLL_TEMP_POCKETSTATION_SAVE_WRITE:
+#if defined(LOM_DREAMCAST)
+            /* The VMU stores the renamed file in the background, so the bar keeps running until it lands. */
+            if (s_carda_vmu_landing != 0)
+            {
+                landing = lom_card_landing();
+                if (landing == 1)
+                {
+                    break;
+                }
+                s_carda_vmu_landing = 0;
+                if (landing != 0)
+                {
+                    g_carda_progress_bar_active = 0;
+                    carda_open_save_status_dialog(CARDA_DIALOG_SAVE_FAILED);
+                    return phase_result;
+                }
+                g_carda_save_in_progress = 0;
+                g_card_step = g_carda_steps_initial_scan;
+                break;
+            }
+#endif
             switch (poll_software_card_events())
             {
             case CARD_EVENT_COMPLETE:
@@ -1153,12 +1181,18 @@ s32 carda_advance_card_sequence(void)
                         break;
                     }
                 }
+#if defined(LOM_DREAMCAST)
+                close(g_carda_file_handle);
+                s_carda_vmu_landing = 1;
+                break;
+#else
                 g_carda_save_in_progress = 0;
                 /* Advanced, then replaced by the rescan table below. */
                 g_card_step++;
                 close(g_carda_file_handle);
                 g_card_step = g_carda_steps_initial_scan;
                 break;
+#endif
             case CARD_EVENT_ERROR:
             case CARD_EVENT_TIMEOUT:
             case CARD_EVENT_NEW_CARD:

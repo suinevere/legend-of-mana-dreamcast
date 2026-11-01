@@ -84,7 +84,7 @@ typedef struct {
     uint8_t save[0x10000];
     uint32_t save_len;
     uint32_t irq_mask, irq_flags, irq_latch;
-    uint8_t buttons, sys, held, ignore, asleep, quit;
+    uint8_t buttons, sys, held, ignore, asleep, quit, muted;
     uint8_t tick_mode;
     uint32_t tick_left, sound_left, rtc_left, rtc_half;
     uint64_t time;
@@ -401,14 +401,14 @@ void vmu_sound_stop(void) {
 
 /*----------------------
  | vmu_buzz / vmu_lcd
- | Description: Log the buzzer tone or the LCD switch, the LCD's as 0 or 1.
+ | Description: Log the buzzer tone, silence while B has muted it, or the LCD switch, the LCD's as 0 or 1.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: h
  | Params: tone -- 0 off, 1-255 a pitch step; on -- nonzero for on
  | Returns: N/A
  ----------------------*/
-void vmu_buzz(uint8_t tone) { log_call(0, tone); }
+void vmu_buzz(uint8_t tone) { log_call(0, h.muted ? 0 : tone); }
 
 void vmu_lcd(uint8_t on) { log_call(1, on != 0); }
 
@@ -535,15 +535,15 @@ void vmu_host_set_sys(uint8_t flags) { h.sys = flags; }
 
 /*----------------------
  | vmu_host_set_buttons
- | Description: Holds the buttons as the runtime reads port 3: Mode's press raises the quit request, Sleep's toggles an unseen sleep that ignores other buttons, and buttons held at the wake read as released until let go.
+ | Description: Holds the buttons as the runtime reads port 3: Mode's press raises the quit request, B's toggles the buzzer's mute, Sleep's toggles an unseen sleep that ignores other buttons, and buttons held at the wake read as released until let go.
  | Author: suinevere
  | Dependencies: request
  | Globals: h
- | Params: mask -- VMU_BTN_* bits with VMU_HOST_MODE and VMU_HOST_SLEEP
+ | Params: mask -- VMU_BTN_* bits with VMU_HOST_MODE, VMU_HOST_SLEEP and VMU_HOST_B
  | Returns: N/A
  ----------------------*/
 void vmu_host_set_buttons(uint8_t mask) {
-    uint8_t held = (uint8_t)(mask & (VMU_LINE_BUTTONS | VMU_HOST_MODE | VMU_HOST_SLEEP));
+    uint8_t held = (uint8_t)(mask & (VMU_LINE_BUTTONS | VMU_HOST_MODE | VMU_HOST_SLEEP | VMU_HOST_B));
     uint8_t press = (uint8_t)(held & ~h.held), sleep = 0;
     h.held = held;
     h.ignore &= held;
@@ -554,6 +554,7 @@ void vmu_host_set_buttons(uint8_t mask) {
     } else {
         press &= (uint8_t)~h.ignore;
         if (press & VMU_HOST_MODE) h.quit = 1;
+        if (press & VMU_HOST_B) h.muted ^= 1;
         sleep = press & VMU_HOST_SLEEP;
     }
     uint8_t eff = (uint8_t)(held & ~h.ignore & VMU_LINE_BUTTONS);

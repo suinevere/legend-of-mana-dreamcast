@@ -1,6 +1,6 @@
 """----------------------
  | test_runtime.py
- | Description: Tests the VMU runtime against vmu_host: each shared scenario runs as scenario_host on vmu_host.c and as the rt_test GAME under the harness, and the two event logs must match line for line; the sleep scenario's idle marks show the schedule stopped while asleep until the base timer's poll sees the wake (held Up keeps the port 3 interrupt off), every base timer interrupt reaches the BIOS clock, the frame buffer reaches XRAM, pet save writes land only on their pages and the package CRC, which stays valid, also on R2's slim pet, and the buzzer and LCD calls match the host's log, and on the real schedule a frame loop's runtime cost stays under a tenth of the frame, frames that outlast the tick are reported as missed ticks, and the runtime's counts stay within a period of Timer 0's, also with an overflow pending at a sync.
+ | Description: Tests the VMU runtime against vmu_host: each shared scenario runs as scenario_host on vmu_host.c and as the rt_test GAME under the harness, and the two event logs must match line for line; the sleep scenario's idle marks show the schedule stopped while asleep until the base timer's poll sees the wake (held Up keeps the port 3 interrupt off), every base timer interrupt reaches the BIOS clock, the frame buffer reaches XRAM, pet save writes land only on their pages and the package CRC, which stays valid, also on R2's slim pet, and the buzzer and LCD calls match the host's log, B mutes the buzzer until pressed again, and on the real schedule a frame loop's runtime cost stays under a tenth of the frame, frames that outlast the tick are reported as missed ticks, and the runtime's counts stay within a period of Timer 0's, also with an overflow pending at a sync.
  | Author: suinevere
  | Dependencies: pocketstation/tools/scenario.py, pocketstation/tools/psk_file.py, RES1506.BIN, pocketstation/tests/host/scenario_host.c, pocketstation/src/vmu_rt/*, pocketstation/harness/*, pocketstation/tools/vmu_flash.py, lom-pocket image
  | Globals: N/A
@@ -327,6 +327,17 @@ def test_runtime_buzz_logs_tones(tools):
     got = runtime_log("buzz", "--buzz", rel + ".buzz")
     assert got == [line for line in expect if not line.startswith("z ")]
     with open(os.path.join(BUILD, "buzz.buzz")) as f:
+        assert f.read().splitlines() == tones
+
+
+def test_runtime_b_mutes_the_buzzer(tools):
+    expect = host_log("mute")
+    tones = [line for line in expect if line.startswith("z ")]
+    assert [t.split()[-1] for t in tones] == ["60", "00", "00", "60", "00"]
+    rel = "pocketstation/build/vmu_rt/mute"
+    got = runtime_log("mute", "--buzz", rel + ".buzz")
+    assert got == [line for line in expect if not line.startswith("z ")]
+    with open(os.path.join(BUILD, "mute.buzz")) as f:
         assert f.read().splitlines() == tones
 
 

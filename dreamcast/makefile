@@ -91,7 +91,7 @@ endif
 # | Returns: N/A
 #----------------------
 KOS_SOURCES = src/main.c src/boot/overlay_loader_dc.c src/input/pad_dc.c src/system/dc_exception.c src/system/hang_watch.c src/system/dc_system.c src/system/vblank_dc.c src/video/pvr_backend_kos.c \
-	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/movie/movie_decode_kos.c src/system/soft_reset.c src/system/boot_descramble.c src/input/rumble_dc.c src/system/heap_probe.c
+	src/sound/aica.c src/sound/akao_tick_dc.c src/cd/disc_fs_kos.c src/cd/iso_dir.c src/movie/movie_decode_kos.c src/system/soft_reset.c src/system/boot_descramble.c src/input/rumble_dc.c src/system/heap_probe.c src/card/vmu_block_write_kos.c src/input/maple_sweep_dc.c
 
 #----------------------
 # | PORT_SOURCES
@@ -435,15 +435,15 @@ export KOS_LDFLAGS := $(filter-out -T%,$(KOS_LDFLAGS)) -Tdreamcast.ld
 
 #----------------------
 # | KOS_CDROM_PATCH_DIR / KOS_CDROM_PATCH_MEMBERS / KOS_CDROM_PATCH_OBJS / KOS_LIBKALLISTI / KOS_STARTUP_OBJ
-# | Description: The decomp's cdrom_init (src/cd/cdrom_dc.c) collides by name with libkallisti's own GD-ROM bring-up; these are local, renamed copies of the two libkallisti members that define or call it, linked ahead of -lkallisti so KallistiOS's real hardware init keeps running under its own symbol instead of being shadowed by ours. KOS_STARTUP_OBJ is the start code kos-cc links in, which defines the BIOS registers soft_reset.c restores.
+# | Description: The decomp's cdrom_init (src/cd/cdrom_dc.c) collides by name with libkallisti's own GD-ROM bring-up; these are local, renamed copies of the two libkallisti members that define or call it, linked ahead of -lkallisti so KallistiOS's real hardware init keeps running under its own symbol instead of being shadowed by ours. vmu.o's vmu_block_write is renamed the same way, so src/card/vmu_block_write_kos.c's bounded one serves vmufs. KOS_STARTUP_OBJ is the start code kos-cc links in, which defines the BIOS registers soft_reset.c restores.
 # | Author: suinevere
-# | Dependencies: src/cd/cdrom_dc.c
+# | Dependencies: src/cd/cdrom_dc.c, src/card/vmu_block_write_kos.c
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
 KOS_CDROM_PATCH_DIR = build/kos_patch
-KOS_CDROM_PATCH_MEMBERS = cdrom.o hardware.o
+KOS_CDROM_PATCH_MEMBERS = cdrom.o hardware.o vmu.o
 KOS_CDROM_PATCH_OBJS = $(patsubst %,$(KOS_CDROM_PATCH_DIR)/%,$(KOS_CDROM_PATCH_MEMBERS))
 KOS_LIBKALLISTI = $(KOS_BASE)/lib/dreamcast/libkallisti.a
 KOS_STARTUP_OBJ = $(KOS_BASE)/kernel/arch/dreamcast/kernel/startup.o
@@ -815,17 +815,17 @@ $(OBJS) $(OVERLAY_OBJS): $(SDK_HEADERS)
 
 #----------------------
 # | $(KOS_CDROM_PATCH_DIR)/.stamp
-# | Description: Extracts the two colliding libkallisti members and renames their cdrom_init symbol to kos_real_cdrom_init, so our decomp cdrom_init stays the only cdrom_init in the final link.
+# | Description: Extracts the patched libkallisti members and renames cdrom_init to kos_real_cdrom_init and vmu_block_write to kos_real_vmu_block_write, so ours are the only ones in the final link; redone when this makefile changes the list.
 # | Author: suinevere
-# | Dependencies: sh-elf-ar, sh-elf-objcopy, $(KOS_LIBKALLISTI)
+# | Dependencies: sh-elf-ar, sh-elf-objcopy, $(KOS_LIBKALLISTI), makefile
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-$(KOS_CDROM_PATCH_DIR)/.stamp: $(KOS_LIBKALLISTI)
+$(KOS_CDROM_PATCH_DIR)/.stamp: $(KOS_LIBKALLISTI) makefile
 	@mkdir -p $(KOS_CDROM_PATCH_DIR)
 	cd $(KOS_CDROM_PATCH_DIR) && sh-elf-ar x $(abspath $(KOS_LIBKALLISTI)) $(KOS_CDROM_PATCH_MEMBERS)
-	for o in $(KOS_CDROM_PATCH_MEMBERS); do sh-elf-objcopy --redefine-sym _cdrom_init=_kos_real_cdrom_init $(KOS_CDROM_PATCH_DIR)/$$o; done
+	for o in $(KOS_CDROM_PATCH_MEMBERS); do sh-elf-objcopy --redefine-sym _cdrom_init=_kos_real_cdrom_init --redefine-sym _vmu_block_write=_kos_real_vmu_block_write $(KOS_CDROM_PATCH_DIR)/$$o; done
 	touch $@
 
 $(KOS_CDROM_PATCH_OBJS): $(KOS_CDROM_PATCH_DIR)/.stamp

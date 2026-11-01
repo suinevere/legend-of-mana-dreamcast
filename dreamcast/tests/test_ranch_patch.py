@@ -63,10 +63,10 @@ def test_ranch_offers_ring_ring_land_and_says_its_lines(ranch):
     new_events = out[after.event_scripts:after.strings]
     assert len(old_events) == len(new_events)
     changed = {i + before.event_scripts for i in range(len(old_events)) if old_events[i] != new_events[i]}
-    assert changed == {0x2D2 + 4, 0x2DB + 4}
-    masks = {i["offset"]: i["operands"]["excluded_mask"]["value"] for i in read_event_scripts(out, after)["instructions"]
-             if i["offset"] in (0x2D2, 0x2DB)}
-    assert masks == {0x2D2: 0x1C5F & ~0x400, 0x2DB: 0x1C3F & ~0x400}
+    assert changed == {0x2D2 + 4, 0x2D2 + 5, 0x2DB + 4, 0x2DB + 5}
+    menus = {i["offset"]: i["operands"] for i in read_event_scripts(out, after)["instructions"] if i["offset"] in (0x2D2, 0x2DB)}
+    assert {k: v["excluded_mask"]["value"] for k, v in menus.items()} == {0x2D2: 0x1C5F & ~0x400, 0x2DB: 0x1C3F & ~0x400}
+    assert {k: v["cancel_index"]["value"] for k, v in menus.items()} == {0x2D2: 6, 0x2DB: 6}
     shift = after.actor_scripts - before.actor_scripts
     assert shift > 0 and shift % 4 == 0
     assert all(a - b == shift for a, b in zip(tuple(after)[3:], tuple(before)[3:]))

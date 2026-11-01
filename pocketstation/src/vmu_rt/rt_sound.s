@@ -10,15 +10,16 @@
 
 ;----------------------
 ; | rt_buzz
-; | Description: vmu_buzz: tone t sets T1LR = t >> 1, a period of 256 - (t >> 1) cycles (3.9 kHz at t 1 up to 7.75 kHz at t 255 on the 1 MHz clock), and T1LC half a period on plus t's low bit, so every tone has its own setting.
+; | Description: vmu_buzz, silent while B has muted it: tone t sets T1LR = t >> 1, a period of 256 - (t >> 1) cycles (3.9 kHz at t 1 up to 7.75 kHz at t 255 on the 1 MHz clock), and T1LC half a period on plus t's low bit, so every tone has its own setting.
 ; | Author: suinevere
 ; | Dependencies: N/A
-; | Globals: T1CNT, T1LR, T1LC, P1, P1DDR, P1FCR
+; | Globals: rt_input (RTI_FLAGS), T1CNT, T1LR, T1LC, P1, P1DDR, P1FCR
 ; | Params: ACC -- 0 silences the buzzer, 1-255 a tone
 ; | Returns: N/A. Destroys ACC, B, C.
 ;----------------------
 rt_buzz:
 	BZ rt_buzz_off
+	BP RTI_FLAGS, RTI_F_MUTE, rt_buzz_off
 	ST C
 	CLR1 PSW, 7
 	RORC

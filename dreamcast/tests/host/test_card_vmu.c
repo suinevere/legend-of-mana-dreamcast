@@ -313,6 +313,10 @@ int main(void)
     long fd;
     int i;
 
+    for (i = 0; i < 40; i++)
+    {
+        CHECK(OpenEvent(HwCARD, EvSpNEW, EvMdNOINTR, 0) != hw_ioe && OpenEvent(HwCARD, EvSpIOE, EvMdNOINTR, 0) == hw_ioe);
+    }
     CHECK(_card_info(0) == 1 && TestEvent(sw_tmo) == 1 && TestEvent(hw_tmo) == 1);
 
     card_vmu_set_store(&s_fake);

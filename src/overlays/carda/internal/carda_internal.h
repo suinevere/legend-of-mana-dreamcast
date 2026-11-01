@@ -396,6 +396,8 @@ typedef enum CardaSequenceResult
 int lom_card_game_state(int slot);
 int lom_card_game_last(int slot);
 void lom_card_game_allow_replace(int slot);
+/** @brief 1 while the VMU write a rename handed off runs, then 0 once it landed or -1 when it failed. */
+int lom_card_landing(void);
 #else
 #define CARDA_QUESTION_TEXT(index) index
 #endif

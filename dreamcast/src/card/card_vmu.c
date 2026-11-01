@@ -3,7 +3,7 @@
  | Description: Memory-card BIOS, libcard and libmcx calls answered as a PS1 memory card whose files live in a card_store (VMUs on the Dreamcast); with no store or no card a slot answers as empty.
  | Author: suinevere
  | Dependencies: libapi.h, libmcx.h, card_store.h, vmu_format.h, vmu_game.h, vmu_screen.h, stdlib.h, string.h
- | Globals: s_store, s_event_descs, s_event_specs, s_event_count, s_posted, s_mcx_pending, s_mcx_result, s_files, s_handles, s_dir, s_dir_count, s_dir_valid, s_unreadable, s_search, s_search_count, s_search_pos, s_search_pattern, s_pending, s_pending_quiet, s_deferred_kind, s_deferred_chan
+ | Globals: s_store, s_event_descs, s_event_specs, s_event_count, s_posted, s_mcx_pending, s_mcx_result, s_files, s_handles, s_dir, s_dir_count, s_dir_valid, s_unreadable, s_search, s_search_count, s_search_pos, s_search_pattern, s_pending, s_pending_quiet, s_landed, s_deferred_kind, s_deferred_chan
  | Params: N/A
  | Returns: N/A
  ----------------------*/
@@ -15,6 +15,9 @@
 #include "vmu_format.h"
 #include "vmu_game.h"
 #include "vmu_screen.h"
+#ifdef LOM_PAD_SCRIPT
+#include "dc_system.h"
+#endif
 
 /*----------------------
  | CARD_EVENT_MAX / CARD_EVENT_HANDLE_BASE
@@ -214,6 +217,17 @@ static struct card_ram_file *s_pending;
  | Returns: N/A
  ----------------------*/
 static int s_pending_quiet;
+
+/*----------------------
+ | s_landed
+ | Description: How the last background write ended, 0 or -1, for lom_card_landing.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_landed;
 
 /*----------------------
  | DEFER_NONE / DEFER_INFO / DEFER_LOAD / DEFER_CLEAR / s_deferred_kind / s_deferred_chan
@@ -753,7 +767,7 @@ static int defers_store(void)
  | Description: Stores a closed RAM file through a quiet background write, which also removes the file it replaces; when none can start it stores the file before returning.
  | Author: suinevere
  | Dependencies: slot_present, card_store_ops.write_start, store_ram
- | Globals: s_store, s_pending, s_pending_quiet
+ | Globals: s_store, s_pending, s_pending_quiet, s_landed
  | Params: file -- RAM file
  | Returns: 0 once started or stored, -1 on failure
  ----------------------*/
@@ -764,6 +778,7 @@ static int begin_store(card_ram_file *file)
     {
         s_pending = file;
         s_pending_quiet = 1;
+        s_landed = 0;
         return 0;
     }
     return store_ram(file);
@@ -771,10 +786,10 @@ static int begin_store(card_ram_file *file)
 
 /*----------------------
  | finish_pending
- | Description: Settles the background write: on success the file counts as stored and clean and its replaced file as gone; unless the write was quiet, its SwCARD outcome is posted.
+ | Description: Settles the background write: on success the file counts as stored and clean and its replaced file as gone; unless the write was quiet, its SwCARD outcome is posted. Scripted builds log the outcome.
  | Author: suinevere
- | Dependencies: clear_unreadable, note_rrl, post
- | Globals: s_pending, s_pending_quiet, s_dir_valid
+ | Dependencies: clear_unreadable, note_rrl, post, dc_log (LOM_PAD_SCRIPT)
+ | Globals: s_pending, s_pending_quiet, s_dir_valid, s_landed
  | Params: result -- job_poll's final answer, 0 or -1
  | Returns: N/A
  ----------------------*/
@@ -786,6 +801,10 @@ static void finish_pending(int result)
     s_pending = NULL;
     s_pending_quiet = 0;
     s_dir_valid[file->slot] = 0;
+    s_landed = result;
+#ifdef LOM_PAD_SCRIPT
+    dc_log("card store landed %s %d", file->name, result);
+#endif
     if (result != 0)
     {
         if (!quiet)
@@ -905,7 +924,7 @@ static card_ram_file *listing_file(int slot, int index)
 
 /*----------------------
  | OpenEvent
- | Description: Records the event's class and spec and returns a new handle; a full table returns the last handle again.
+ | Description: Returns the handle already recorded for the event's class and spec, else records them under a new one, so overlays that reopen their events on every visit never fill the table; a full table returns the last handle again.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: s_event_descs, s_event_specs, s_event_count
@@ -914,8 +933,17 @@ static card_ram_file *listing_file(int slot, int index)
  ----------------------*/
 long OpenEvent(unsigned long desc, long spec, long mode, long (*func)())
 {
+    int i;
+
     (void)mode;
     (void)func;
+    for (i = 0; i < s_event_count; i++)
+    {
+        if (s_event_descs[i] == desc && s_event_specs[i] == spec)
+        {
+            return CARD_EVENT_HANDLE_BASE | i;
+        }
+    }
     if (s_event_count < CARD_EVENT_MAX)
     {
         s_event_descs[s_event_count] = desc;
@@ -1448,6 +1476,7 @@ long lom_card_write(long fd, void *buf, long n)
             return (long)count;
         }
         s_pending = handle->file;
+        s_landed = 0;
         return (long)count;
     }
     if (handle->async)
@@ -1754,6 +1783,31 @@ char *func_800170BC(char *dst, const char *src)
 }
 
 /*----------------------
+ | lom_card_landing
+ | Description: For CARDA after a rename hands the file to a background write: whether that write is still running, else how it ended, settling it and any card request it held.
+ | Author: suinevere
+ | Dependencies: card_store_ops.job_poll, finish_pending, run_deferred
+ | Globals: s_store, s_pending, s_landed
+ | Params: N/A
+ | Returns: 1 while the write runs, then 0 once it has landed or -1 when it failed
+ ----------------------*/
+int lom_card_landing(void)
+{
+    int result;
+
+    if (s_pending != NULL)
+    {
+        if ((result = s_store->job_poll()) == 1)
+        {
+            return 1;
+        }
+        finish_pending(result);
+        run_deferred();
+    }
+    return s_landed;
+}
+
+/*----------------------
  | s_game_last
  | Description: Each slot's answer from the last lom_card_game_state, which CARDA's screens read without asking the VMU every frame.
  | Author: suinevere
@@ -1811,3 +1865,4 @@ void lom_card_game_allow_replace(int slot)
         s_store->game_allow_replace(slot);
     }
 }
+

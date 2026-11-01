@@ -2,7 +2,7 @@
 # | test_pet_transfer_flycast.py
 # | Description: Flycast checks of R2's pet transfer: CARDA mode 2 writes Ring Ring Land with the fixture pet to the VMU as the JP game fills it,
 # |              CARDA mode 3 brings the pet and its rewards back and erases the file, and the ranch's ring menu offers Ring Ring Land and opens CARDA;
-# |              a send also installs Ring Ring Land's VMU GAME from block 0, rewriting an older one and replacing another minigame after Yes, and changes nothing when declined or full; the VMU screen shows the sent pet, then the wordmark once it is home.
+# |              a send finishes only once its VMU write has landed and also installs Ring Ring Land's VMU GAME from block 0, rewriting an older one and replacing another minigame after Yes, and changes nothing when declined or full; the VMU screen shows the sent pet, then the wordmark once it is home.
 # | Author: suinevere
 # | Dependencies: tools/flycast_run.py, tools/vmu_image.py, stale_image.py, pocketstation/tools/psk_file.py, pocketstation/build/vmu_game/rrl.vms, lom_pet_send_test.cdi, lom_pet_send_decline_test.cdi, lom_pet_return_test.cdi, lom_pet_ranch_test.cdi
 # | Globals: N/A
@@ -130,6 +130,13 @@ def test_send_writes_ring_ring_land_as_the_jp_game_fills_it(send_run):
     assert sent[:kept] == psk_file.pet_transfer(res, PET_KIND, 9, PET, PLACED_LANDS, MAXED_MANA)[:kept]
     assert sent[kept:] == bytes(0xC000 - kept)
     assert len(vmu_image.chain(img, vmu_image.vmu_name_for_ps1(RRL_NAME))) <= 5
+
+
+def test_send_waits_for_the_vmu_write_before_it_finishes(send_run):
+    _, lines, _, _ = send_run
+    landed = [i for i, line in enumerate(lines) if line == "LOM: card store landed %s 0" % RRL_NAME]
+    done = [i for i, line in enumerate(lines) if line.startswith("LOM: transfer result")]
+    assert landed and done and landed[0] < done[0], [line for line in lines if "card store" in line or "transfer result" in line]
 
 
 def test_send_empties_the_ranch_slot(send_run):

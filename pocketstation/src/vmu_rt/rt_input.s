@@ -22,8 +22,8 @@ RTI_IGNORE	EQU	$FA
 RTI_FLAGS	EQU	$FB
 
 ;----------------------
-; | RTI_F_SLEEP / RTI_F_SLEPT / RTI_F_QUIT / RTI_F_LCD
-; | Description: RTI_FLAGS bit numbers: Sleep was pressed, rt_idle has stopped the schedule and blanked the LCD, Mode's press is unread, and the LCD is meant to be on.
+; | RTI_F_SLEEP / RTI_F_SLEPT / RTI_F_QUIT / RTI_F_LCD / RTI_F_MUTE
+; | Description: RTI_FLAGS bit numbers: Sleep was pressed, rt_idle has stopped the schedule and blanked the LCD, Mode's press is unread, the LCD is meant to be on, and B has muted the buzzer.
 ; | Author: suinevere
 ; | Dependencies: N/A
 ; | Globals: N/A
@@ -34,6 +34,7 @@ RTI_F_SLEEP	EQU	0
 RTI_F_SLEPT	EQU	1
 RTI_F_QUIT	EQU	2
 RTI_F_LCD	EQU	3
+RTI_F_MUTE	EQU	4
 
 ;----------------------
 ; | rt_input_init
@@ -109,7 +110,7 @@ rt_in_poll:
 
 ;----------------------
 ; | rt_in_poll_full
-; | Description: Reads port 3 into vmu_host_set_buttons' model: Mode raises the quit request, button levels follow the held lines and latch enabled lines on a press, Sleep toggles sleep, and the wake reads every held line as released until let go. Turns the port 3 interrupt off while any line is held and back on once all are released; P3 itself stays 0xFF, as a 0 latch bit turns that line's pull-up off and a released button then reads held.
+; | Description: Reads port 3 into vmu_host_set_buttons' model: Mode raises the quit request, B toggles the buzzer's mute, button levels follow the held lines and latch enabled lines on a press, Sleep toggles sleep, and the wake reads every held line as released until let go. Turns the port 3 interrupt off while any line is held and back on once all are released; P3 itself stays 0xFF, as a 0 latch bit turns that line's pull-up off and a released button then reads held.
 ; | Author: suinevere
 ; | Dependencies: N/A
 ; | Globals: rt_input, RTV_LEVELS, RTV_MASK, RTV_LATCH
@@ -141,6 +142,9 @@ rt_in_poll_awake:
 	XOR #$FF
 	AND B
 	ST B
+	BN B, 5, rt_in_poll_mode
+	NOT1 RTI_FLAGS, RTI_F_MUTE
+rt_in_poll_mode:
 	BN B, 6, rt_in_poll_levels
 	SET1 RTI_FLAGS, RTI_F_QUIT
 rt_in_poll_levels:

@@ -63,8 +63,8 @@ void vmu_host_set_entry(const uint32_t *w, uint32_t n);
 void vmu_host_set_sys(uint8_t flags);
 
 /*----------------------
- | VMU_HOST_MODE / VMU_HOST_SLEEP
- | Description: The VMU's Mode and Sleep buttons in vmu_host_set_buttons masks, beside VMU_BTN_*; neither has a line.
+ | VMU_HOST_MODE / VMU_HOST_SLEEP / VMU_HOST_B
+ | Description: The VMU's Mode, Sleep and B buttons in vmu_host_set_buttons masks, beside VMU_BTN_*; none has a line.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
@@ -73,14 +73,15 @@ void vmu_host_set_sys(uint8_t flags);
  ----------------------*/
 #define VMU_HOST_MODE 0x20
 #define VMU_HOST_SLEEP 0x40
+#define VMU_HOST_B 0x80
 
 /*----------------------
  | vmu_host_set_buttons
- | Description: Holds the buttons; a press raises its line's level and latches it if enabled, a release drops the level. Mode raises VMU_SYS_QUIT until read; Sleep sleeps unseen until pressed again, and buttons held at the wake read as released until let go.
+ | Description: Holds the buttons; a press raises its line's level and latches it if enabled, a release drops the level. Mode raises VMU_SYS_QUIT until read; B mutes the buzzer until pressed again; Sleep sleeps unseen until pressed again, and buttons held at the wake read as released until let go.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: N/A
- | Params: mask -- VMU_BTN_* bits held, with VMU_HOST_MODE and VMU_HOST_SLEEP
+ | Params: mask -- VMU_BTN_* bits held, with VMU_HOST_MODE, VMU_HOST_SLEEP and VMU_HOST_B
  | Returns: N/A
  ----------------------*/
 void vmu_host_set_buttons(uint8_t mask);
