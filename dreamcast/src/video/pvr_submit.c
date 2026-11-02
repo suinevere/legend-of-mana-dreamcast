@@ -7,8 +7,6 @@
  | Params: N/A
  | Returns: N/A
  ----------------------*/
-#include <string.h>
-
 #include "pvr_submit.h"
 #include "pvr_backend.h"
 #include "clip.h"
@@ -1125,7 +1123,7 @@ static int window_overlaps(const FrameSnapshot *snap, int x, int y, int w, int h
  ----------------------*/
 static void upload_piece(int x, int y, int w, int h, const DcGpuState *state)
 {
-    DcPrim prim;
+    DcPrim prim = { 0 };
     int px = x & ~63;
     int py = y & ~255;
     int u0 = x - px;
@@ -1134,7 +1132,6 @@ static void upload_piece(int x, int y, int w, int h, const DcGpuState *state)
     int v1 = v0 + h > 255 ? 255 : v0 + h;
     unsigned i;
 
-    memset(&prim, 0, sizeof(prim));
     prim.shape = DC_SHAPE_QUAD;
     prim.nverts = 4;
     prim.textured = 1;
@@ -1166,7 +1163,7 @@ static void upload_piece(int x, int y, int w, int h, const DcGpuState *state)
 void pvr_submit_screen_upload(int x, int y, int w, int h)
 {
     const FrameSnapshot *newest;
-    DcGpuState state;
+    DcGpuState state = { 0 };
     float origin_x = s_origin_x;
     float origin_y = s_origin_y;
     unsigned slot;
@@ -1207,7 +1204,6 @@ void pvr_submit_screen_upload(int x, int y, int w, int h)
     {
         return;
     }
-    memset(&state, 0, sizeof(state));
     state.area_x1 = (int16_t)fx;
     state.area_y1 = (int16_t)fy;
     state.area_x2 = (int16_t)(fx + SCREEN_WINDOW_W - 1);
