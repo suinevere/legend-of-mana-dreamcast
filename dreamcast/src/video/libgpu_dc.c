@@ -703,16 +703,20 @@ void SetDispMask(int mask)
 
 /*----------------------
  | LoadImage
- | Description: Uploads converted pixel data into the VRAM mirror at a rectangle.
+ | Description: Uploads converted pixel data into the VRAM mirror at a rectangle, showing it at once when it lands on a lit 15-bit screen, like FIELD's loading monster.
  | Author: suinevere
- | Dependencies: vram_mirror_load
- | Globals: N/A
+ | Dependencies: vram_mirror_load, pvr_submit_screen_upload
+ | Globals: s_disp_mask, s_disp_env
  | Params: rect -- VRAM rectangle in words, data -- converted source
  | Returns: 0
  ----------------------*/
 int LoadImage(RECT *rect, u_long *data)
 {
     vram_mirror_load(rect, data);
+    if (s_disp_mask && !s_disp_env.isrgb24)
+    {
+        pvr_submit_screen_upload(rect->x, rect->y, rect->w, rect->h);
+    }
     return 0;
 }
 

@@ -148,4 +148,15 @@ void pvr_submit_keep_screen(int keep);
  ----------------------*/
 void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height);
 
+/*----------------------
+ | pvr_submit_screen_upload
+ | Description: Shows a VRAM upload that lands in the newest frame's screen window at once, over a capture of the screen, as the PS1 display reading VRAM would.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: x, y, w, h -- VRAM rect just uploaded
+ | Returns: N/A
+ ----------------------*/
+void pvr_submit_screen_upload(int x, int y, int w, int h);
+
 #endif

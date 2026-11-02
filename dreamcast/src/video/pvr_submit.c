@@ -7,6 +7,8 @@
  | Params: N/A
  | Returns: N/A
  ----------------------*/
+#include <string.h>
+
 #include "pvr_submit.h"
 #include "pvr_backend.h"
 #include "clip.h"
@@ -652,26 +654,21 @@ static int covers_area(const DcPrim *prim, const DcGpuState *state)
 static const BlendPass SCREEN_PASS = { BL_SRCALPHA, BL_INVSRCALPHA, 255, PAL_OPAQUE, 0 };
 
 /*----------------------
- | carry_screen
- | Description: Starts a non-clearing scene with what its draw area last showed, as the PS1's untouched buffer would hold, so blends that build on the previous frame build on it here too.
- |              Captures the shown frame into the slot for its area, then draws as an opaque full-screen quad the slot captured one scene earlier for this area, else the frame just captured.
+ | capture_shown_screen
+ | Description: Waits for every closed scene to reach the screen, then captures the shown frame into the slot kept for its draw area, else the oldest slot.
  | Author: suinevere
- | Dependencies: PvrBackend.scene_shown, PvrBackend.wait_shown, promote_pending_rect, PvrBackend.capture_screen, PvrBackend.screen_texture, open_scene, invert_close, send_header, PvrBackend.strip
- | Globals: s_backend, s_scenes_closed, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_carry, s_scene_has_prims
- | Params: state -- GPU state carrying the scene's draw area
- | Returns: N/A
+ | Dependencies: PvrBackend.scene_shown, PvrBackend.wait_shown, promote_pending_rect, PvrBackend.capture_screen
+ | Globals: s_backend, s_scenes_closed, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_carry
+ | Params: captured -- output, the slot now holding the shown frame
+ | Returns: 1 once captured, 0 when the wait expired, no frame is known or no texture memory was free
  ----------------------*/
-static void carry_screen(const DcGpuState *state)
+static int capture_shown_screen(unsigned *captured)
 {
-    PvrVertex quad[4] = { { 0.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFFFFu }, { 640.0f, 0.0f, 320.0f / 512.0f, 0.0f, 0xFFFFFFFFu },
-                          { 0.0f, 480.0f, 0.0f, 240.0f / 256.0f, 0xFFFFFFFFu }, { 640.0f, 480.0f, 320.0f / 512.0f, 240.0f / 256.0f, 0xFFFFFFFFu } };
-    const DcSurfaceTexture *tex;
     unsigned slot;
-    unsigned use;
 
     if (!s_backend->scene_shown(s_scenes_closed) && !s_backend->wait_shown(s_scenes_closed))
     {
-        return;
+        return 0;
     }
     if (s_pending_rect_valid)
     {
@@ -679,7 +676,7 @@ static void carry_screen(const DcGpuState *state)
     }
     if (!s_frame_rect_valid)
     {
-        return;
+        return 0;
     }
     slot = s_carry[1].valid && s_carry[1].x == s_frame_rect.rect.x && s_carry[1].y == s_frame_rect.rect.y ? 1u : 0u;
     if (!(s_carry[slot].valid && s_carry[slot].x == s_frame_rect.rect.x && s_carry[slot].y == s_frame_rect.rect.y))
@@ -688,18 +685,32 @@ static void carry_screen(const DcGpuState *state)
     }
     if (!s_backend->capture_screen(slot))
     {
-        return;
+        return 0;
     }
     s_carry[slot].valid = 1;
     s_carry[slot].x = s_frame_rect.rect.x;
     s_carry[slot].y = s_frame_rect.rect.y;
     s_carry[slot].stamp = s_scenes_closed;
-    use = slot;
-    if (s_carry[!slot].valid && s_carry[!slot].x == state->area_x1 && s_carry[!slot].y == state->area_y1 && s_carry[!slot].stamp + 1u == s_scenes_closed)
-    {
-        use = !slot;
-    }
-    tex = s_backend->screen_texture(use);
+    *captured = slot;
+    return 1;
+}
+
+/*----------------------
+ | draw_screen_slot
+ | Description: Opens the scene if needed and draws a captured screen slot as an opaque full-screen quad.
+ | Author: suinevere
+ | Dependencies: PvrBackend.screen_texture, open_scene, invert_close, send_header, PvrBackend.strip
+ | Globals: s_backend, s_scene_has_prims
+ | Params: slot -- 0 or 1
+ | Returns: N/A
+ ----------------------*/
+static void draw_screen_slot(unsigned slot)
+{
+    PvrVertex quad[4] = { { 0.0f, 0.0f, 0.0f, 0.0f, 0xFFFFFFFFu }, { 640.0f, 0.0f, 320.0f / 512.0f, 0.0f, 0xFFFFFFFFu },
+                          { 0.0f, 480.0f, 0.0f, 240.0f / 256.0f, 0xFFFFFFFFu }, { 640.0f, 480.0f, 320.0f / 512.0f, 240.0f / 256.0f, 0xFFFFFFFFu } };
+    const DcSurfaceTexture *tex;
+
+    tex = s_backend->screen_texture(slot);
     if (tex == 0)
     {
         return;
@@ -709,6 +720,33 @@ static void carry_screen(const DcGpuState *state)
     send_header(tex, &SCREEN_PASS);
     s_backend->strip(quad, 4);
     s_scene_has_prims = 1;
+}
+
+/*----------------------
+ | carry_screen
+ | Description: Starts a non-clearing scene with what its draw area last showed, as the PS1's untouched buffer would hold, so blends that build on the previous frame build on it here too.
+ |              Draws the slot captured one scene earlier for this area, else the frame just captured.
+ | Author: suinevere
+ | Dependencies: capture_shown_screen, draw_screen_slot
+ | Globals: s_carry, s_scenes_closed
+ | Params: state -- GPU state carrying the scene's draw area
+ | Returns: N/A
+ ----------------------*/
+static void carry_screen(const DcGpuState *state)
+{
+    unsigned slot;
+    unsigned use;
+
+    if (!capture_shown_screen(&slot))
+    {
+        return;
+    }
+    use = slot;
+    if (s_carry[!slot].valid && s_carry[!slot].x == state->area_x1 && s_carry[!slot].y == state->area_y1 && s_carry[!slot].stamp + 1u == s_scenes_closed)
+    {
+        use = !slot;
+    }
+    draw_screen_slot(use);
 }
 
 void pvr_submit_keep_screen(int keep)
@@ -1045,4 +1083,150 @@ int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *orig
     *origin_x = s_frame_rect.origin_x;
     *origin_y = s_frame_rect.origin_y;
     return 1;
+}
+
+/*----------------------
+ | SCREEN_WINDOW_W, SCREEN_WINDOW_H
+ | Description: The PS1 pixels a shown frame covers in VRAM from its window's top-left corner.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define SCREEN_WINDOW_W 320
+#define SCREEN_WINDOW_H 240
+
+/*----------------------
+ | window_overlaps
+ | Description: Whether a VRAM rect touches the screen window a snapshot's draw area was shown through.
+ | Author: suinevere
+ | Dependencies: FrameSnapshot
+ | Globals: N/A
+ | Params: snap -- draw area and screen origin, x, y, w, h -- VRAM rect
+ | Returns: 1 on overlap, else 0
+ ----------------------*/
+static int window_overlaps(const FrameSnapshot *snap, int x, int y, int w, int h)
+{
+    int fx = snap->rect.x - snap->origin_x;
+    int fy = snap->rect.y - snap->origin_y;
+
+    return x < fx + SCREEN_WINDOW_W && fx < x + w && y < fy + SCREEN_WINDOW_H && fy < y + h;
+}
+
+/*----------------------
+ | upload_piece
+ | Description: Submits one opaque 15-bit textured quad sampling VRAM at its own position, within one texture page.
+ | Author: suinevere
+ | Dependencies: pvr_submit_prim
+ | Globals: N/A
+ | Params: x, y, w, h -- VRAM rect inside one page, state -- screen-window draw state
+ | Returns: N/A
+ ----------------------*/
+static void upload_piece(int x, int y, int w, int h, const DcGpuState *state)
+{
+    DcPrim prim;
+    int px = x & ~63;
+    int py = y & ~255;
+    int u0 = x - px;
+    int v0 = y - py;
+    int u1 = u0 + w > 255 ? 255 : u0 + w;
+    int v1 = v0 + h > 255 ? 255 : v0 + h;
+    unsigned i;
+
+    memset(&prim, 0, sizeof(prim));
+    prim.shape = DC_SHAPE_QUAD;
+    prim.nverts = 4;
+    prim.textured = 1;
+    prim.raw = 1;
+    prim.depth = DC_DEPTH_15;
+    prim.tpage_x = (uint16_t)px;
+    prim.tpage_y = (uint16_t)py;
+    for (i = 0; i < 4; i++)
+    {
+        prim.v[i].x = (int16_t)(i & 1u ? x + w : x);
+        prim.v[i].y = (int16_t)(i & 2u ? y + h : y);
+        prim.v[i].u = (uint8_t)(i & 1u ? u1 : u0);
+        prim.v[i].v = (uint8_t)(i & 2u ? v1 : v0);
+        prim.v[i].r = prim.v[i].g = prim.v[i].b = 0x80;
+    }
+    pvr_submit_prim(&prim, state);
+}
+
+/*----------------------
+ | pvr_submit_screen_upload
+ | Description: Shows a VRAM upload that lands in the newest frame's screen window at once, as the PS1 display would, by flipping a scene of the captured screen with the upload drawn over it.
+ |              An open scene with prims is flipped first; an open scene without prims, or an upload elsewhere, is left alone.
+ | Author: suinevere
+ | Dependencies: window_overlaps, pvr_submit_flip, capture_shown_screen, draw_screen_slot, upload_piece, PvrBackend.scene_shown, promote_pending_rect
+ | Globals: s_backend, s_scene_open, s_scene_has_prims, s_scene_area, s_scene_area_valid, s_pending_rect, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_scenes_closed, s_origin_x, s_origin_y
+ | Params: x, y, w, h -- VRAM rect just uploaded
+ | Returns: N/A
+ ----------------------*/
+void pvr_submit_screen_upload(int x, int y, int w, int h)
+{
+    const FrameSnapshot *newest;
+    DcGpuState state;
+    float origin_x = s_origin_x;
+    float origin_y = s_origin_y;
+    unsigned slot;
+    int fx, fy, x1, y1, x2, y2, sx, sy, sw, sh;
+
+    if (s_pending_rect_valid && s_backend->scene_shown(s_scenes_closed))
+    {
+        promote_pending_rect();
+    }
+    if (s_scene_open)
+    {
+        if (!s_scene_has_prims || !s_scene_area_valid)
+        {
+            return;
+        }
+        newest = &s_scene_area;
+    }
+    else
+    {
+        newest = s_pending_rect_valid ? &s_pending_rect : s_frame_rect_valid ? &s_frame_rect : 0;
+    }
+    if (newest == 0 || !window_overlaps(newest, x, y, w, h))
+    {
+        return;
+    }
+    pvr_submit_flip();
+    if (!capture_shown_screen(&slot))
+    {
+        return;
+    }
+    fx = s_frame_rect.rect.x - s_frame_rect.origin_x;
+    fy = s_frame_rect.rect.y - s_frame_rect.origin_y;
+    x1 = x > fx ? x : fx;
+    y1 = y > fy ? y : fy;
+    x2 = x + w < fx + SCREEN_WINDOW_W ? x + w : fx + SCREEN_WINDOW_W;
+    y2 = y + h < fy + SCREEN_WINDOW_H ? y + h : fy + SCREEN_WINDOW_H;
+    if (x1 >= x2 || y1 >= y2)
+    {
+        return;
+    }
+    memset(&state, 0, sizeof(state));
+    state.area_x1 = (int16_t)fx;
+    state.area_y1 = (int16_t)fy;
+    state.area_x2 = (int16_t)(fx + SCREEN_WINDOW_W - 1);
+    state.area_y2 = (int16_t)(fy + SCREEN_WINDOW_H - 1);
+    s_origin_x = 0.0f;
+    s_origin_y = 0.0f;
+    draw_screen_slot(slot);
+    for (sy = y1; sy < y2; sy += sh)
+    {
+        sh = 256 - (sy & 255);
+        sh = y2 - sy < sh ? y2 - sy : sh;
+        for (sx = x1; sx < x2; sx += sw)
+        {
+            sw = 256 - (sx - (sx & ~63));
+            sw = x2 - sx < sw ? x2 - sx : sw;
+            upload_piece(sx, sy, sw, sh, &state);
+        }
+    }
+    pvr_submit_flip();
+    s_origin_x = origin_x;
+    s_origin_y = origin_y;
 }

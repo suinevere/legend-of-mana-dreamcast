@@ -941,6 +941,88 @@ static void test_flip_leaves_no_scene_with_prims(void)
     CHECK(pvr_submit_scene_has_prims() == 0);
 }
 
+/*----------------------
+ | fill_upload
+ | Description: Fills a 32x32 15-bit upload with opaque white.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: pixels -- 32x32 halfwords
+ | Returns: N/A
+ ----------------------*/
+static void fill_upload(u_long *pixels)
+{
+    int i;
+
+    for (i = 0; i < 32 * 32; i++)
+    {
+        ((uint16_t *)pixels)[i] = 0x7FFF;
+    }
+}
+
+static void test_upload_into_the_shown_frame_flips_it_over_the_screen(void)
+{
+    static u_long pixels[32 * 32 / 2];
+    RECT tile = { 288, 180, 32, 32 };
+    RECT texture = { 512, 0, 32, 32 };
+    DISPENV disp;
+    int finishes;
+    int captures;
+
+    fill_upload(pixels);
+    reset();
+    s_scene_shown_result = 1;
+    SetDefDispEnv(&disp, 0, 0, 320, 240);
+    PutDispEnv(&disp);
+    SetDispMask(1);
+    put_draw_area(0, 8, 320, 224);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    finishes = s_finishes;
+    captures = s_captures;
+    LoadImage(&texture, pixels);
+    CHECK(s_finishes == finishes && s_captures == captures);
+    LoadImage(&tile, pixels);
+    CHECK(s_captures == captures + 1);
+    CHECK(s_finishes == finishes + 1);
+    CHECK(s_strips_in_last_scene == 2);
+    CHECK(s_last_strip_min_x == 576.0f && s_last_strip_max_x == 640.0f);
+    CHECK(s_last_strip_min_y == 360.0f && s_last_strip_max_y == 424.0f);
+    SetDispMask(0);
+    s_scene_shown_result = 0;
+}
+
+static void test_upload_into_an_open_scene_flips_it_first(void)
+{
+    static u_long pixels[32 * 32 / 2];
+    RECT front = { 288, 180, 32, 32 };
+    RECT back = { 288, 412, 32, 32 };
+    DISPENV disp;
+    int finishes;
+    int captures;
+
+    fill_upload(pixels);
+    reset();
+    s_scene_shown_result = 1;
+    SetDefDispEnv(&disp, 0, 232, 320, 240);
+    PutDispEnv(&disp);
+    SetDispMask(1);
+    put_draw_area(0, 240, 320, 224);
+    draw_tile_ot(10, 10);
+    finishes = s_finishes;
+    captures = s_captures;
+    LoadImage(&front, pixels);
+    CHECK(s_finishes == finishes && s_captures == captures);
+    LoadImage(&back, pixels);
+    CHECK(s_finishes == finishes + 2);
+    CHECK(s_captures == captures + 1);
+    CHECK(s_last_strip_min_y == 360.0f && s_last_strip_max_y == 424.0f);
+    LoadImage(&front, pixels);
+    CHECK(s_finishes == finishes + 2);
+    SetDispMask(0);
+    s_scene_shown_result = 0;
+}
+
 int main(void)
 {
     texture_cache_init(&s_texture_ops);
@@ -962,6 +1044,8 @@ int main(void)
     test_flip_reports_only_scenes_that_drew();
     test_frame_settle_waits_for_a_closed_scene_a_read_overlaps();
     test_frame_settle_flushes_an_open_scene_a_read_overlaps();
+    test_upload_into_the_shown_frame_flips_it_over_the_screen();
+    test_upload_into_an_open_scene_flips_it_first();
     test_keep_screen_scene_starts_with_what_its_area_last_showed();
     test_keep_screen_carry_needs_a_blended_full_area_lead();
     test_flip_leaves_no_scene_with_prims();

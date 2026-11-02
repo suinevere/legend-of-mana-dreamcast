@@ -201,6 +201,26 @@ void pvr_frame_settle(int x, int y, int w, int h)
     (void)h;
 }
 
+/*----------------------
+ | s_screen_uploads / pvr_submit_screen_upload
+ | Description: Counts the uploads libgpu hands on to be shown on screen.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: s_screen_uploads
+ | Params: x, y, w, h -- ignored
+ | Returns: N/A
+ ----------------------*/
+static int s_screen_uploads;
+
+void pvr_submit_screen_upload(int x, int y, int w, int h)
+{
+    (void)x;
+    (void)y;
+    (void)w;
+    (void)h;
+    s_screen_uploads++;
+}
+
 int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y)
 {
     if (!s_frame_rect_valid)
@@ -952,6 +972,30 @@ static void test_move_image_reads_the_shown_frame_like_screen_transition(void)
     CHECK((((unsigned short *)dst)[10] & 0x1Fu) == 10u);
 }
 
+static void test_load_image_shows_only_on_a_lit_15bit_screen(void)
+{
+    RECT rect = { 288, 180, 1, 1 };
+    u_long px[1] = { 0 };
+    DISPENV env;
+
+    SetDefDispEnv(&env, 0, 0, 320, 240);
+    PutDispEnv(&env);
+    s_screen_uploads = 0;
+    SetDispMask(0);
+    LoadImage(&rect, px);
+    CHECK(s_screen_uploads == 0);
+    SetDispMask(1);
+    LoadImage(&rect, px);
+    CHECK(s_screen_uploads == 1);
+    env.isrgb24 = 1;
+    PutDispEnv(&env);
+    LoadImage(&rect, px);
+    CHECK(s_screen_uploads == 1);
+    env.isrgb24 = 0;
+    PutDispEnv(&env);
+    SetDispMask(0);
+}
+
 static void test_vsync_flips_only_on_waiting_modes(void)
 {
     reset_calls();
@@ -1131,6 +1175,7 @@ int main(void)
     test_store_image_only_touches_the_frame_overlap();
     test_store_image_clips_to_the_320x240_screen();
     test_move_image_reads_the_shown_frame_like_screen_transition();
+    test_load_image_shows_only_on_a_lit_15bit_screen();
     test_vsync_flips_only_on_waiting_modes();
     test_vsync_shows_a_late_24bit_frame_without_another_wait();
     test_draw_sync_flips_a_scene_drawn_into_the_displayed_area();
