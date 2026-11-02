@@ -155,8 +155,8 @@ void pvr_submit_rgb24(const uint16_t *pixels, unsigned width, unsigned height);
  | Dependencies: N/A
  | Globals: N/A
  | Params: x, y, w, h -- VRAM rect just uploaded
- | Returns: N/A
+ | Returns: 1 if a scene showing the upload was flipped, else 0
  ----------------------*/
-void pvr_submit_screen_upload(int x, int y, int w, int h);
+int pvr_submit_screen_upload(int x, int y, int w, int h);
 
 #endif

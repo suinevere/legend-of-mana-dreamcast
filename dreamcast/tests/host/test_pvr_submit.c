@@ -971,6 +971,7 @@ static void test_upload_into_the_shown_frame_flips_it_over_the_screen(void)
 
     fill_upload(pixels);
     reset();
+    s_fake_vblanks += 30;
     s_scene_shown_result = 1;
     SetDefDispEnv(&disp, 0, 0, 320, 240);
     PutDispEnv(&disp);
@@ -1003,6 +1004,7 @@ static void test_upload_into_an_open_scene_flips_it_first(void)
 
     fill_upload(pixels);
     reset();
+    s_fake_vblanks += 30;
     s_scene_shown_result = 1;
     SetDefDispEnv(&disp, 0, 232, 320, 240);
     PutDispEnv(&disp);

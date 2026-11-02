@@ -102,12 +102,13 @@ void pvr_frame_settle(int x, int y, int w, int h)
     (void)h;
 }
 
-void pvr_submit_screen_upload(int x, int y, int w, int h)
+int pvr_submit_screen_upload(int x, int y, int w, int h)
 {
     (void)x;
     (void)y;
     (void)w;
     (void)h;
+    return 0;
 }
 
 int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y)

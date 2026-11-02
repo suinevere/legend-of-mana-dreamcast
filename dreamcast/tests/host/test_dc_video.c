@@ -203,22 +203,23 @@ void pvr_frame_settle(int x, int y, int w, int h)
 
 /*----------------------
  | s_screen_uploads / pvr_submit_screen_upload
- | Description: Counts the uploads libgpu hands on to be shown on screen.
+ | Description: Counts the uploads libgpu hands on to be shown on screen, each reported as shown.
  | Author: suinevere
  | Dependencies: N/A
  | Globals: s_screen_uploads
  | Params: x, y, w, h -- ignored
- | Returns: N/A
+ | Returns: 1
  ----------------------*/
 static int s_screen_uploads;
 
-void pvr_submit_screen_upload(int x, int y, int w, int h)
+int pvr_submit_screen_upload(int x, int y, int w, int h)
 {
     (void)x;
     (void)y;
     (void)w;
     (void)h;
     s_screen_uploads++;
+    return 1;
 }
 
 int pvr_frame_rect(int16_t *x, int16_t *y, int16_t *w, int16_t *h, int16_t *origin_x, int16_t *origin_y)
@@ -981,16 +982,24 @@ static void test_load_image_shows_only_on_a_lit_15bit_screen(void)
     SetDefDispEnv(&env, 0, 0, 320, 240);
     PutDispEnv(&env);
     s_screen_uploads = 0;
+    s_fake_vblanks += 30;
     SetDispMask(0);
     LoadImage(&rect, px);
     CHECK(s_screen_uploads == 0);
     SetDispMask(1);
     LoadImage(&rect, px);
     CHECK(s_screen_uploads == 1);
+    s_fake_vblanks += 29;
+    LoadImage(&rect, px);
+    CHECK(s_screen_uploads == 1);
+    s_fake_vblanks += 1;
+    LoadImage(&rect, px);
+    CHECK(s_screen_uploads == 2);
+    s_fake_vblanks += 30;
     env.isrgb24 = 1;
     PutDispEnv(&env);
     LoadImage(&rect, px);
-    CHECK(s_screen_uploads == 1);
+    CHECK(s_screen_uploads == 2);
     env.isrgb24 = 0;
     PutDispEnv(&env);
     SetDispMask(0);

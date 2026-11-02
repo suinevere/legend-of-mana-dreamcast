@@ -1158,9 +1158,9 @@ static void upload_piece(int x, int y, int w, int h, const DcGpuState *state)
  | Dependencies: window_overlaps, pvr_submit_flip, capture_shown_screen, draw_screen_slot, upload_piece, PvrBackend.scene_shown, promote_pending_rect
  | Globals: s_backend, s_scene_open, s_scene_has_prims, s_scene_area, s_scene_area_valid, s_pending_rect, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_scenes_closed, s_origin_x, s_origin_y
  | Params: x, y, w, h -- VRAM rect just uploaded
- | Returns: N/A
+ | Returns: 1 if a scene showing the upload was flipped, else 0
  ----------------------*/
-void pvr_submit_screen_upload(int x, int y, int w, int h)
+int pvr_submit_screen_upload(int x, int y, int w, int h)
 {
     const FrameSnapshot *newest;
     DcGpuState state = { 0 };
@@ -1177,7 +1177,7 @@ void pvr_submit_screen_upload(int x, int y, int w, int h)
     {
         if (!s_scene_has_prims || !s_scene_area_valid)
         {
-            return;
+            return 0;
         }
         newest = &s_scene_area;
     }
@@ -1187,12 +1187,12 @@ void pvr_submit_screen_upload(int x, int y, int w, int h)
     }
     if (newest == 0 || !window_overlaps(newest, x, y, w, h))
     {
-        return;
+        return 0;
     }
     pvr_submit_flip();
     if (!capture_shown_screen(&slot))
     {
-        return;
+        return 0;
     }
     fx = s_frame_rect.rect.x - s_frame_rect.origin_x;
     fy = s_frame_rect.rect.y - s_frame_rect.origin_y;
@@ -1202,7 +1202,7 @@ void pvr_submit_screen_upload(int x, int y, int w, int h)
     y2 = y + h < fy + SCREEN_WINDOW_H ? y + h : fy + SCREEN_WINDOW_H;
     if (x1 >= x2 || y1 >= y2)
     {
-        return;
+        return 0;
     }
     state.area_x1 = (int16_t)fx;
     state.area_y1 = (int16_t)fy;
@@ -1225,4 +1225,5 @@ void pvr_submit_screen_upload(int x, int y, int w, int h)
     pvr_submit_flip();
     s_origin_x = origin_x;
     s_origin_y = origin_y;
+    return 1;
 }

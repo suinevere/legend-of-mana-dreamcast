@@ -702,20 +702,46 @@ void SetDispMask(int mask)
 }
 
 /*----------------------
+ | DC_SCREEN_UPLOAD_HOLD_VBLANKS
+ | Description: Vblanks a shown screen upload stays up before the next one may show, pacing FIELD's loading monster near the PS1's CD-bound 1-2 fps.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+#define DC_SCREEN_UPLOAD_HOLD_VBLANKS 30u
+
+/*----------------------
+ | s_screen_upload_shown / s_screen_upload_vblank
+ | Description: Whether a screen upload has been shown, and the vblank count when the last one was.
+ | Author: suinevere
+ | Dependencies: N/A
+ | Globals: N/A
+ | Params: N/A
+ | Returns: N/A
+ ----------------------*/
+static int s_screen_upload_shown;
+static unsigned s_screen_upload_vblank;
+
+/*----------------------
  | LoadImage
  | Description: Uploads converted pixel data into the VRAM mirror at a rectangle, showing it at once when it lands on a lit 15-bit screen, like FIELD's loading monster.
+ |              Uploads within DC_SCREEN_UPLOAD_HOLD_VBLANKS of the last one shown only reach the mirror, since the Dreamcast loads far faster than the PS1's CD paced them.
  | Author: suinevere
- | Dependencies: vram_mirror_load, pvr_submit_screen_upload
- | Globals: s_disp_mask, s_disp_env
+ | Dependencies: vram_mirror_load, pvr_submit_screen_upload, vsync_count
+ | Globals: s_disp_mask, s_disp_env, s_screen_upload_shown, s_screen_upload_vblank
  | Params: rect -- VRAM rectangle in words, data -- converted source
  | Returns: 0
  ----------------------*/
 int LoadImage(RECT *rect, u_long *data)
 {
     vram_mirror_load(rect, data);
-    if (s_disp_mask && !s_disp_env.isrgb24)
+    if (s_disp_mask && !s_disp_env.isrgb24 && (!s_screen_upload_shown || vsync_count() - s_screen_upload_vblank >= DC_SCREEN_UPLOAD_HOLD_VBLANKS)
+        && pvr_submit_screen_upload(rect->x, rect->y, rect->w, rect->h))
     {
-        pvr_submit_screen_upload(rect->x, rect->y, rect->w, rect->h);
+        s_screen_upload_shown = 1;
+        s_screen_upload_vblank = vsync_count();
     }
     return 0;
 }
