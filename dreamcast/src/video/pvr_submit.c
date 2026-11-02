@@ -995,10 +995,10 @@ int pvr_submit_scene_has_prims(void)
 /*----------------------
  | pvr_frame_settle
  | Description: When the rect overlaps the last closed scene's area but not the frame on screen, and that scene is not yet shown, waits for it through PvrBackend.wait_shown and promotes it.
- |              Real renders finish after the vblank a game's VSync returned on, so a capture early in the next frame otherwise read the frame before it, often the other buffer, and got black.
+ |              An open scene that drew into the rect is flipped and waited for first, since the PS1 reads its pixels after DrawSync rather than an older frame of the same buffer.
  | Author: suinevere
- | Dependencies: PvrBackend.scene_shown, PvrBackend.wait_shown, promote_pending_rect
- | Globals: s_backend, s_pending_rect, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_scenes_closed
+ | Dependencies: pvr_submit_flip, PvrBackend.scene_shown, PvrBackend.wait_shown, promote_pending_rect
+ | Globals: s_backend, s_scene_open, s_scene_area, s_scene_area_valid, s_scene_has_prims, s_pending_rect, s_pending_rect_valid, s_frame_rect, s_frame_rect_valid, s_scenes_closed
  | Params: x, y, w, h -- VRAM rect about to be read
  | Returns: N/A
  ----------------------*/
@@ -1006,12 +1006,19 @@ void pvr_frame_settle(int x, int y, int w, int h)
 {
     const RECT *r = &s_pending_rect.rect;
     const RECT *f = &s_frame_rect.rect;
+    const RECT *s = &s_scene_area.rect;
+    int flushed = 0;
 
+    if (s_scene_open && s_scene_area_valid && s_scene_has_prims && x < s->x + s->w && s->x < x + w && y < s->y + s->h && s->y < y + h)
+    {
+        pvr_submit_flip();
+        flushed = 1;
+    }
     if (!s_pending_rect_valid || x >= r->x + r->w || r->x >= x + w || y >= r->y + r->h || r->y >= y + h)
     {
         return;
     }
-    if (s_frame_rect_valid && x < f->x + f->w && f->x < x + w && y < f->y + f->h && f->y < y + h)
+    if (!flushed && s_frame_rect_valid && x < f->x + f->w && f->x < x + w && y < f->y + f->h && f->y < y + h)
     {
         return;
     }

@@ -718,6 +718,37 @@ static void test_frame_settle_waits_for_a_closed_scene_a_read_overlaps(void)
     s_scene_shown_result = 0;
 }
 
+static void test_frame_settle_flushes_an_open_scene_a_read_overlaps(void)
+{
+    int16_t x, y, w, h, ox, oy;
+    int finishes;
+
+    reset();
+    s_scene_shown_result = 1;
+    put_draw_area(0, 240, 320, 224);
+    draw_tile_ot(10, 10);
+    VSync(0);
+    put_draw_area(0, 0, 320, 240);
+    draw_tile_ot(10, 10);
+    s_scene_shown_result = 0;
+    VSync(0);
+    s_scene_begin_result = 0;
+    put_draw_area(0, 240, 320, 240);
+    draw_tile_ot(10, 10);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(y == 240 && h == 224);
+    s_wait_shown_calls = 0;
+    finishes = s_finishes;
+    pvr_frame_settle(0, 240, 320, 240);
+    CHECK(s_finishes == finishes + 1);
+    CHECK(s_wait_shown_calls == 1);
+    CHECK(pvr_submit_scene_has_prims() == 0);
+    CHECK(pvr_frame_rect(&x, &y, &w, &h, &ox, &oy) == 1);
+    CHECK(y == 240 && h == 240);
+    s_scene_begin_result = 1;
+    s_scene_shown_result = 0;
+}
+
 /*----------------------
  | test_rgb24_frame_is_one_opaque_full_screen_scene
  | Description: An RGB24 frame loads its texture once and draws one full-screen strip with it in a scene of its own, counted by the probe.
@@ -930,6 +961,7 @@ int main(void)
     test_frame_rect_promotes_lazily_once_the_flip_is_shown();
     test_flip_reports_only_scenes_that_drew();
     test_frame_settle_waits_for_a_closed_scene_a_read_overlaps();
+    test_frame_settle_flushes_an_open_scene_a_read_overlaps();
     test_keep_screen_scene_starts_with_what_its_area_last_showed();
     test_keep_screen_carry_needs_a_blended_full_area_lead();
     test_flip_leaves_no_scene_with_prims();
