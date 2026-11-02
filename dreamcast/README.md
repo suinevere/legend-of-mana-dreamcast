@@ -176,7 +176,7 @@ The frozen program refuses a kit folder from another release (its tag is checked
 python dreamcast/tools/flycast_run.py [--seconds N] [--until TEXT] [image]
 ```
 
-It exits 0 when `TEXT` appears (or after N seconds with no `TEXT`), 2 on a `LOM HALT:` line and 3 on a timeout waiting for `TEXT`. It makes a temporary job folder holding `config/flycast/emu.cfg` with `Debug.SerialConsoleEnabled = yes` and runs `docker run --rm --init ... lom-flycast xvfb-run -a flycast /disc/<image>`. Flycast on Linux writes each serial byte to its stdout, so the log arrives on the pipe about 3 seconds after launch. `--init` is required: with `xvfb-run` as PID 1 the container prints nothing. Your own Flycast settings are never read or written. The Windows Flycast build is fine for watching the screen, but its serial console stays empty.
+It exits 0 when `TEXT` appears (or after N seconds with no `TEXT`), 2 on a `LOM HALT:` line and 3 on a timeout waiting for `TEXT`. It makes a temporary job folder holding `config/flycast/emu.cfg` with `Debug.SerialConsoleEnabled = yes` and `rend.EmulateFramebuffer = yes` and runs `docker run --rm --init ... lom-flycast xvfb-run -a flycast /disc/<image>`. Flycast on Linux writes each serial byte to its stdout, so the log arrives on the pipe about 3 seconds after launch. `--init` is required: with `xvfb-run` as PID 1 the container prints nothing. Your own Flycast settings are never read or written. The Windows Flycast build is fine for watching the screen, but its serial console stays empty, and it needs Full Framebuffer Emulation turned on for the world-map exit and other screen readbacks to draw.
 
 **Debug disc.** `compile-debug.bat` adds the hidden debug start to the title menu.
 

@@ -44,13 +44,14 @@ DOCKER_IMAGE = "lom-flycast"
 #----------------------
 # | EMU_CFG
 # | Description: Flycast settings written to the job-local config dir for a plain boot check; SerialConsoleEnabled sends guest SCIF bytes to Flycast's stdout, and aica.DSPEnabled runs the AICA DSP (off by default).
+# |              rend.EmulateFramebuffer writes each rendered frame into emulated VRAM, which the port reads back for the world-map exit panels and screen carries.
 # | Author: suinevere
 # | Dependencies: Flycast v2.7 core/cfg/option.cpp
 # | Globals: N/A
 # | Params: N/A
 # | Returns: N/A
 #----------------------
-EMU_CFG = "[config]\nDebug.SerialConsoleEnabled = yes\naica.DSPEnabled = yes\n"
+EMU_CFG = "[config]\nDebug.SerialConsoleEnabled = yes\naica.DSPEnabled = yes\nrend.EmulateFramebuffer = yes\n"
 
 #----------------------
 # | EMU_CFG_VMU / EMU_CFG_NO_VMU / VMU_FILE / MAPLE_NONE
@@ -69,7 +70,7 @@ EMU_CFG_NO_VMU = "PerGameVmu = no\n\n[input]\ndevice1.1 = %d\ndevice1.2 = %d\n" 
 
 #----------------------
 # | EMU_CFG_CAPTURE
-# | Description: Flycast settings used while capturing: SerialConsoleEnabled and aica.DSPEnabled, plus a fullscreen 640x480 SDL window that fills the fixed-size Xvfb screen exactly.
+# | Description: Flycast settings used while capturing: SerialConsoleEnabled, aica.DSPEnabled and rend.EmulateFramebuffer, plus a fullscreen 640x480 SDL window that fills the fixed-size Xvfb screen exactly.
 # |              Flycast v2.7 core/sdl/sdl.cpp reads [window] width/height/fullscreen via config::loadInt/loadBool.
 # | Author: suinevere
 # | Dependencies: Flycast v2.7 core/sdl/sdl.cpp (window.width, window.height, window.fullscreen, window.maximized)
@@ -79,7 +80,7 @@ EMU_CFG_NO_VMU = "PerGameVmu = no\n\n[input]\ndevice1.1 = %d\ndevice1.2 = %d\n" 
 #----------------------
 EMU_CFG_CAPTURE = (
     "\n[window]\nwidth = 640\nheight = 480\nfullscreen = yes\nmaximized = no\n"
-    "\n[config]\nDebug.SerialConsoleEnabled = yes\naica.DSPEnabled = yes\n"
+    "\n[config]\nDebug.SerialConsoleEnabled = yes\naica.DSPEnabled = yes\nrend.EmulateFramebuffer = yes\n"
 )
 
 #----------------------
